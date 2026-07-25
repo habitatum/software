@@ -15,6 +15,7 @@ create table usuarios (
   id uuid primary key references auth.users(id) on delete cascade,
   nombre text not null,
   email text not null,
+  usuario text unique, -- nombre de usuario para login sin correo real (correo interno sintético)
   rol rol_usuario not null default 'lectura',
   activo boolean not null default true,
   creado_en timestamptz not null default now()
