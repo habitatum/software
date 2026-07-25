@@ -251,7 +251,7 @@ export default function NuevaOrdenCompra() {
           </Campo>
 
           {/* Totales en vivo */}
-          <div className="bg-neutral-900 text-white rounded-lg p-5 flex justify-between items-center">
+          <div className="bg-carbon text-hueso rounded-lg p-5 flex justify-between items-center">
             <div>
               <p className="text-sm text-neutral-300">Total</p>
               <p className="text-2xl font-semibold">{formatoPesos(calculo.total)}</p>
@@ -264,7 +264,7 @@ export default function NuevaOrdenCompra() {
 
           {error && <p className="text-red-600 text-sm">{error}</p>}
 
-          <button type="submit" disabled={guardando} className="bg-neutral-900 text-white px-6 py-3 rounded font-medium disabled:opacity-50">
+          <button type="submit" disabled={guardando} className="bg-carbon text-hueso px-6 py-3 rounded font-medium disabled:opacity-50">
             {guardando ? 'Guardando...' : 'Guardar Orden de Compra'}
           </button>
         </form>
