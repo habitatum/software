@@ -46,7 +46,7 @@ export default function Dashboard() {
         </div>
 
         <div className="flex gap-3">
-          <Link href="/ordenes-compra/nueva" className="bg-neutral-900 text-white px-4 py-2 rounded text-sm">
+          <Link href="/ordenes-compra/nueva" className="bg-carbon text-hueso px-4 py-2 rounded text-sm">
             + Nueva Orden de Compra
           </Link>
           <Link href="/contratos" className="border px-4 py-2 rounded text-sm">
