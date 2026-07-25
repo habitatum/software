@@ -27,9 +27,11 @@ create table usuarios (
 create table proyectos (
   id uuid primary key default gen_random_uuid(),
   nombre text not null,
-  codigo text not null unique, -- código corto, ej. "DYABOO" (se usa en el número de contrato)
+  codigo text not null unique, -- número consecutivo que el Admin asigna manualmente (ej. "001")
   cliente text,
   estado text not null default 'activo', -- 'activo' | 'inactivo'
+  mostrar_marca_habitatum boolean not null default true, -- false = proyecto donde se actúa como persona natural, sin marca HABITATUM
+  nombre_emisor text, -- nombre a mostrar en los documentos cuando mostrar_marca_habitatum = false (ej. "Arq. Andrés David Hincapié")
   creado_en timestamptz not null default now()
 );
 
