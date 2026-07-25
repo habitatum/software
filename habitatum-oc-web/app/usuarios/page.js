@@ -1,5 +1,5 @@
 'use client';
-import { useEffect, useState } from 'react';
+import { Fragment, useEffect, useState } from 'react';
 import { useUsuarioActual } from '@/lib/useUsuarioActual';
 import { crearClienteSupabase } from '@/lib/supabaseClient';
 import NavBar from '@/components/NavBar';
@@ -12,6 +12,8 @@ export default function Usuarios() {
   const [mensaje, setMensaje] = useState('');
   const [credencialCreada, setCredencialCreada] = useState(null); // { usuario, contrasenaTemporal }
   const [reseteando, setReseteando] = useState(null); // id del usuario en proceso
+  const [filaResetAbierta, setFilaResetAbierta] = useState(null); // id del usuario con el campo abierto
+  const [contrasenaManual, setContrasenaManual] = useState('');
 
   async function cargar() {
     const supabase = crearClienteSupabase();
@@ -56,7 +58,18 @@ export default function Usuarios() {
     cargar();
   }
 
-  async function resetearPassword(u) {
+  function abrirReset(u) {
+    setFilaResetAbierta(filaResetAbierta === u.id ? null : u.id);
+    setContrasenaManual('');
+    setMensaje('');
+    setCredencialCreada(null);
+  }
+
+  async function resetearPassword(u, contrasenaElegida) {
+    if (contrasenaElegida && contrasenaElegida.length < 6) {
+      setMensaje('La contraseña debe tener al menos 6 caracteres.');
+      return;
+    }
     if (!confirm(`¿Restablecer la contraseña de ${u.nombre}? La contraseña actual dejará de funcionar.`)) return;
     setReseteando(u.id);
     setMensaje('');
@@ -68,10 +81,12 @@ export default function Usuarios() {
     const res = await fetch('/api/usuarios/resetear-password', {
       method: 'POST',
       headers: { Authorization: `Bearer ${session?.access_token}` },
-      body: JSON.stringify({ id: u.id }),
+      body: JSON.stringify({ id: u.id, nuevaContrasena: contrasenaElegida || undefined }),
     });
     const data = await res.json();
     setReseteando(null);
+    setFilaResetAbierta(null);
+    setContrasenaManual('');
 
     if (res.ok) {
       setCredencialCreada({ usuario: u.usuario || u.email, contrasenaTemporal: data.contrasenaTemporal });
@@ -152,31 +167,71 @@ export default function Usuarios() {
             <thead className="bg-neutral-100 text-left"><tr><th className="p-3">Nombre</th><th className="p-3">Correo / Usuario</th><th className="p-3">Rol</th><th className="p-3">Estado</th><th className="p-3">Acciones</th></tr></thead>
             <tbody>
               {usuarios.map((u) => (
-                <tr key={u.id} className="border-t">
-                  <td className="p-3">{u.nombre}</td>
-                  <td className="p-3">{u.usuario ? `${u.usuario} (sin correo)` : u.email}</td>
-                  <td className="p-3">
-                    <select value={u.rol} onChange={(e) => cambiarRol(u.id, e.target.value)} className="border rounded px-2 py-1 text-xs">
-                      <option value="admin">Admin</option>
-                      <option value="operativo">Operativo</option>
-                      <option value="lectura">Lectura</option>
-                    </select>
-                  </td>
-                  <td className="p-3">
-                    <button onClick={() => alternarActivo(u.id, u.activo)} className={`text-xs px-2 py-1 rounded ${u.activo ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>
-                      {u.activo ? 'Activo' : 'Inactivo'}
-                    </button>
-                  </td>
-                  <td className="p-3">
-                    <button
-                      onClick={() => resetearPassword(u)}
-                      disabled={reseteando === u.id}
-                      className="text-xs px-2 py-1 rounded bg-neutral-100 hover:bg-neutral-200 disabled:opacity-50"
-                    >
-                      {reseteando === u.id ? 'Restableciendo...' : 'Restablecer contraseña'}
-                    </button>
-                  </td>
-                </tr>
+                <Fragment key={u.id}>
+                  <tr className="border-t">
+                    <td className="p-3">{u.nombre}</td>
+                    <td className="p-3">{u.usuario ? `${u.usuario} (sin correo)` : u.email}</td>
+                    <td className="p-3">
+                      <select value={u.rol} onChange={(e) => cambiarRol(u.id, e.target.value)} className="border rounded px-2 py-1 text-xs">
+                        <option value="admin">Admin</option>
+                        <option value="operativo">Operativo</option>
+                        <option value="lectura">Lectura</option>
+                      </select>
+                    </td>
+                    <td className="p-3">
+                      <button onClick={() => alternarActivo(u.id, u.activo)} className={`text-xs px-2 py-1 rounded ${u.activo ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>
+                        {u.activo ? 'Activo' : 'Inactivo'}
+                      </button>
+                    </td>
+                    <td className="p-3">
+                      <button
+                        onClick={() => abrirReset(u)}
+                        disabled={reseteando === u.id}
+                        className="text-xs px-2 py-1 rounded bg-neutral-100 hover:bg-neutral-200 disabled:opacity-50"
+                      >
+                        {reseteando === u.id ? 'Restableciendo...' : 'Restablecer contraseña'}
+                      </button>
+                    </td>
+                  </tr>
+                  {filaResetAbierta === u.id && (
+                    <tr className="border-t bg-neutral-50">
+                      <td colSpan={5} className="p-3">
+                        <div className="flex items-end gap-2 flex-wrap">
+                          <div>
+                            <label className="block text-xs mb-1">Nueva contraseña para {u.nombre} (mínimo 6 caracteres)</label>
+                            <input
+                              type="text"
+                              value={contrasenaManual}
+                              onChange={(e) => setContrasenaManual(e.target.value)}
+                              placeholder="Escribe una contraseña fácil de recordar"
+                              className="border rounded px-3 py-2 text-sm w-72"
+                            />
+                          </div>
+                          <button
+                            onClick={() => resetearPassword(u, contrasenaManual)}
+                            disabled={reseteando === u.id || contrasenaManual.length < 6}
+                            className="bg-neutral-900 text-white px-3 py-2 rounded text-xs disabled:opacity-50"
+                          >
+                            Guardar esta contraseña
+                          </button>
+                          <button
+                            onClick={() => resetearPassword(u, '')}
+                            disabled={reseteando === u.id}
+                            className="bg-neutral-200 px-3 py-2 rounded text-xs disabled:opacity-50"
+                          >
+                            Generar una automática
+                          </button>
+                          <button
+                            onClick={() => setFilaResetAbierta(null)}
+                            className="text-xs text-neutral-500 px-2 py-2"
+                          >
+                            Cancelar
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  )}
+                </Fragment>
               ))}
             </tbody>
           </table>
