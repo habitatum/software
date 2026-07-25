@@ -33,16 +33,21 @@ export async function POST(request) {
   }
 
   // ---------- Restablecer la contraseña del usuario indicado ----------
-  const { id } = await request.json();
+  const { id, nuevaContrasena } = await request.json();
   if (!id) {
     return NextResponse.json({ error: 'Falta el usuario' }, { status: 400 });
   }
 
-  const contrasenaTemporal = generarContrasenaTemporal();
-  const { error } = await supabaseAdmin.auth.admin.updateUserById(id, { password: contrasenaTemporal });
+  if (nuevaContrasena && nuevaContrasena.length < 6) {
+    return NextResponse.json({ error: 'La contraseña debe tener al menos 6 caracteres' }, { status: 400 });
+  }
+
+  // Si el admin escribió una contraseña, se usa esa. Si no, se genera una aleatoria.
+  const contrasenaFinal = nuevaContrasena || generarContrasenaTemporal();
+  const { error } = await supabaseAdmin.auth.admin.updateUserById(id, { password: contrasenaFinal });
   if (error) {
     return NextResponse.json({ error: error.message }, { status: 400 });
   }
 
-  return NextResponse.json({ ok: true, contrasenaTemporal });
+  return NextResponse.json({ ok: true, contrasenaTemporal: contrasenaFinal });
 }
