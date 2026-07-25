@@ -21,6 +21,18 @@ create table usuarios (
   creado_en timestamptz not null default now()
 );
 
+-- ---------- PROYECTOS ----------
+-- Los Proveedores quedan GLOBALES (no llevan proyecto_id): un proveedor
+-- creado una vez queda disponible para todos los proyectos.
+create table proyectos (
+  id uuid primary key default gen_random_uuid(),
+  nombre text not null,
+  codigo text not null unique, -- código corto, ej. "DYABOO" (se usa en el número de contrato)
+  cliente text,
+  estado text not null default 'activo', -- 'activo' | 'inactivo'
+  creado_en timestamptz not null default now()
+);
+
 -- ---------- PROVEEDORES ----------
 create table proveedores (
   id uuid primary key default gen_random_uuid(),
@@ -35,6 +47,7 @@ create table proveedores (
 -- ---------- CONTRATOS ----------
 create table contratos (
   id uuid primary key default gen_random_uuid(),
+  proyecto_id uuid references proyectos(id),
   codigo_proyecto text not null,
   anio int not null,
   consecutivo int not null,
@@ -54,6 +67,7 @@ create table ordenes_compra (
   id uuid primary key default gen_random_uuid(),
   folio text not null default ('OC-' || lpad(nextval('oc_folio_seq')::text, 4, '0')),
   tipo_orden tipo_orden_enum not null default 'COMPRA',
+  proyecto_id uuid references proyectos(id),
   contrato_id uuid references contratos(id),
   fecha date not null default current_date,
   proveedor_id uuid references proveedores(id),
@@ -169,6 +183,7 @@ group by contrato_id;
 -- SEGURIDAD: Row Level Security por rol
 -- ============================================================
 alter table usuarios enable row level security;
+alter table proyectos enable row level security;
 alter table proveedores enable row level security;
 alter table contratos enable row level security;
 alter table ordenes_compra enable row level security;
@@ -182,6 +197,7 @@ $$ language sql stable security definer;
 
 -- Lectura: cualquier usuario autenticado y activo puede leer todo
 create policy "lectura_general_usuarios" on usuarios for select using (auth.uid() is not null);
+create policy "lectura_general_proyectos" on proyectos for select using (auth.uid() is not null);
 create policy "lectura_general_proveedores" on proveedores for select using (auth.uid() is not null);
 create policy "lectura_general_contratos" on contratos for select using (auth.uid() is not null);
 create policy "lectura_general_oc" on ordenes_compra for select using (auth.uid() is not null);
@@ -205,3 +221,9 @@ create policy "escritura_usuarios_admin" on usuarios for update
   using (rol_actual() = 'admin');
 create policy "insercion_usuarios_admin" on usuarios for insert
   with check (rol_actual() = 'admin' or auth.uid() = id);
+
+-- Proyectos: solo admin puede crear o modificar
+create policy "creacion_proyectos_admin" on proyectos for insert
+  with check (rol_actual() = 'admin');
+create policy "actualizacion_proyectos_admin" on proyectos for update
+  using (rol_actual() = 'admin');
