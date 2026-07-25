@@ -2,6 +2,7 @@
 import { useEffect, useState } from 'react';
 import { useParams } from 'next/navigation';
 import { useUsuarioActual } from '@/lib/useUsuarioActual';
+import { useProyectoActual } from '@/lib/useProyectoActual';
 import { crearClienteSupabase } from '@/lib/supabaseClient';
 import { formatoPesos } from '@/lib/calculosOC';
 import NavBar from '@/components/NavBar';
@@ -9,6 +10,7 @@ import NavBar from '@/components/NavBar';
 export default function DetalleOrdenCompra() {
   const { id } = useParams();
   const { usuario, cargando } = useUsuarioActual();
+  const { proyecto } = useProyectoActual();
   const [oc, setOc] = useState(null);
   const [pagos, setPagos] = useState([]);
   const [nuevoPago, setNuevoPago] = useState({ fecha: new Date().toISOString().slice(0, 10), valor: '', nota: '' });
@@ -43,7 +45,7 @@ export default function DetalleOrdenCompra() {
 
   return (
     <div>
-      <NavBar usuario={usuario} />
+      <NavBar usuario={usuario} proyecto={proyecto} />
       <main className="p-8 max-w-3xl mx-auto space-y-6">
         <div className="flex items-center justify-between">
           <h1 className="text-2xl font-semibold">{oc.folio}</h1>
