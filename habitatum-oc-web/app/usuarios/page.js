@@ -11,6 +11,7 @@ export default function Usuarios() {
   const [invitacion, setInvitacion] = useState({ email: '', usuario: '', nombre: '', rol: 'operativo' });
   const [mensaje, setMensaje] = useState('');
   const [credencialCreada, setCredencialCreada] = useState(null); // { usuario, contrasenaTemporal }
+  const [reseteando, setReseteando] = useState(null); // id del usuario en proceso
 
   async function cargar() {
     const supabase = crearClienteSupabase();
@@ -53,6 +54,31 @@ export default function Usuarios() {
     const supabase = crearClienteSupabase();
     await supabase.from('usuarios').update({ activo: !activo }).eq('id', id);
     cargar();
+  }
+
+  async function resetearPassword(u) {
+    if (!confirm(`¿Restablecer la contraseña de ${u.nombre}? La contraseña actual dejará de funcionar.`)) return;
+    setReseteando(u.id);
+    setMensaje('');
+    setCredencialCreada(null);
+
+    const supabase = crearClienteSupabase();
+    const { data: { session } } = await supabase.auth.getSession();
+
+    const res = await fetch('/api/usuarios/resetear-password', {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${session?.access_token}` },
+      body: JSON.stringify({ id: u.id }),
+    });
+    const data = await res.json();
+    setReseteando(null);
+
+    if (res.ok) {
+      setCredencialCreada({ usuario: u.usuario || u.email, contrasenaTemporal: data.contrasenaTemporal });
+      setMensaje(`Contraseña de ${u.nombre} restablecida. Copia la de abajo y entrégasela directamente — no se volverá a mostrar.`);
+    } else {
+      setMensaje(data.error || 'No se pudo restablecer la contraseña.');
+    }
   }
 
   if (cargando || !usuario) return null;
@@ -123,7 +149,7 @@ export default function Usuarios() {
 
         <div className="bg-white rounded-lg shadow-sm border overflow-hidden">
           <table className="w-full text-sm">
-            <thead className="bg-neutral-100 text-left"><tr><th className="p-3">Nombre</th><th className="p-3">Correo / Usuario</th><th className="p-3">Rol</th><th className="p-3">Estado</th></tr></thead>
+            <thead className="bg-neutral-100 text-left"><tr><th className="p-3">Nombre</th><th className="p-3">Correo / Usuario</th><th className="p-3">Rol</th><th className="p-3">Estado</th><th className="p-3">Acciones</th></tr></thead>
             <tbody>
               {usuarios.map((u) => (
                 <tr key={u.id} className="border-t">
@@ -139,6 +165,15 @@ export default function Usuarios() {
                   <td className="p-3">
                     <button onClick={() => alternarActivo(u.id, u.activo)} className={`text-xs px-2 py-1 rounded ${u.activo ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>
                       {u.activo ? 'Activo' : 'Inactivo'}
+                    </button>
+                  </td>
+                  <td className="p-3">
+                    <button
+                      onClick={() => resetearPassword(u)}
+                      disabled={reseteando === u.id}
+                      className="text-xs px-2 py-1 rounded bg-neutral-100 hover:bg-neutral-200 disabled:opacity-50"
+                    >
+                      {reseteando === u.id ? 'Restableciendo...' : 'Restablecer contraseña'}
                     </button>
                   </td>
                 </tr>
