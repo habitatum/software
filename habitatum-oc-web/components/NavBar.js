@@ -1,5 +1,6 @@
 'use client';
 import Link from 'next/link';
+import Image from 'next/image';
 import { useRouter } from 'next/navigation';
 import { crearClienteSupabase } from '@/lib/supabaseClient';
 
@@ -21,18 +22,21 @@ export default function NavBar({ usuario }) {
   if (usuario?.rol === 'admin') enlaces.push({ href: '/usuarios', label: 'Usuarios' });
 
   return (
-    <nav className="bg-neutral-900 text-white px-6 py-3 flex items-center justify-between">
+    <nav className="bg-carbon text-hueso px-6 py-3 flex items-center justify-between border-b border-dorado/30">
       <div className="flex items-center gap-6">
-        <span className="font-semibold">HABITATUM</span>
+        <Link href="/dashboard" className="flex items-center gap-2">
+          <Image src="/logo-habitatum.png" alt="HABITATUM" width={22} height={34} className="opacity-90" />
+          <span className="font-semibold tracking-wide">HABITATUM</span>
+        </Link>
         {enlaces.map((e) => (
-          <Link key={e.href} href={e.href} className="text-sm text-neutral-300 hover:text-white">
+          <Link key={e.href} href={e.href} className="text-sm text-gris-calido hover:text-dorado transition-colors">
             {e.label}
           </Link>
         ))}
       </div>
-      <div className="flex items-center gap-4 text-sm text-neutral-300">
+      <div className="flex items-center gap-4 text-sm text-gris-calido">
         <span>{usuario?.nombre} · {usuario?.rol}</span>
-        <button onClick={salir} className="hover:text-white">Salir</button>
+        <button onClick={salir} className="hover:text-dorado transition-colors">Salir</button>
       </div>
     </nav>
   );
