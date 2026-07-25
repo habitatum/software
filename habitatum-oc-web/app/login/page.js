@@ -2,9 +2,10 @@
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { crearClienteSupabase } from '@/lib/supabaseClient';
+import { correoParaLogin } from '@/lib/usuarioInterno';
 
 export default function Login() {
-  const [email, setEmail] = useState('');
+  const [usuarioOCorreo, setUsuarioOCorreo] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
   const [cargando, setCargando] = useState(false);
@@ -15,6 +16,7 @@ export default function Login() {
     setError('');
     setCargando(true);
     const supabase = crearClienteSupabase();
+    const email = correoParaLogin(usuarioOCorreo);
     const { error } = await supabase.auth.signInWithPassword({ email, password });
     setCargando(false);
     if (error) {
@@ -30,9 +32,9 @@ export default function Login() {
         <h1 className="text-xl font-semibold mb-1">HABITATUM</h1>
         <p className="text-sm text-neutral-500 mb-6">Contratos · Proveedores · Órdenes de Compra</p>
 
-        <label className="block text-sm font-medium mb-1">Correo</label>
+        <label className="block text-sm font-medium mb-1">Usuario o correo</label>
         <input
-          type="email" required value={email} onChange={(e) => setEmail(e.target.value)}
+          type="text" required value={usuarioOCorreo} onChange={(e) => setUsuarioOCorreo(e.target.value)}
           className="w-full border rounded px-3 py-2 mb-4"
         />
 
