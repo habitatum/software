@@ -1,0 +1,81 @@
+// ============================================================
+// Lógica de cálculo de una Orden de Compra.
+// Replica exactamente las fórmulas del sistema en Google Sheets
+// (ver references/mapa_columnas.md del sistema anterior).
+// Se usa tanto en el formulario (cálculo en vivo) como al generar el PDF,
+// para garantizar que ambos lugares siempre calculen exactamente igual.
+// ============================================================
+
+export function calcularSubtotal(items) {
+  return items.reduce((acc, it) => acc + (Number(it.cantidad) || 0) * (Number(it.valor_unitario) || 0), 0);
+}
+
+export function calcularImpuestos(oc, subtotal) {
+  let valor_iva = 0, valor_administracion = 0, valor_imprevistos = 0, valor_utilidad = 0, valor_aiu = 0;
+
+  if (oc.tipo_impuesto === 'CON_IVA') {
+    valor_iva = redondear(subtotal * (oc.porcentaje_iva || 0) / 100);
+  } else if (oc.tipo_impuesto === 'CON_AIU') {
+    valor_administracion = redondear(subtotal * (oc.porcentaje_administracion || 0) / 100);
+    valor_imprevistos = redondear(subtotal * (oc.porcentaje_imprevistos || 0) / 100);
+    valor_utilidad = redondear(subtotal * (oc.porcentaje_utilidad || 0) / 100);
+    valor_aiu = valor_administracion + valor_imprevistos + valor_utilidad;
+    // Regla clave: el IVA de una orden CON AIU se cobra SOLO sobre la Utilidad,
+    // nunca sobre Administración + Imprevistos, y se suma aparte al total.
+    valor_iva = redondear(valor_utilidad * (oc.porcentaje_iva || 0) / 100);
+  }
+
+  const porcentaje_aiu = oc.tipo_impuesto === 'CON_AIU'
+    ? (Number(oc.porcentaje_administracion || 0) + Number(oc.porcentaje_imprevistos || 0) + Number(oc.porcentaje_utilidad || 0))
+    : 0;
+
+  return { valor_iva, valor_administracion, valor_imprevistos, valor_utilidad, valor_aiu, porcentaje_aiu };
+}
+
+/**
+ * Calcula todos los valores derivados de una Orden de Compra.
+ * @param {object} oc - datos base de la orden (porcentajes, descuento, tipo_impuesto, etc.)
+ * @param {array} items - ítems de la orden [{cantidad, valor_unitario}]
+ * @param {number} pagado - suma de pagos ya registrados (de la tabla `pagos`)
+ * @param {number} totalAnticipoReferenciado - Total de la OC de anticipo que esta orden amortiza (si aplica)
+ */
+export function calcularOrdenCompra(oc, items, pagado = 0, totalAnticipoReferenciado = 0) {
+  const subtotal = calcularSubtotal(items);
+  const { valor_iva, valor_administracion, valor_imprevistos, valor_utilidad, valor_aiu, porcentaje_aiu } =
+    calcularImpuestos(oc, subtotal);
+
+  const descuento = Number(oc.descuento || 0);
+  const total = redondear(subtotal - descuento + valor_iva + valor_aiu);
+
+  const valor_retenido = redondear(total * (Number(oc.porcentaje_retencion) || 0) / 100);
+
+  // El Anticipo es una OC más: no se amortiza a sí mismo.
+  const valor_amortizacion = oc.tipo_pago === 'ANTICIPO'
+    ? 0
+    : redondear(total * (Number(oc.porcentaje_amortizacion) || 0) / 100);
+
+  const devolucion_retenido = Number(oc.devolucion_retenido || 0);
+
+  const neto_a_pagar = redondear(total - valor_amortizacion - valor_retenido + devolucion_retenido);
+  const saldo = redondear(total - pagado);
+
+  // Solo tiene sentido en la fila del propio Anticipo: cuánto le queda por amortizar.
+  const saldo_anticipo_por_amortizar = oc.tipo_pago === 'ANTICIPO'
+    ? redondear(total - (totalAnticipoReferenciado || 0))
+    : null;
+
+  return {
+    subtotal, valor_iva, valor_administracion, valor_imprevistos, valor_utilidad,
+    valor_aiu, porcentaje_aiu, total, valor_retenido, valor_amortizacion,
+    neto_a_pagar, pagado, saldo, saldo_anticipo_por_amortizar,
+  };
+}
+
+function redondear(n) {
+  return Math.round((Number(n) || 0) * 100) / 100;
+}
+
+export function formatoPesos(valor) {
+  return new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', maximumFractionDigits: 0 })
+    .format(Number(valor) || 0);
+}
