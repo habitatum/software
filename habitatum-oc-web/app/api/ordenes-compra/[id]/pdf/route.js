@@ -11,7 +11,7 @@ const supabase = createClient(
 export async function GET(request, { params }) {
   const { id } = params;
 
-  const { data: oc } = await supabase.from('ordenes_compra').select('*, proveedores(*)').eq('id', id).single();
+  const { data: oc } = await supabase.from('ordenes_compra').select('*, proveedores(*), proyectos(nombre)').eq('id', id).single();
   const { data: items } = await supabase.from('items_oc').select('*').eq('orden_compra_id', id);
   const { data: pagosData } = await supabase.from('pagos').select('valor').eq('orden_compra_id', id);
 
@@ -21,7 +21,7 @@ export async function GET(request, { params }) {
   const calculo = calcularOrdenCompra(oc, items || [], pagado);
 
   const buffer = await renderToBuffer(
-    PlantillaOrdenCompraPDF({ oc, items: items || [], calculo })
+    PlantillaOrdenCompraPDF({ oc, items: items || [], calculo, nombreObra: oc.proyectos?.nombre })
   );
 
   return new Response(buffer, {
