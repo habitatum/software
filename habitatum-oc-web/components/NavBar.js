@@ -4,7 +4,7 @@ import Image from 'next/image';
 import { useRouter } from 'next/navigation';
 import { crearClienteSupabase } from '@/lib/supabaseClient';
 
-export default function NavBar({ usuario }) {
+export default function NavBar({ usuario, proyecto }) {
   const router = useRouter();
 
   async function salir() {
@@ -35,6 +35,15 @@ export default function NavBar({ usuario }) {
         ))}
       </div>
       <div className="flex items-center gap-4 text-sm text-gris-calido">
+        {proyecto && (
+          <Link
+            href="/proyectos"
+            className="flex items-center gap-2 border border-dorado/40 rounded px-3 py-1 hover:border-dorado transition-colors"
+          >
+            <span className="text-dorado">●</span> {proyecto.nombre}
+            <span className="text-xs text-gris-calido/70">Cambiar</span>
+          </Link>
+        )}
         <span>{usuario?.nombre} · {usuario?.rol}</span>
         <button onClick={salir} className="hover:text-dorado transition-colors">Salir</button>
       </div>
