@@ -3,6 +3,7 @@ import { useEffect, useState } from 'react';
 import { useParams } from 'next/navigation';
 import Link from 'next/link';
 import { useUsuarioActual } from '@/lib/useUsuarioActual';
+import { useProyectoActual } from '@/lib/useProyectoActual';
 import { crearClienteSupabase } from '@/lib/supabaseClient';
 import { formatoPesos } from '@/lib/calculosOC';
 import NavBar from '@/components/NavBar';
@@ -10,6 +11,7 @@ import NavBar from '@/components/NavBar';
 export default function DetalleContrato() {
   const { id } = useParams();
   const { usuario, cargando } = useUsuarioActual();
+  const { proyecto } = useProyectoActual();
   const [contrato, setContrato] = useState(null);
   const [acumulados, setAcumulados] = useState(null);
   const [ordenes, setOrdenes] = useState([]);
@@ -34,7 +36,7 @@ export default function DetalleContrato() {
 
   return (
     <div>
-      <NavBar usuario={usuario} />
+      <NavBar usuario={usuario} proyecto={proyecto} />
       <main className="p-8 max-w-4xl mx-auto space-y-6">
         <h1 className="text-2xl font-semibold">{contrato.numero_contrato}</h1>
 
