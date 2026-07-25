@@ -6,7 +6,7 @@ import { useUsuarioActual } from '@/lib/useUsuarioActual';
 import { crearClienteSupabase } from '@/lib/supabaseClient';
 import { guardarProyectoActualId } from '@/lib/proyectoActual';
 
-const VACIO = { nombre: '', codigo: '', cliente: '' };
+const VACIO = { nombre: '', codigo: '', cliente: '', mostrarMarca: true, nombreEmisor: '' };
 
 export default function SeleccionarProyecto() {
   const { usuario, cargando } = useUsuarioActual();
@@ -20,7 +20,7 @@ export default function SeleccionarProyecto() {
 
   async function cargar() {
     const supabase = crearClienteSupabase();
-    const { data } = await supabase.from('proyectos').select('*').eq('estado', 'activo').order('nombre');
+    const { data } = await supabase.from('proyectos').select('*').eq('estado', 'activo').order('codigo');
     setProyectos(data || []);
     setCargandoProyectos(false);
   }
@@ -34,18 +34,30 @@ export default function SeleccionarProyecto() {
   async function crearProyecto(e) {
     e.preventDefault();
     setError('');
+
     if (!form.nombre.trim() || !form.codigo.trim()) {
       setError('Nombre y código son obligatorios.');
       return;
     }
+    if (!/^\d+$/.test(form.codigo.trim())) {
+      setError('El código debe ser un número (ej. 001). Tú decides cuál asignar cada vez.');
+      return;
+    }
+    if (!form.mostrarMarca && !form.nombreEmisor.trim()) {
+      setError('Escribe el nombre que debe aparecer en los documentos de este proyecto.');
+      return;
+    }
+
     setGuardando(true);
     const supabase = crearClienteSupabase();
     const { data, error: err } = await supabase
       .from('proyectos')
       .insert({
         nombre: form.nombre.trim(),
-        codigo: form.codigo.trim().toUpperCase().replace(/\s+/g, '-'),
+        codigo: form.codigo.trim(),
         cliente: form.cliente.trim() || null,
+        mostrar_marca_habitatum: form.mostrarMarca,
+        nombre_emisor: form.mostrarMarca ? null : form.nombreEmisor.trim(),
       })
       .select()
       .single();
@@ -81,6 +93,9 @@ export default function SeleccionarProyecto() {
                 <p className="font-semibold text-lg">{p.nombre}</p>
                 <p className="text-xs text-neutral-500 mt-1">Código: {p.codigo}</p>
                 {p.cliente && <p className="text-sm text-neutral-600 mt-2">{p.cliente}</p>}
+                {!p.mostrar_marca_habitatum && (
+                  <p className="text-xs text-dorado mt-2">Sin marca HABITATUM en documentos</p>
+                )}
               </button>
             ))}
             {proyectos.length === 0 && (
@@ -107,7 +122,8 @@ export default function SeleccionarProyecto() {
                   />
                   <input
                     required
-                    placeholder="Código (ej. DYABOO)"
+                    inputMode="numeric"
+                    placeholder="Código consecutivo (ej. 001)"
                     value={form.codigo}
                     onChange={(e) => setForm({ ...form, codigo: e.target.value })}
                     className="border rounded px-3 py-2 text-sm"
@@ -119,6 +135,26 @@ export default function SeleccionarProyecto() {
                     className="border rounded px-3 py-2 text-sm sm:col-span-2"
                   />
                 </div>
+
+                <label className="flex items-center gap-2 text-sm">
+                  <input
+                    type="checkbox"
+                    checked={form.mostrarMarca}
+                    onChange={(e) => setForm({ ...form, mostrarMarca: e.target.checked })}
+                  />
+                  Mostrar el nombre y logo de HABITATUM en los documentos (PDF) de este proyecto
+                </label>
+
+                {!form.mostrarMarca && (
+                  <input
+                    required
+                    placeholder="Nombre a mostrar en los documentos (ej. Arq. Andrés David Hincapié)"
+                    value={form.nombreEmisor}
+                    onChange={(e) => setForm({ ...form, nombreEmisor: e.target.value })}
+                    className="border rounded px-3 py-2 text-sm w-full"
+                  />
+                )}
+
                 {error && <p className="text-red-600 text-sm">{error}</p>}
                 <div className="flex gap-2">
                   <button disabled={guardando} className="bg-carbon text-hueso px-4 py-2 rounded text-sm disabled:opacity-50">
@@ -126,7 +162,7 @@ export default function SeleccionarProyecto() {
                   </button>
                   <button
                     type="button"
-                    onClick={() => { setMostrarForm(false); setError(''); }}
+                    onClick={() => { setMostrarForm(false); setError(''); setForm(VACIO); }}
                     className="px-4 py-2 rounded text-sm border"
                   >
                     Cancelar
