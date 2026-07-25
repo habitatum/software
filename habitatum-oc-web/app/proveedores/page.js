@@ -37,7 +37,7 @@ export default function Proveedores() {
         <div className="flex justify-between items-center mb-6">
           <h1 className="text-2xl font-semibold">Proveedores</h1>
           {usuario.rol !== 'lectura' && (
-            <button onClick={() => setMostrarForm(!mostrarForm)} className="bg-neutral-900 text-white px-4 py-2 rounded text-sm">
+            <button onClick={() => setMostrarForm(!mostrarForm)} className="bg-carbon text-hueso px-4 py-2 rounded text-sm">
               {mostrarForm ? 'Cancelar' : '+ Nuevo proveedor'}
             </button>
           )}
@@ -50,13 +50,13 @@ export default function Proveedores() {
             <input placeholder="Banco" value={form.banco} onChange={(e) => setForm({ ...form, banco: e.target.value })} className="border rounded px-3 py-2 text-sm" />
             <input placeholder="Tipo de cuenta" value={form.tipo_cuenta} onChange={(e) => setForm({ ...form, tipo_cuenta: e.target.value })} className="border rounded px-3 py-2 text-sm" />
             <input placeholder="Número de cuenta" value={form.numero_cuenta} onChange={(e) => setForm({ ...form, numero_cuenta: e.target.value })} className="border rounded px-3 py-2 text-sm col-span-2" />
-            <button className="bg-neutral-900 text-white px-4 py-2 rounded text-sm col-span-2">Guardar</button>
+            <button className="bg-carbon text-hueso px-4 py-2 rounded text-sm col-span-2">Guardar</button>
           </form>
         )}
 
         <div className="bg-white rounded-lg shadow-sm border overflow-hidden">
           <table className="w-full text-sm">
-            <thead className="bg-neutral-100 text-left">
+            <thead className="bg-gris-calido/30 text-left">
               <tr><th className="p-3">Nombre</th><th className="p-3">NIT</th><th className="p-3">Banco</th><th className="p-3">Cuenta</th></tr>
             </thead>
             <tbody>
