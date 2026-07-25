@@ -9,7 +9,7 @@ export default function Inicio() {
     async function verificar() {
       const supabase = crearClienteSupabase();
       const { data: { session } } = await supabase.auth.getSession();
-      router.push(session ? '/dashboard' : '/login');
+      router.push(session ? '/proyectos' : '/login');
     }
     verificar();
   }, []); // eslint-disable-line
