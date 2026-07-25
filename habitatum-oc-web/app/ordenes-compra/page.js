@@ -40,7 +40,7 @@ export default function ListadoOrdenesCompra() {
         <div className="flex items-center justify-between mb-6">
           <h1 className="text-2xl font-semibold">Órdenes de Compra</h1>
           {usuario.rol !== 'lectura' && (
-            <Link href="/ordenes-compra/nueva" className="bg-neutral-900 text-white px-4 py-2 rounded text-sm">
+            <Link href="/ordenes-compra/nueva" className="bg-carbon text-hueso px-4 py-2 rounded text-sm">
               + Nueva Orden de Compra
             </Link>
           )}
@@ -61,7 +61,7 @@ export default function ListadoOrdenesCompra() {
 
         <div className="bg-white rounded-lg shadow-sm border overflow-hidden">
           <table className="w-full text-sm">
-            <thead className="bg-neutral-100 text-left">
+            <thead className="bg-gris-calido/30 text-left">
               <tr>
                 <th className="p-3">Folio</th>
                 <th className="p-3">Contrato</th>
@@ -74,7 +74,7 @@ export default function ListadoOrdenesCompra() {
             </thead>
             <tbody>
               {filtradas.map((o) => (
-                <tr key={o.id} className="border-t hover:bg-neutral-50">
+                <tr key={o.id} className="border-t hover:bg-hueso">
                   <td className="p-3">
                     <Link href={`/ordenes-compra/${o.id}`} className="text-blue-700 hover:underline">{o.folio}</Link>
                   </td>
