@@ -24,7 +24,7 @@ export default function Login() {
       setError('Correo o contraseña incorrectos.');
       return;
     }
-    router.push('/dashboard');
+    router.push('/proyectos');
   }
 
   return (
