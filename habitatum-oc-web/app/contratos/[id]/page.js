@@ -38,7 +38,17 @@ export default function DetalleContrato() {
     <div>
       <NavBar usuario={usuario} proyecto={proyecto} />
       <main className="p-8 max-w-4xl mx-auto space-y-6">
-        <h1 className="text-2xl font-semibold">{contrato.numero_contrato}</h1>
+        <div className="flex items-center justify-between">
+          <h1 className="text-2xl font-semibold">{contrato.numero_contrato}</h1>
+          <a
+            href={`/api/contratos/${id}/pdf`}
+            target="_blank"
+            rel="noreferrer"
+            className="bg-carbon text-hueso px-4 py-2 rounded text-sm"
+          >
+            Descargar PDF
+          </a>
+        </div>
 
         <div className="bg-white rounded-lg shadow-sm border p-5 grid grid-cols-2 gap-3 text-sm">
           <div><span className="text-neutral-500">Contratista: </span>{contrato.proveedores?.nombre}</div>
