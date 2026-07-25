@@ -2,20 +2,28 @@
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { useUsuarioActual } from '@/lib/useUsuarioActual';
+import { useProyectoActual } from '@/lib/useProyectoActual';
 import { crearClienteSupabase } from '@/lib/supabaseClient';
 import { formatoPesos } from '@/lib/calculosOC';
 import NavBar from '@/components/NavBar';
 
 export default function Dashboard() {
   const { usuario, cargando } = useUsuarioActual();
+  const { proyecto, cargando: cargandoProyecto } = useProyectoActual();
   const [indicadores, setIndicadores] = useState(null);
 
   useEffect(() => {
-    if (!usuario) return;
+    if (!usuario || !proyecto) return;
     async function cargarIndicadores() {
       const supabase = crearClienteSupabase();
-      const { data: oc } = await supabase.from('v_ordenes_compra_calculadas').select('*');
-      const { count: contratosActivos } = await supabase.from('contratos').select('*', { count: 'exact', head: true });
+      const { data: oc } = await supabase
+        .from('v_ordenes_compra_calculadas')
+        .select('*')
+        .eq('proyecto_id', proyecto.id);
+      const { count: contratosActivos } = await supabase
+        .from('contratos')
+        .select('*', { count: 'exact', head: true })
+        .eq('proyecto_id', proyecto.id);
 
       const vigentes = (oc || []).filter((o) => o.estado === 'VIGENTE');
       const esteMes = vigentes.filter((o) => new Date(o.fecha).getMonth() === new Date().getMonth());
@@ -28,15 +36,16 @@ export default function Dashboard() {
       });
     }
     cargarIndicadores();
-  }, [usuario]);
+  }, [usuario, proyecto]);
 
-  if (cargando || !usuario) return null;
+  if (cargando || !usuario || cargandoProyecto || !proyecto) return null;
 
   return (
     <div>
-      <NavBar usuario={usuario} />
+      <NavBar usuario={usuario} proyecto={proyecto} />
       <main className="p-8 max-w-5xl mx-auto">
-        <h1 className="text-2xl font-semibold mb-6">Resumen</h1>
+        <h1 className="text-2xl font-semibold mb-1">Resumen</h1>
+        <p className="text-sm text-neutral-500 mb-6">{proyecto.nombre}</p>
 
         <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
           <Tarjeta titulo="OC vigentes" valor={indicadores?.ocVigentes ?? '—'} />
