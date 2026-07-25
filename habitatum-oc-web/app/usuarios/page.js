@@ -109,14 +109,14 @@ export default function Usuarios() {
             <button
               type="button"
               onClick={() => { setModo('correo'); setCredencialCreada(null); setMensaje(''); }}
-              className={`text-sm px-3 py-1.5 rounded ${modo === 'correo' ? 'bg-neutral-900 text-white' : 'bg-neutral-100'}`}
+              className={`text-sm px-3 py-1.5 rounded ${modo === 'correo' ? 'bg-carbon text-hueso' : 'bg-gris-calido/30'}`}
             >
               Tiene correo
             </button>
             <button
               type="button"
               onClick={() => { setModo('usuario'); setCredencialCreada(null); setMensaje(''); }}
-              className={`text-sm px-3 py-1.5 rounded ${modo === 'usuario' ? 'bg-neutral-900 text-white' : 'bg-neutral-100'}`}
+              className={`text-sm px-3 py-1.5 rounded ${modo === 'usuario' ? 'bg-carbon text-hueso' : 'bg-gris-calido/30'}`}
             >
               Sin correo (usuario interno)
             </button>
@@ -146,7 +146,7 @@ export default function Usuarios() {
                 <option value="lectura">Lectura</option>
               </select>
             </div>
-            <button className="bg-neutral-900 text-white px-4 py-2 rounded text-sm col-span-4">
+            <button className="bg-carbon text-hueso px-4 py-2 rounded text-sm col-span-4">
               {modo === 'correo' ? 'Invitar usuario' : 'Crear usuario'}
             </button>
           </form>
@@ -164,7 +164,7 @@ export default function Usuarios() {
 
         <div className="bg-white rounded-lg shadow-sm border overflow-hidden">
           <table className="w-full text-sm">
-            <thead className="bg-neutral-100 text-left"><tr><th className="p-3">Nombre</th><th className="p-3">Correo / Usuario</th><th className="p-3">Rol</th><th className="p-3">Estado</th><th className="p-3">Acciones</th></tr></thead>
+            <thead className="bg-gris-calido/30 text-left"><tr><th className="p-3">Nombre</th><th className="p-3">Correo / Usuario</th><th className="p-3">Rol</th><th className="p-3">Estado</th><th className="p-3">Acciones</th></tr></thead>
             <tbody>
               {usuarios.map((u) => (
                 <Fragment key={u.id}>
@@ -187,7 +187,7 @@ export default function Usuarios() {
                       <button
                         onClick={() => abrirReset(u)}
                         disabled={reseteando === u.id}
-                        className="text-xs px-2 py-1 rounded bg-neutral-100 hover:bg-neutral-200 disabled:opacity-50"
+                        className="text-xs px-2 py-1 rounded bg-gris-calido/30 hover:bg-gris-calido/50 disabled:opacity-50"
                       >
                         {reseteando === u.id ? 'Restableciendo...' : 'Restablecer contraseña'}
                       </button>
@@ -210,7 +210,7 @@ export default function Usuarios() {
                           <button
                             onClick={() => resetearPassword(u, contrasenaManual)}
                             disabled={reseteando === u.id || contrasenaManual.length < 6}
-                            className="bg-neutral-900 text-white px-3 py-2 rounded text-xs disabled:opacity-50"
+                            className="bg-carbon text-hueso px-3 py-2 rounded text-xs disabled:opacity-50"
                           >
                             Guardar esta contraseña
                           </button>
