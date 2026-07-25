@@ -7,8 +7,10 @@ import NavBar from '@/components/NavBar';
 export default function Usuarios() {
   const { usuario, cargando } = useUsuarioActual(['admin']);
   const [usuarios, setUsuarios] = useState([]);
-  const [invitacion, setInvitacion] = useState({ email: '', nombre: '', rol: 'operativo' });
+  const [modo, setModo] = useState('correo'); // 'correo' | 'usuario'
+  const [invitacion, setInvitacion] = useState({ email: '', usuario: '', nombre: '', rol: 'operativo' });
   const [mensaje, setMensaje] = useState('');
+  const [credencialCreada, setCredencialCreada] = useState(null); // { usuario, contrasenaTemporal }
 
   async function cargar() {
     const supabase = crearClienteSupabase();
@@ -20,18 +22,25 @@ export default function Usuarios() {
   async function invitar(e) {
     e.preventDefault();
     setMensaje('');
-    // La invitación real (envío de correo con acceso) se hace vía Supabase Admin API
-    // desde una función de servidor — ver /app/api/usuarios/invitar/route.js (Fase 2).
+    setCredencialCreada(null);
+
     const res = await fetch('/api/usuarios/invitar', {
       method: 'POST',
-      body: JSON.stringify(invitacion),
+      body: JSON.stringify({ modo, ...invitacion }),
     });
+    const data = await res.json();
+
     if (res.ok) {
-      setMensaje('Invitación enviada. El usuario recibirá un correo para crear su contraseña.');
-      setInvitacion({ email: '', nombre: '', rol: 'operativo' });
+      if (modo === 'usuario') {
+        setCredencialCreada({ usuario: data.usuario, contrasenaTemporal: data.contrasenaTemporal });
+        setMensaje('Usuario creado. Copia la contraseña de abajo y entrégasela directamente — no se volverá a mostrar.');
+      } else {
+        setMensaje('Invitación enviada. El usuario recibirá un correo para crear su contraseña.');
+      }
+      setInvitacion({ email: '', usuario: '', nombre: '', rol: 'operativo' });
       cargar();
     } else {
-      setMensaje('No se pudo enviar la invitación. Revisa el correo e inténtalo de nuevo.');
+      setMensaje(data.error || 'No se pudo crear el usuario. Revisa los datos e inténtalo de nuevo.');
     }
   }
 
@@ -54,35 +63,72 @@ export default function Usuarios() {
       <main className="p-8 max-w-3xl mx-auto space-y-6">
         <h1 className="text-2xl font-semibold">Usuarios</h1>
 
-        <form onSubmit={invitar} className="bg-white border rounded-lg p-5 grid grid-cols-4 gap-3 items-end">
-          <div className="col-span-2">
-            <label className="block text-xs mb-1">Correo</label>
-            <input required type="email" value={invitacion.email} onChange={(e) => setInvitacion({ ...invitacion, email: e.target.value })} className="border rounded px-3 py-2 text-sm w-full" />
+        <div className="bg-white border rounded-lg p-5 space-y-4">
+          <div className="flex gap-2">
+            <button
+              type="button"
+              onClick={() => { setModo('correo'); setCredencialCreada(null); setMensaje(''); }}
+              className={`text-sm px-3 py-1.5 rounded ${modo === 'correo' ? 'bg-neutral-900 text-white' : 'bg-neutral-100'}`}
+            >
+              Tiene correo
+            </button>
+            <button
+              type="button"
+              onClick={() => { setModo('usuario'); setCredencialCreada(null); setMensaje(''); }}
+              className={`text-sm px-3 py-1.5 rounded ${modo === 'usuario' ? 'bg-neutral-900 text-white' : 'bg-neutral-100'}`}
+            >
+              Sin correo (usuario interno)
+            </button>
           </div>
-          <div>
-            <label className="block text-xs mb-1">Nombre</label>
-            <input required value={invitacion.nombre} onChange={(e) => setInvitacion({ ...invitacion, nombre: e.target.value })} className="border rounded px-3 py-2 text-sm w-full" />
-          </div>
-          <div>
-            <label className="block text-xs mb-1">Rol</label>
-            <select value={invitacion.rol} onChange={(e) => setInvitacion({ ...invitacion, rol: e.target.value })} className="border rounded px-3 py-2 text-sm w-full">
-              <option value="admin">Admin</option>
-              <option value="operativo">Operativo</option>
-              <option value="lectura">Lectura</option>
-            </select>
-          </div>
-          <button className="bg-neutral-900 text-white px-4 py-2 rounded text-sm col-span-4">Invitar usuario</button>
-        </form>
-        {mensaje && <p className="text-sm text-neutral-600">{mensaje}</p>}
+
+          <form onSubmit={invitar} className="grid grid-cols-4 gap-3 items-end">
+            {modo === 'correo' ? (
+              <div className="col-span-2">
+                <label className="block text-xs mb-1">Correo</label>
+                <input required type="email" value={invitacion.email} onChange={(e) => setInvitacion({ ...invitacion, email: e.target.value })} className="border rounded px-3 py-2 text-sm w-full" />
+              </div>
+            ) : (
+              <div className="col-span-2">
+                <label className="block text-xs mb-1">Usuario (sin espacios, ej. residente1)</label>
+                <input required value={invitacion.usuario} onChange={(e) => setInvitacion({ ...invitacion, usuario: e.target.value })} className="border rounded px-3 py-2 text-sm w-full" />
+              </div>
+            )}
+            <div>
+              <label className="block text-xs mb-1">Nombre</label>
+              <input required value={invitacion.nombre} onChange={(e) => setInvitacion({ ...invitacion, nombre: e.target.value })} className="border rounded px-3 py-2 text-sm w-full" />
+            </div>
+            <div>
+              <label className="block text-xs mb-1">Rol</label>
+              <select value={invitacion.rol} onChange={(e) => setInvitacion({ ...invitacion, rol: e.target.value })} className="border rounded px-3 py-2 text-sm w-full">
+                <option value="admin">Admin</option>
+                <option value="operativo">Operativo</option>
+                <option value="lectura">Lectura</option>
+              </select>
+            </div>
+            <button className="bg-neutral-900 text-white px-4 py-2 rounded text-sm col-span-4">
+              {modo === 'correo' ? 'Invitar usuario' : 'Crear usuario'}
+            </button>
+          </form>
+
+          {mensaje && <p className="text-sm text-neutral-600">{mensaje}</p>}
+
+          {credencialCreada && (
+            <div className="bg-amber-50 border border-amber-200 rounded p-4 text-sm space-y-1">
+              <p><strong>Usuario:</strong> {credencialCreada.usuario}</p>
+              <p><strong>Contraseña temporal:</strong> <span className="font-mono">{credencialCreada.contrasenaTemporal}</span></p>
+              <p className="text-neutral-500">Entrégasela directamente a la persona. No queda guardada en ningún otro lugar.</p>
+            </div>
+          )}
+        </div>
 
         <div className="bg-white rounded-lg shadow-sm border overflow-hidden">
           <table className="w-full text-sm">
-            <thead className="bg-neutral-100 text-left"><tr><th className="p-3">Nombre</th><th className="p-3">Correo</th><th className="p-3">Rol</th><th className="p-3">Estado</th></tr></thead>
+            <thead className="bg-neutral-100 text-left"><tr><th className="p-3">Nombre</th><th className="p-3">Correo / Usuario</th><th className="p-3">Rol</th><th className="p-3">Estado</th></tr></thead>
             <tbody>
               {usuarios.map((u) => (
                 <tr key={u.id} className="border-t">
                   <td className="p-3">{u.nombre}</td>
-                  <td className="p-3">{u.email}</td>
+                  <td className="p-3">{u.usuario ? `${u.usuario} (sin correo)` : u.email}</td>
                   <td className="p-3">
                     <select value={u.rol} onChange={(e) => cambiarRol(u.id, e.target.value)} className="border rounded px-2 py-1 text-xs">
                       <option value="admin">Admin</option>
