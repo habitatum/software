@@ -2,6 +2,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { useUsuarioActual } from '@/lib/useUsuarioActual';
+import { useProyectoActual } from '@/lib/useProyectoActual';
 import { crearClienteSupabase } from '@/lib/supabaseClient';
 import { calcularOrdenCompra, formatoPesos } from '@/lib/calculosOC';
 import NavBar from '@/components/NavBar';
@@ -17,6 +18,7 @@ const OC_VACIA = {
 
 export default function NuevaOrdenCompra() {
   const { usuario, cargando } = useUsuarioActual(['admin', 'operativo']);
+  const { proyecto, cargando: cargandoProyecto } = useProyectoActual();
   const router = useRouter();
 
   const [oc, setOc] = useState(OC_VACIA);
@@ -28,20 +30,21 @@ export default function NuevaOrdenCompra() {
   const [error, setError] = useState('');
 
   useEffect(() => {
-    if (!usuario) return;
+    if (!usuario || !proyecto) return;
     async function cargarCatalogos() {
       const supabase = crearClienteSupabase();
+      // Los Proveedores son globales: se muestran todos, sin filtrar por proyecto.
       const [{ data: prov }, { data: cont }, { data: ant }] = await Promise.all([
         supabase.from('proveedores').select('id, nombre').order('nombre'),
-        supabase.from('contratos').select('id, numero_contrato').order('numero_contrato'),
-        supabase.from('ordenes_compra').select('id, folio, contrato_id').eq('tipo_pago', 'ANTICIPO'),
+        supabase.from('contratos').select('id, numero_contrato').eq('proyecto_id', proyecto.id).order('numero_contrato'),
+        supabase.from('ordenes_compra').select('id, folio, contrato_id').eq('proyecto_id', proyecto.id).eq('tipo_pago', 'ANTICIPO'),
       ]);
       setProveedores(prov || []);
       setContratos(cont || []);
       setAnticipos(ant || []);
     }
     cargarCatalogos();
-  }, [usuario]);
+  }, [usuario, proyecto]);
 
   const calculo = useMemo(() => calcularOrdenCompra(oc, items), [oc, items]);
 
@@ -68,6 +71,7 @@ export default function NuevaOrdenCompra() {
       .from('ordenes_compra')
       .insert({
         ...oc,
+        proyecto_id: proyecto.id,
         contrato_id: oc.contrato_id || null,
         referencia_anticipo_id: oc.referencia_anticipo_id || null,
         creado_por: usuario.id,
@@ -87,13 +91,14 @@ export default function NuevaOrdenCompra() {
     router.push(`/ordenes-compra/${nuevaOC.id}`);
   }
 
-  if (cargando || !usuario) return null;
+  if (cargando || !usuario || cargandoProyecto || !proyecto) return null;
 
   return (
     <div>
-      <NavBar usuario={usuario} />
+      <NavBar usuario={usuario} proyecto={proyecto} />
       <main className="p-8 max-w-4xl mx-auto">
-        <h1 className="text-2xl font-semibold mb-6">Nueva Orden de Compra</h1>
+        <h1 className="text-2xl font-semibold mb-1">Nueva Orden de Compra</h1>
+        <p className="text-sm text-neutral-500 mb-6">{proyecto.nombre}</p>
 
         <form onSubmit={guardar} className="space-y-6">
           {/* Datos generales */}
