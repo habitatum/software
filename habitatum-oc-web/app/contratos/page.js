@@ -42,7 +42,7 @@ export default function Contratos() {
         <div className="flex justify-between items-center mb-6">
           <h1 className="text-2xl font-semibold">Contratos</h1>
           {usuario.rol !== 'lectura' && (
-            <button onClick={() => setMostrarForm(!mostrarForm)} className="bg-neutral-900 text-white px-4 py-2 rounded text-sm">
+            <button onClick={() => setMostrarForm(!mostrarForm)} className="bg-carbon text-hueso px-4 py-2 rounded text-sm">
               {mostrarForm ? 'Cancelar' : '+ Nuevo contrato'}
             </button>
           )}
@@ -59,18 +59,18 @@ export default function Contratos() {
             </select>
             <input type="number" placeholder="Valor inicial" value={form.valor_inicial} onChange={(e) => setForm({ ...form, valor_inicial: e.target.value })} className="border rounded px-3 py-2 text-sm" />
             <input placeholder="Concepto" value={form.concepto} onChange={(e) => setForm({ ...form, concepto: e.target.value })} className="border rounded px-3 py-2 text-sm col-span-3" />
-            <button className="bg-neutral-900 text-white px-4 py-2 rounded text-sm col-span-3">Guardar</button>
+            <button className="bg-carbon text-hueso px-4 py-2 rounded text-sm col-span-3">Guardar</button>
           </form>
         )}
 
         <div className="bg-white rounded-lg shadow-sm border overflow-hidden">
           <table className="w-full text-sm">
-            <thead className="bg-neutral-100 text-left">
+            <thead className="bg-gris-calido/30 text-left">
               <tr><th className="p-3">N° Contrato</th><th className="p-3">Contratista</th><th className="p-3 text-right">Valor inicial</th></tr>
             </thead>
             <tbody>
               {contratos.map((c) => (
-                <tr key={c.id} className="border-t hover:bg-neutral-50">
+                <tr key={c.id} className="border-t hover:bg-hueso">
                   <td className="p-3"><Link href={`/contratos/${c.id}`} className="text-blue-700 hover:underline">{c.numero_contrato}</Link></td>
                   <td className="p-3">{c.proveedores?.nombre}</td>
                   <td className="p-3 text-right">{formatoPesos(c.valor_inicial)}</td>
