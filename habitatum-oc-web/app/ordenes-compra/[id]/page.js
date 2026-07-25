@@ -48,7 +48,7 @@ export default function DetalleOrdenCompra() {
         <div className="flex items-center justify-between">
           <h1 className="text-2xl font-semibold">{oc.folio}</h1>
           <a href={`/api/ordenes-compra/${id}/pdf`} target="_blank" rel="noreferrer"
-            className="bg-neutral-900 text-white px-4 py-2 rounded text-sm">
+            className="bg-carbon text-hueso px-4 py-2 rounded text-sm">
             Descargar PDF
           </a>
         </div>
@@ -100,7 +100,7 @@ export default function DetalleOrdenCompra() {
                 <label className="block text-xs mb-1">Nota</label>
                 <input value={nuevoPago.nota} onChange={(e) => setNuevoPago({ ...nuevoPago, nota: e.target.value })} className="border rounded px-2 py-1 text-sm w-full" />
               </div>
-              <button className="bg-neutral-900 text-white px-4 py-1.5 rounded text-sm">Registrar</button>
+              <button className="bg-carbon text-hueso px-4 py-1.5 rounded text-sm">Registrar</button>
             </form>
           )}
         </div>
