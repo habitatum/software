@@ -2,30 +2,33 @@
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { useUsuarioActual } from '@/lib/useUsuarioActual';
+import { useProyectoActual } from '@/lib/useProyectoActual';
 import { crearClienteSupabase } from '@/lib/supabaseClient';
 import { formatoPesos } from '@/lib/calculosOC';
 import NavBar from '@/components/NavBar';
 
 export default function ListadoOrdenesCompra() {
   const { usuario, cargando } = useUsuarioActual();
+  const { proyecto, cargando: cargandoProyecto } = useProyectoActual();
   const [ordenes, setOrdenes] = useState([]);
   const [filtroEstado, setFiltroEstado] = useState('TODAS');
   const [busqueda, setBusqueda] = useState('');
 
   useEffect(() => {
-    if (!usuario) return;
+    if (!usuario || !proyecto) return;
     async function cargar() {
       const supabase = crearClienteSupabase();
       const { data } = await supabase
         .from('v_ordenes_compra_calculadas')
         .select('*, proveedores(nombre), contratos(numero_contrato)')
+        .eq('proyecto_id', proyecto.id)
         .order('creado_en', { ascending: false });
       setOrdenes(data || []);
     }
     cargar();
-  }, [usuario]);
+  }, [usuario, proyecto]);
 
-  if (cargando || !usuario) return null;
+  if (cargando || !usuario || cargandoProyecto || !proyecto) return null;
 
   const filtradas = ordenes.filter((o) => {
     if (filtroEstado !== 'TODAS' && o.estado !== filtroEstado) return false;
@@ -35,10 +38,13 @@ export default function ListadoOrdenesCompra() {
 
   return (
     <div>
-      <NavBar usuario={usuario} />
+      <NavBar usuario={usuario} proyecto={proyecto} />
       <main className="p-8 max-w-6xl mx-auto">
         <div className="flex items-center justify-between mb-6">
-          <h1 className="text-2xl font-semibold">Órdenes de Compra</h1>
+          <div>
+            <h1 className="text-2xl font-semibold">Órdenes de Compra</h1>
+            <p className="text-sm text-neutral-500">{proyecto.nombre}</p>
+          </div>
           {usuario.rol !== 'lectura' && (
             <Link href="/ordenes-compra/nueva" className="bg-carbon text-hueso px-4 py-2 rounded text-sm">
               + Nueva Orden de Compra
