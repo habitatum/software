@@ -100,6 +100,7 @@ create table items_oc (
   id uuid primary key default gen_random_uuid(),
   orden_compra_id uuid not null references ordenes_compra(id) on delete cascade,
   descripcion text not null,
+  unidad text, -- ej. "UND", "M2", "GLB"
   cantidad numeric(12,2) not null default 1,
   valor_unitario numeric(14,2) not null default 0
 );
@@ -117,8 +118,11 @@ create table pagos (
 
 -- ============================================================
 -- VISTA: cálculo completo de cada Orden de Compra
--- (subtotal, impuestos, amortización, retención, neto, pagado, saldo)
--- Replica exactamente las fórmulas del sistema en Google Sheets.
+-- (subtotal, impuestos, TOTAL, amortización, retención, neto a pagar, pagado,
+-- saldo y saldo del anticipo por amortizar). Replica exactamente las fórmulas
+-- del sistema en Google Sheets (ver references/mapa_columnas.md del skill
+-- ordenes-de-compra-obra). Todo se calcula aquí, en SQL: es la única fuente
+-- de verdad que usan por igual el listado, el detalle y el PDF.
 -- ============================================================
 create view v_ordenes_compra_calculadas as
 with subtotales as (
@@ -126,56 +130,78 @@ with subtotales as (
   from items_oc
   group by orden_compra_id
 ),
-pagado as (
+pagado_por_oc as (
   select orden_compra_id, coalesce(sum(valor), 0) as pagado
   from pagos
   group by orden_compra_id
+),
+base as (
+  select
+    oc.*,
+    coalesce(s.subtotal, 0) as subtotal,
+    case
+      when oc.tipo_impuesto = 'CON_IVA' then round(coalesce(s.subtotal, 0) * oc.porcentaje_iva / 100, 2)
+      when oc.tipo_impuesto = 'CON_AIU' then round(coalesce(s.subtotal, 0) * (oc.porcentaje_utilidad / 100) * (oc.porcentaje_iva / 100), 2)
+      else 0
+    end as valor_iva,
+    case when oc.tipo_impuesto = 'CON_AIU' then round(coalesce(s.subtotal, 0) * oc.porcentaje_administracion / 100, 2) else 0 end as valor_administracion,
+    case when oc.tipo_impuesto = 'CON_AIU' then round(coalesce(s.subtotal, 0) * oc.porcentaje_imprevistos / 100, 2) else 0 end as valor_imprevistos,
+    case when oc.tipo_impuesto = 'CON_AIU' then round(coalesce(s.subtotal, 0) * oc.porcentaje_utilidad / 100, 2) else 0 end as valor_utilidad,
+    case when oc.tipo_impuesto = 'CON_AIU' then (oc.porcentaje_administracion + oc.porcentaje_imprevistos + oc.porcentaje_utilidad) else 0 end as porcentaje_aiu,
+    coalesce(p.pagado, 0) as pagado
+  from ordenes_compra oc
+  left join subtotales s on s.orden_compra_id = oc.id
+  left join pagado_por_oc p on p.orden_compra_id = oc.id
+),
+calculado as (
+  select
+    base.*,
+    (case when tipo_impuesto = 'CON_AIU' then valor_administracion + valor_imprevistos + valor_utilidad else 0 end) as valor_aiu,
+    (subtotal - descuento + valor_iva
+      + (case when tipo_impuesto = 'CON_AIU' then valor_administracion + valor_imprevistos + valor_utilidad else 0 end)
+    ) as total
+  from base
+),
+con_derivados as (
+  select
+    calculado.*,
+    (case when tipo_pago = 'ANTICIPO' then 0 else round(total * coalesce(porcentaje_amortizacion, 0) / 100, 2) end) as valor_amortizacion,
+    round(coalesce(porcentaje_retencion, 0) / 100 * total, 2) as valor_retenido
+  from calculado
+),
+con_neto as (
+  select
+    con_derivados.*,
+    (total - valor_amortizacion - valor_retenido + coalesce(devolucion_retenido, 0)) as neto_a_pagar,
+    (total - pagado) as saldo
+  from con_derivados
+),
+amortizado_por_anticipo as (
+  select referencia_anticipo_id, sum(valor_amortizacion) as amortizado_total
+  from con_neto
+  where referencia_anticipo_id is not null
+  group by referencia_anticipo_id
 )
 select
-  oc.*,
-  s.subtotal,
-  case
-    when oc.tipo_impuesto = 'CON_IVA' then round(s.subtotal * oc.porcentaje_iva / 100, 2)
-    when oc.tipo_impuesto = 'CON_AIU' then round(s.subtotal * (oc.porcentaje_utilidad / 100) * (oc.porcentaje_iva / 100), 2)
-    else 0
-  end as valor_iva,
-  case when oc.tipo_impuesto = 'CON_AIU' then round(s.subtotal * oc.porcentaje_administracion / 100, 2) else 0 end as valor_administracion,
-  case when oc.tipo_impuesto = 'CON_AIU' then round(s.subtotal * oc.porcentaje_imprevistos / 100, 2) else 0 end as valor_imprevistos,
-  case when oc.tipo_impuesto = 'CON_AIU' then round(s.subtotal * oc.porcentaje_utilidad / 100, 2) else 0 end as valor_utilidad,
-  case when oc.tipo_impuesto = 'CON_AIU' then (oc.porcentaje_administracion + oc.porcentaje_imprevistos + oc.porcentaje_utilidad) else 0 end as porcentaje_aiu,
-  case when oc.tipo_impuesto = 'CON_AIU' then
-    round(s.subtotal * oc.porcentaje_administracion / 100, 2)
-    + round(s.subtotal * oc.porcentaje_imprevistos / 100, 2)
-    + round(s.subtotal * oc.porcentaje_utilidad / 100, 2)
-  else 0 end as valor_aiu,
-  round(oc.porcentaje_retencion / 100 *
-    (s.subtotal - oc.descuento
-      + (case when oc.tipo_impuesto = 'CON_IVA' then round(s.subtotal * oc.porcentaje_iva / 100, 2)
-              when oc.tipo_impuesto = 'CON_AIU' then round(s.subtotal * (oc.porcentaje_utilidad/100) * (oc.porcentaje_iva/100), 2)
-              else 0 end)
-      + (case when oc.tipo_impuesto = 'CON_AIU' then
-           round(s.subtotal * oc.porcentaje_administracion/100,2) + round(s.subtotal * oc.porcentaje_imprevistos/100,2) + round(s.subtotal * oc.porcentaje_utilidad/100,2)
-         else 0 end)
-    ), 2) as valor_retenido,
-  coalesce(p.pagado, 0) as pagado
-from ordenes_compra oc
-left join subtotales s on s.orden_compra_id = oc.id
-left join pagado p on p.orden_compra_id = oc.id;
-
--- Nota: TOTAL, VALOR_AMORTIZACIÓN, NETO_A_PAGAR y SALDO se calculan en la capa de
--- aplicación (lib/calculosOC.js) a partir de esta vista, porque VALOR_AMORTIZACIÓN
--- depende de otra fila (la orden referenciada) y es más claro y testeable en JS
--- que anidado en SQL. La vista entrega todos los insumos base ya calculados.
+  con_neto.*,
+  case when con_neto.tipo_pago = 'ANTICIPO'
+    then round(con_neto.total - coalesce(amortizado_por_anticipo.amortizado_total, 0), 2)
+    else null
+  end as saldo_anticipo_por_amortizar
+from con_neto
+left join amortizado_por_anticipo on amortizado_por_anticipo.referencia_anticipo_id = con_neto.id;
 
 -- ============================================================
 -- VISTA: acumulados por contrato (excluye filas ANTICIPO del Subtotal/Total,
--- igual que en el sistema actual, para no duplicar el valor del anticipo)
+-- igual que en el sistema anterior, para no duplicar el valor del anticipo)
 -- ============================================================
 create view v_acumulados_contrato as
 select
   contrato_id,
   sum(case when tipo_pago <> 'ANTICIPO' then subtotal else 0 end) as subtotal_acumulado,
+  sum(case when tipo_pago <> 'ANTICIPO' then total else 0 end) as total_acumulado,
   sum(valor_retenido) as retenido_acumulado,
+  sum(valor_amortizacion) as amortizado_acumulado,
   sum(devolucion_retenido) as devolucion_acumulada
 from v_ordenes_compra_calculadas
 where contrato_id is not null and estado <> 'ANULADA'
