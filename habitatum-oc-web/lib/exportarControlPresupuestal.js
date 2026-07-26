@@ -1,14 +1,19 @@
 'use client';
 import ExcelJS from 'exceljs';
 
-const COLOR_ENCABEZADO = 'FF1F2937'; // carbon
-const COLOR_TEXTO_ENCABEZADO = 'FFFFFFFF';
-const COLOR_CAPITULO = 'FFE5E7EB';
-const COLOR_TOTAL = 'FFFDE68A'; // dorado suave
-const BORDE_FINO = { style: 'thin', color: { argb: 'FFD1D5DB' } };
+// Paleta de marca HABITATUM (igual a tailwind.config.js: carbon / dorado /
+// gris-calido / hueso). Todo el Excel exportado debe usar SIEMPRE estos
+// colores, nunca colores genéricos.
+const CARBON = 'FF2E2E2E';
+const DORADO = 'FFB88A52';
+const GRIS_CALIDO = 'FFCDC5BA';
+const HUESO = 'FFEFECE6';
+const DORADO_CLARO = 'FFF0E2D0'; // tinte suave de dorado, para resaltar la columna acumulada
 
-function estilizarCelda(celda, { negrita = false, relleno, alineacion = 'right', numero = true, tamano } = {}) {
-  celda.font = { bold: negrita, color: relleno ? { argb: '000000' } : undefined, size: tamano };
+const BORDE_FINO = { style: 'thin', color: { argb: 'FFB9AFA0' } };
+
+function estilizarCelda(celda, { negrita = false, relleno, colorTexto, alineacion = 'right', numero = true } = {}) {
+  celda.font = { bold: negrita, color: colorTexto ? { argb: colorTexto } : undefined };
   celda.alignment = { horizontal: alineacion, vertical: 'middle' };
   celda.border = { top: BORDE_FINO, bottom: BORDE_FINO, left: BORDE_FINO, right: BORDE_FINO };
   if (relleno) celda.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: relleno } };
@@ -18,11 +23,13 @@ function estilizarCelda(celda, { negrita = false, relleno, alineacion = 'right',
 // Construye y descarga el Excel de Control Presupuestal por cortes, replicando
 // el formato de referencia: columnas base del presupuesto + un bloque de 3
 // columnas (Cantidad / Vr Unitario / Vr Parcial) por cada corte cerrado hasta
-// el elegido + un bloque de Total acumulado + totales generales. Incluye
+// el elegido + un bloque de Total acumulado + totales generales (incluyendo el
+// total de cada corte y del acumulado, no solo del presupuesto). Incluye
 // además una hoja de detalle por corte con las Órdenes de Compra que lo
 // componen.
 export async function exportarControlPresupuestal({ proyecto, presupuesto, capitulos, cortes, hastaNumero }) {
   const cortesAIncluir = cortes.filter((c) => c.numero <= hastaNumero).sort((a, b) => a.numero - b.numero);
+  const numCortes = cortesAIncluir.length;
 
   const workbook = new ExcelJS.Workbook();
   workbook.creator = 'HABITATUM';
@@ -31,8 +38,6 @@ export async function exportarControlPresupuestal({ proyecto, presupuesto, capit
   const hoja = workbook.addWorksheet('CONTROL PPTAL');
 
   // ---------- Columnas ----------
-  // A-F: base del presupuesto. Luego 3 columnas por corte + 1 de separación,
-  // luego 3 columnas de Total acumulado.
   const columnasBase = [
     { header: 'ÍTEM', key: 'codigo', width: 10 },
     { header: 'DESCRIPCIÓN', key: 'descripcion', width: 42 },
@@ -42,104 +47,108 @@ export async function exportarControlPresupuestal({ proyecto, presupuesto, capit
     { header: 'VR PARCIAL', key: 'vr_parcial', width: 15 },
   ];
   const columnas = [...columnasBase];
-  cortesAIncluir.forEach((c) => {
-    columnas.push({ width: 2 }); // separación
-    columnas.push({ width: 11 }); // cantidad
-    columnas.push({ width: 14 }); // vr unitario
-    columnas.push({ width: 15 }); // vr parcial
+  cortesAIncluir.forEach(() => {
+    columnas.push({ width: 2 }, { width: 11 }, { width: 14 }, { width: 15 });
   });
-  columnas.push({ width: 2 });
-  columnas.push({ width: 11 });
-  columnas.push({ width: 14 });
-  columnas.push({ width: 15 });
+  columnas.push({ width: 2 }, { width: 11 }, { width: 14 }, { width: 15 });
   hoja.columns = columnas;
 
-  // ---------- Encabezado de proyecto ----------
+  // Posiciones de columna: cada bloque (corte j, o el acumulado) ocupa 1
+  // columna de separación + 3 columnas (cantidad/vr unitario/vr parcial).
+  const baseCol = columnasBase.length + 1; // primera columna después de la base
+  const colBloqueCorte = (j) => baseCol + 1 + 4 * j;
+  const colVrParcialCorte = (j) => colBloqueCorte(j) + 2;
+  const colBloqueTotalAcum = baseCol + 1 + 4 * numCortes;
+  const colVrParcialTotalAcum = colBloqueTotalAcum + 2;
   const totalColumnas = columnas.length;
+
+  // ---------- Encabezado de proyecto ----------
   hoja.mergeCells(1, 1, 1, totalColumnas);
   const tituloCelda = hoja.getCell(1, 1);
   tituloCelda.value = `HABITATUM · CONTROL PRESUPUESTAL — ${proyecto?.nombre || ''}`;
-  tituloCelda.font = { bold: true, size: 14, color: { argb: COLOR_TEXTO_ENCABEZADO } };
+  tituloCelda.font = { bold: true, size: 14, color: { argb: HUESO } };
   tituloCelda.alignment = { horizontal: 'center', vertical: 'middle' };
-  tituloCelda.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: COLOR_ENCABEZADO } };
+  tituloCelda.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: CARBON } };
   hoja.getRow(1).height = 26;
 
   hoja.mergeCells(2, 1, 2, totalColumnas);
   const subtituloCelda = hoja.getCell(2, 1);
   const fechaCorteFinal = cortesAIncluir[cortesAIncluir.length - 1]?.fecha_hasta;
   subtituloCelda.value = `Corte ${hastaNumero} — al ${fechaCorteFinal || ''}`;
-  subtituloCelda.font = { italic: true, size: 10 };
+  subtituloCelda.font = { italic: true, size: 10, color: { argb: CARBON } };
   subtituloCelda.alignment = { horizontal: 'center' };
 
-  // ---------- Filas de encabezado de columnas (2 filas: grupo de corte + sub-encabezado) ----------
+  // ---------- Filas de encabezado de columnas ----------
   const filaGrupo = 4;
   const filaSub = 5;
   columnasBase.forEach((c, i) => {
     hoja.mergeCells(filaGrupo, i + 1, filaSub, i + 1);
     const celda = hoja.getCell(filaGrupo, i + 1);
     celda.value = c.header;
-    estilizarCelda(celda, { negrita: true, relleno: 'FFD1D5DB', numero: false, alineacion: i <= 1 ? 'left' : 'center' });
+    estilizarCelda(celda, { negrita: true, relleno: DORADO, colorTexto: HUESO, numero: false, alineacion: i <= 1 ? 'left' : 'center' });
   });
 
-  let colActual = columnasBase.length + 1;
-  cortesAIncluir.forEach((c) => {
-    colActual += 1; // salta columna de separación
-    hoja.mergeCells(filaGrupo, colActual, filaGrupo, colActual + 2);
-    const celdaGrupo = hoja.getCell(filaGrupo, colActual);
+  cortesAIncluir.forEach((c, j) => {
+    const inicio = colBloqueCorte(j);
+    hoja.mergeCells(filaGrupo, inicio, filaGrupo, inicio + 2);
+    const celdaGrupo = hoja.getCell(filaGrupo, inicio);
     celdaGrupo.value = `CONTROL PRESUPUESTAL ${c.numero}`;
-    estilizarCelda(celdaGrupo, { negrita: true, relleno: 'FFBFDBFE', numero: false, alineacion: 'center' });
-    ['CANTIDAD', 'VR UNITARIO', 'VR PARCIAL'].forEach((titulo, j) => {
-      const celda = hoja.getCell(filaSub, colActual + j);
+    estilizarCelda(celdaGrupo, { negrita: true, relleno: CARBON, colorTexto: HUESO, numero: false, alineacion: 'center' });
+    ['CANTIDAD', 'VR UNITARIO', 'VR PARCIAL'].forEach((titulo, k) => {
+      const celda = hoja.getCell(filaSub, inicio + k);
       celda.value = titulo;
-      estilizarCelda(celda, { negrita: true, relleno: 'FFDBEAFE', numero: false, alineacion: 'center' });
+      estilizarCelda(celda, { negrita: true, relleno: GRIS_CALIDO, colorTexto: CARBON, numero: false, alineacion: 'center' });
     });
-    colActual += 3;
   });
-  colActual += 1;
-  hoja.mergeCells(filaGrupo, colActual, filaGrupo, colActual + 2);
-  const celdaTotalGrupo = hoja.getCell(filaGrupo, colActual);
+
+  const inicioTotal = colBloqueTotalAcum;
+  hoja.mergeCells(filaGrupo, inicioTotal, filaGrupo, inicioTotal + 2);
+  const celdaTotalGrupo = hoja.getCell(filaGrupo, inicioTotal);
   celdaTotalGrupo.value = 'TOTAL COSTOS DE OBRA (acumulado)';
-  estilizarCelda(celdaTotalGrupo, { negrita: true, relleno: COLOR_TOTAL, numero: false, alineacion: 'center' });
-  ['CANTIDAD', 'VR UNITARIO', 'VR PARCIAL'].forEach((titulo, j) => {
-    const celda = hoja.getCell(filaSub, colActual + j);
+  estilizarCelda(celdaTotalGrupo, { negrita: true, relleno: DORADO, colorTexto: HUESO, numero: false, alineacion: 'center' });
+  ['CANTIDAD', 'VR UNITARIO', 'VR PARCIAL'].forEach((titulo, k) => {
+    const celda = hoja.getCell(filaSub, inicioTotal + k);
     celda.value = titulo;
-    estilizarCelda(celda, { negrita: true, relleno: COLOR_TOTAL, numero: false, alineacion: 'center' });
+    estilizarCelda(celda, { negrita: true, relleno: DORADO, colorTexto: HUESO, numero: false, alineacion: 'center' });
   });
 
   // ---------- Filas de capítulos / ítems ----------
   let fila = filaSub + 1;
   let sumaDirecto = 0;
   let sumaIndirecto = 0;
+  const sumaDirectoPorCorte = new Array(numCortes).fill(0);
+  const sumaIndirectoPorCorte = new Array(numCortes).fill(0);
+  let sumaDirectoAcum = 0;
+  let sumaIndirectoAcum = 0;
 
   capitulos.forEach((cap) => {
+    const esIndirecto = cap.categoria === 'INDIRECTO';
+
     hoja.mergeCells(fila, 1, fila, 2);
     const celdaCap = hoja.getCell(fila, 1);
     celdaCap.value = `${cap.codigo}  ${cap.nombre}`;
-    estilizarCelda(celdaCap, { negrita: true, relleno: COLOR_CAPITULO, numero: false, alineacion: 'left' });
-    const celdaVacia = hoja.getCell(fila, 2); estilizarCelda(celdaVacia, { relleno: COLOR_CAPITULO, numero: false });
-    [3, 4, 5, 6].forEach((c) => { const cc = hoja.getCell(fila, c); estilizarCelda(cc, { relleno: COLOR_CAPITULO, numero: false }); });
+    estilizarCelda(celdaCap, { negrita: true, relleno: GRIS_CALIDO, colorTexto: CARBON, numero: false, alineacion: 'left' });
+    [3, 4, 5, 6].forEach((c) => estilizarCelda(hoja.getCell(fila, c), { negrita: true, relleno: GRIS_CALIDO, colorTexto: CARBON, numero: false }));
     hoja.getCell(fila, 6).value = Number(cap.valor_presupuestado || 0);
     hoja.getCell(fila, 6).numFmt = '#,##0';
 
-    let colCorte = columnasBase.length + 1;
-    let acumCantCap = 0;
     let acumValCap = 0;
-    cortesAIncluir.forEach((c) => {
-      colCorte += 1;
-      const cant = c._capCantidad?.[cap.id] || 0;
+    cortesAIncluir.forEach((c, j) => {
       const val = c._capValor?.[cap.id] || 0;
-      acumCantCap += cant; acumValCap += val;
-      [colCorte, colCorte + 1, colCorte + 2].forEach((cc) => { const celda = hoja.getCell(fila, cc); estilizarCelda(celda, { relleno: COLOR_CAPITULO, numero: false }); });
-      hoja.getCell(fila, colCorte + 2).value = val;
-      hoja.getCell(fila, colCorte + 2).numFmt = '#,##0';
-      colCorte += 3;
+      acumValCap += val;
+      if (esIndirecto) sumaIndirectoPorCorte[j] += val; else sumaDirectoPorCorte[j] += val;
+      const col = colBloqueCorte(j);
+      [col, col + 1, col + 2].forEach((cc) => estilizarCelda(hoja.getCell(fila, cc), { relleno: GRIS_CALIDO, numero: false }));
+      hoja.getCell(fila, col + 2).value = val;
+      hoja.getCell(fila, col + 2).numFmt = '#,##0';
     });
-    colCorte += 1;
-    [colCorte, colCorte + 1, colCorte + 2].forEach((cc) => { const celda = hoja.getCell(fila, cc); estilizarCelda(celda, { relleno: COLOR_TOTAL, numero: false }); });
-    hoja.getCell(fila, colCorte + 2).value = acumValCap;
-    hoja.getCell(fila, colCorte + 2).numFmt = '#,##0';
+    if (esIndirecto) sumaIndirectoAcum += acumValCap; else sumaDirectoAcum += acumValCap;
 
-    if (cap.categoria === 'INDIRECTO') sumaIndirecto += Number(cap.valor_presupuestado || 0);
+    [inicioTotal, inicioTotal + 1, inicioTotal + 2].forEach((cc) => estilizarCelda(hoja.getCell(fila, cc), { relleno: DORADO_CLARO, numero: false }));
+    hoja.getCell(fila, colVrParcialTotalAcum).value = acumValCap;
+    hoja.getCell(fila, colVrParcialTotalAcum).numFmt = '#,##0';
+
+    if (esIndirecto) sumaIndirecto += Number(cap.valor_presupuestado || 0);
     else sumaDirecto += Number(cap.valor_presupuestado || 0);
 
     fila += 1;
@@ -153,51 +162,64 @@ export async function exportarControlPresupuestal({ proyecto, presupuesto, capit
       hoja.getCell(fila, 6).value = Number(it.valor_parcial || 0);
       [1, 2, 3, 4, 5, 6].forEach((c) => estilizarCelda(hoja.getCell(fila, c), { numero: c >= 4, alineacion: c <= 2 ? 'left' : 'right' }));
 
-      let colItem = columnasBase.length + 1;
       let acumCant = 0; let acumVal = 0;
-      cortesAIncluir.forEach((c) => {
-        colItem += 1;
+      cortesAIncluir.forEach((c, j) => {
         const registro = (c.items || []).find((ci) => ci.presupuesto_item_id === it.id);
         const cant = Number(registro?.cantidad_ejecutada || 0);
         const val = Number(registro?.valor_ejecutado || 0);
         acumCant += cant; acumVal += val;
-        hoja.getCell(fila, colItem).value = cant || null;
-        hoja.getCell(fila, colItem + 1).value = cant > 0 ? val / cant : null;
-        hoja.getCell(fila, colItem + 2).value = val || null;
-        [colItem, colItem + 1, colItem + 2].forEach((cc) => estilizarCelda(hoja.getCell(fila, cc), { alineacion: 'right' }));
-        colItem += 3;
+        const col = colBloqueCorte(j);
+        hoja.getCell(fila, col).value = cant || null;
+        hoja.getCell(fila, col + 1).value = cant > 0 ? val / cant : null;
+        hoja.getCell(fila, col + 2).value = val || null;
+        [col, col + 1, col + 2].forEach((cc) => estilizarCelda(hoja.getCell(fila, cc), { alineacion: 'right' }));
       });
-      colItem += 1;
-      hoja.getCell(fila, colItem).value = acumCant || null;
-      hoja.getCell(fila, colItem + 1).value = acumCant > 0 ? acumVal / acumCant : null;
-      hoja.getCell(fila, colItem + 2).value = acumVal || null;
-      [colItem, colItem + 1, colItem + 2].forEach((cc) => estilizarCelda(hoja.getCell(fila, cc), { relleno: 'FFFEF9E7', alineacion: 'right' }));
+      hoja.getCell(fila, colVrParcialTotalAcum - 2).value = acumCant || null;
+      hoja.getCell(fila, colVrParcialTotalAcum - 1).value = acumCant > 0 ? acumVal / acumCant : null;
+      hoja.getCell(fila, colVrParcialTotalAcum).value = acumVal || null;
+      [colVrParcialTotalAcum - 2, colVrParcialTotalAcum - 1, colVrParcialTotalAcum].forEach((cc) => estilizarCelda(hoja.getCell(fila, cc), { relleno: DORADO_CLARO, alineacion: 'right' }));
 
-      // Guardamos para el rollup del capítulo (recorremos ítems antes de
-      // escribir la fila del capítulo hubiera sido más limpio, pero como el
-      // capítulo ya se escribió arriba usando c._capValor precomputado, aquí
-      // solo avanzamos la fila).
       fila += 1;
     });
   });
 
-  // ---------- Totales generales ----------
+  // ---------- Totales generales (presupuesto, cada corte y el acumulado) ----------
   fila += 1;
   const valorTotal = sumaDirecto + sumaIndirecto;
-  [
-    ['TOTAL COSTOS DIRECTOS =', sumaDirecto],
-    ['TOTAL COSTOS INDIRECTOS =', sumaIndirecto],
-    ['VALOR TOTAL PRESUPUESTO =', valorTotal],
-  ].forEach(([texto, valor]) => {
+  const filasTotales = [
+    { texto: 'TOTAL COSTOS DIRECTOS =', base: sumaDirecto, porCorte: sumaDirectoPorCorte, acum: sumaDirectoAcum },
+    { texto: 'TOTAL COSTOS INDIRECTOS =', base: sumaIndirecto, porCorte: sumaIndirectoPorCorte, acum: sumaIndirectoAcum },
+    {
+      texto: 'VALOR TOTAL =',
+      base: valorTotal,
+      porCorte: sumaDirectoPorCorte.map((v, j) => v + sumaIndirectoPorCorte[j]),
+      acum: sumaDirectoAcum + sumaIndirectoAcum,
+    },
+  ];
+  filasTotales.forEach(({ texto, base, porCorte, acum }) => {
     hoja.mergeCells(fila, 1, fila, 5);
     const celdaTexto = hoja.getCell(fila, 1);
     celdaTexto.value = texto;
-    celdaTexto.font = { bold: true };
-    celdaTexto.alignment = { horizontal: 'right' };
-    const celdaValor = hoja.getCell(fila, 6);
-    celdaValor.value = valor;
-    celdaValor.numFmt = '#,##0';
-    celdaValor.font = { bold: true };
+    estilizarCelda(celdaTexto, { negrita: true, relleno: DORADO, colorTexto: HUESO, numero: false, alineacion: 'right' });
+    [2, 3, 4, 5].forEach((c) => estilizarCelda(hoja.getCell(fila, c), { negrita: true, relleno: DORADO, colorTexto: HUESO, numero: false }));
+
+    const celdaBase = hoja.getCell(fila, 6);
+    celdaBase.value = base;
+    estilizarCelda(celdaBase, { negrita: true, relleno: DORADO, colorTexto: HUESO });
+
+    porCorte.forEach((valor, j) => {
+      const col = colBloqueCorte(j);
+      [col, col + 1].forEach((cc) => estilizarCelda(hoja.getCell(fila, cc), { negrita: true, relleno: DORADO, colorTexto: HUESO, numero: false }));
+      const celda = hoja.getCell(fila, col + 2);
+      celda.value = valor;
+      estilizarCelda(celda, { negrita: true, relleno: DORADO, colorTexto: HUESO });
+    });
+
+    [colVrParcialTotalAcum - 2, colVrParcialTotalAcum - 1].forEach((cc) => estilizarCelda(hoja.getCell(fila, cc), { negrita: true, relleno: DORADO, colorTexto: HUESO, numero: false }));
+    const celdaAcum = hoja.getCell(fila, colVrParcialTotalAcum);
+    celdaAcum.value = acum;
+    estilizarCelda(celdaAcum, { negrita: true, relleno: DORADO, colorTexto: HUESO });
+
     fila += 1;
   });
 
@@ -217,8 +239,10 @@ export async function exportarControlPresupuestal({ proyecto, presupuesto, capit
       { header: 'Vr Unitario', key: 'vr_unitario', width: 14 },
       { header: 'Valor', key: 'valor', width: 15 },
     ];
-    hojaDet.getRow(1).font = { bold: true };
-    hojaDet.getRow(1).eachCell((celda) => { celda.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: COLOR_CAPITULO } }; });
+    hojaDet.getRow(1).eachCell((celda) => {
+      celda.font = { bold: true, color: { argb: HUESO } };
+      celda.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: CARBON } };
+    });
     (c.ocs || []).forEach((oc) => {
       hojaDet.addRow({
         folio: oc.folio, fecha: oc.fecha, proveedor: oc.proveedor,
@@ -230,7 +254,8 @@ export async function exportarControlPresupuestal({ proyecto, presupuesto, capit
     hojaDet.getColumn('valor').numFmt = '#,##0';
     hojaDet.addRow({});
     const filaTotal = hojaDet.addRow({ descripcion: 'TOTAL', valor: (c.ocs || []).reduce((acc, o) => acc + Number(o.valor || 0), 0) });
-    filaTotal.font = { bold: true };
+    filaTotal.font = { bold: true, color: { argb: CARBON } };
+    filaTotal.eachCell((celda) => { celda.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: DORADO_CLARO } }; });
   });
 
   const buffer = await workbook.xlsx.writeBuffer();

@@ -20,8 +20,8 @@ const estilos = StyleSheet.create({
   colUnidad: { flex: 1, textAlign: 'center' },
   colCant: { flex: 1, textAlign: 'right' },
   colPrecio: { flex: 1.5, textAlign: 'right' },
-  colVal: { flex: 1.5, textAlign: 'right' },
-  colPct: { flex: 1, textAlign: 'right' },
+  colVal: { flex: 1.5, alignItems: 'flex-end' },
+  colPct: { fontSize: 7, color: '#9a9a9a', marginTop: 1, textAlign: 'right' },
   cuadroOrden: { backgroundColor: '#2e2e2e', color: '#efece6', borderRadius: 4, padding: 12, marginBottom: 12 },
   cuadroTitulo: { color: '#cdc5ba', fontWeight: 'bold', marginBottom: 6, fontSize: 11 },
   filaCuadro: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 2 },
@@ -78,8 +78,7 @@ export default function PlantillaOrdenCompraPDF({ oc, items, acumulados, nombreO
             <Text style={estilos.colUnidad}>Unidad</Text>
             <Text style={estilos.colCant}>Cant.</Text>
             <Text style={estilos.colPrecio}>Precio unit.</Text>
-            <Text style={estilos.colVal}>Subtotal</Text>
-            <Text style={estilos.colPct}>% Orden</Text>
+            <Text style={[estilos.colVal, { textAlign: 'right' }]}>Subtotal</Text>
           </View>
           {items.map((it, i) => {
             const subtotalItem = it.cantidad * it.valor_unitario;
@@ -90,8 +89,10 @@ export default function PlantillaOrdenCompraPDF({ oc, items, acumulados, nombreO
                 <Text style={estilos.colUnidad}>{it.unidad || '—'}</Text>
                 <Text style={estilos.colCant}>{it.cantidad}</Text>
                 <Text style={estilos.colPrecio}>{formatoPesos(it.valor_unitario)}</Text>
-                <Text style={estilos.colVal}>{formatoPesos(subtotalItem)}</Text>
-                <Text style={estilos.colPct}>{porcentaje.toFixed(1)}%</Text>
+                <View style={estilos.colVal}>
+                  <Text>{formatoPesos(subtotalItem)}</Text>
+                  <Text style={estilos.colPct}>{porcentaje.toFixed(1)}% de la orden</Text>
+                </View>
               </View>
             );
           })}
