@@ -22,7 +22,7 @@ export default function NuevaOrdenCompra() {
   const router = useRouter();
 
   const [oc, setOc] = useState(OC_VACIA);
-  const [items, setItems] = useState([{ descripcion: '', cantidad: 1, valor_unitario: 0 }]);
+  const [items, setItems] = useState([{ descripcion: '', unidad: '', cantidad: 1, valor_unitario: 0 }]);
   const [proveedores, setProveedores] = useState([]);
   const [contratos, setContratos] = useState([]);
   const [anticipos, setAnticipos] = useState([]);
@@ -52,7 +52,7 @@ export default function NuevaOrdenCompra() {
     setItems((prev) => prev.map((it, idx) => (idx === i ? { ...it, [campo]: valor } : it)));
   }
   function agregarItem() {
-    setItems((prev) => [...prev, { descripcion: '', cantidad: 1, valor_unitario: 0 }]);
+    setItems((prev) => [...prev, { descripcion: '', unidad: '', cantidad: 1, valor_unitario: 0 }]);
   }
   function quitarItem(i) {
     setItems((prev) => prev.filter((_, idx) => idx !== i));
@@ -140,22 +140,57 @@ export default function NuevaOrdenCompra() {
 
           {/* Ítems */}
           <Seccion titulo="Ítems">
-            {items.map((it, i) => (
-              <div key={i} className="grid grid-cols-12 gap-2 mb-2 items-center">
-                <input placeholder="Descripción" value={it.descripcion}
-                  onChange={(e) => actualizarItem(i, 'descripcion', e.target.value)}
-                  className="input col-span-6" />
-                <input type="number" placeholder="Cant." value={it.cantidad}
-                  onChange={(e) => actualizarItem(i, 'cantidad', e.target.value)}
-                  className="input col-span-2" />
-                <input type="number" placeholder="Valor unitario" value={it.valor_unitario}
-                  onChange={(e) => actualizarItem(i, 'valor_unitario', e.target.value)}
-                  className="input col-span-3" />
-                <button type="button" onClick={() => quitarItem(i)} className="col-span-1 text-red-600 text-sm">✕</button>
-              </div>
-            ))}
-            <button type="button" onClick={agregarItem} className="text-sm text-blue-700">+ Agregar ítem</button>
-            <p className="text-right font-medium mt-2">Subtotal: {formatoPesos(calculo.subtotal)}</p>
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="text-left text-xs text-neutral-500">
+                    <th className="pb-2 font-medium">Descripción</th>
+                    <th className="pb-2 font-medium w-20">Unidad</th>
+                    <th className="pb-2 font-medium w-24 text-right">Cantidad</th>
+                    <th className="pb-2 font-medium w-32 text-right">Precio unitario</th>
+                    <th className="pb-2 font-medium w-32 text-right">Subtotal</th>
+                    <th className="pb-2 w-6"></th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {items.map((it, i) => {
+                    const subtotalItem = (Number(it.cantidad) || 0) * (Number(it.valor_unitario) || 0);
+                    return (
+                      <tr key={i}>
+                        <td className="py-1 pr-2">
+                          <input placeholder="Descripción" value={it.descripcion}
+                            onChange={(e) => actualizarItem(i, 'descripcion', e.target.value)}
+                            className="input" />
+                        </td>
+                        <td className="py-1 pr-2">
+                          <input placeholder="UND" value={it.unidad}
+                            onChange={(e) => actualizarItem(i, 'unidad', e.target.value)}
+                            className="input" />
+                        </td>
+                        <td className="py-1 pr-2">
+                          <input type="number" value={it.cantidad}
+                            onChange={(e) => actualizarItem(i, 'cantidad', e.target.value)}
+                            className="input text-right" />
+                        </td>
+                        <td className="py-1 pr-2">
+                          <input type="number" value={it.valor_unitario}
+                            onChange={(e) => actualizarItem(i, 'valor_unitario', e.target.value)}
+                            className="input text-right" />
+                        </td>
+                        <td className="py-1 pr-2 text-right font-medium whitespace-nowrap">
+                          {formatoPesos(subtotalItem)}
+                        </td>
+                        <td className="py-1">
+                          <button type="button" onClick={() => quitarItem(i)} className="text-red-600 text-sm">✕</button>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+            <button type="button" onClick={agregarItem} className="text-sm text-blue-700 mt-2">+ Agregar ítem</button>
+            <p className="text-right font-semibold text-base border-t pt-2 mt-2">Subtotal ítems: {formatoPesos(calculo.subtotal)}</p>
           </Seccion>
 
           {/* Impuestos */}
@@ -255,15 +290,43 @@ export default function NuevaOrdenCompra() {
             <textarea value={oc.notas} onChange={(e) => setOc({ ...oc, notas: e.target.value })} className="input" rows={2} />
           </Campo>
 
-          {/* Totales en vivo */}
-          <div className="bg-carbon text-hueso rounded-lg p-5 flex justify-between items-center">
-            <div>
-              <p className="text-sm text-neutral-300">Total</p>
-              <p className="text-2xl font-semibold">{formatoPesos(calculo.total)}</p>
-            </div>
-            <div className="text-right">
-              <p className="text-sm text-neutral-300">Neto a pagar</p>
-              <p className="text-2xl font-semibold">{formatoPesos(calculo.neto_a_pagar)}</p>
+          {/* Esta Orden: resumen completo, igual al sistema anterior */}
+          <div className="bg-carbon text-hueso rounded-lg p-5">
+            <h2 className="font-medium mb-3 text-gris-calido">Esta Orden</h2>
+            <div className="text-sm space-y-1.5">
+              <FilaResumen label="Subtotal" valor={calculo.subtotal} />
+              {Number(oc.descuento) > 0 && <FilaResumen label="- Descuento" valor={oc.descuento} negativo />}
+              {oc.tipo_impuesto === 'CON_IVA' && (
+                <FilaResumen label={`+ IVA (${oc.porcentaje_iva || 0}%)`} valor={calculo.valor_iva} />
+              )}
+              {oc.tipo_impuesto === 'CON_AIU' && (
+                <>
+                  <FilaResumen label={`+ AIU (${calculo.porcentaje_aiu}%)`} valor={calculo.valor_aiu} />
+                  {Number(oc.porcentaje_administracion) > 0 && (
+                    <FilaResumen label={`   · Administración (${oc.porcentaje_administracion}%)`} valor={calculo.valor_administracion} sutil />
+                  )}
+                  {Number(oc.porcentaje_imprevistos) > 0 && (
+                    <FilaResumen label={`   · Imprevistos (${oc.porcentaje_imprevistos}%)`} valor={calculo.valor_imprevistos} sutil />
+                  )}
+                  {Number(oc.porcentaje_utilidad) > 0 && (
+                    <FilaResumen label={`   · Utilidad (${oc.porcentaje_utilidad}%)`} valor={calculo.valor_utilidad} sutil />
+                  )}
+                  {Number(oc.porcentaje_utilidad) > 0 && (
+                    <FilaResumen label={`+ IVA sobre la Utilidad (${oc.porcentaje_iva || 0}%)`} valor={calculo.valor_iva} />
+                  )}
+                </>
+              )}
+              <FilaResumen label="TOTAL" valor={calculo.total} destacado />
+              {Number(oc.porcentaje_retencion) > 0 && (
+                <FilaResumen label={`- Retenido (${oc.porcentaje_retencion}%)`} valor={calculo.valor_retenido} negativo />
+              )}
+              {Number(oc.porcentaje_amortizacion) > 0 && (
+                <FilaResumen label={`- Amortización anticipo (${oc.porcentaje_amortizacion}%)`} valor={calculo.valor_amortizacion} negativo />
+              )}
+              {Number(oc.devolucion_retenido) > 0 && (
+                <FilaResumen label="+ Devolución retenido" valor={oc.devolucion_retenido} />
+              )}
+              <FilaResumen label="A PAGAR" valor={calculo.neto_a_pagar} destacado grande />
             </div>
           </div>
 
@@ -295,6 +358,22 @@ function Campo({ label, children }) {
     <div className="mb-2">
       <label className="block text-xs font-medium text-neutral-600 mb-1">{label}</label>
       {children}
+    </div>
+  );
+}
+
+function FilaResumen({ label, valor, destacado, grande, sutil, negativo }) {
+  return (
+    <div
+      className={[
+        'flex justify-between',
+        destacado ? 'font-semibold border-t border-hueso/20 pt-1.5 mt-1' : '',
+        grande ? 'text-lg text-dorado' : '',
+        sutil ? 'text-gris-calido/80 text-xs' : '',
+      ].join(' ')}
+    >
+      <span>{label}</span>
+      <span>{negativo ? '-' : ''}{formatoPesos(valor)}</span>
     </div>
   );
 }
