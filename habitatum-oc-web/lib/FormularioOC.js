@@ -11,6 +11,7 @@ const INPUT = 'border border-neutral-300 rounded-md px-3 py-2 text-sm w-full bg-
 export default function FormularioOC({
   oc, setOc, items, setItems,
   proveedores, contratos, anticipos, usuarios,
+  presupuestoCapitulos = [],
   calculo,
   onSubmit, guardando, error, tituloBoton,
 }) {
@@ -75,6 +76,7 @@ export default function FormularioOC({
                 <th className="py-2 px-3 font-medium border-b border-neutral-200 w-36 text-right">Precio unitario</th>
                 <th className="py-2 px-3 font-medium border-b border-neutral-200 w-36 text-right">Subtotal</th>
                 <th className="py-2 px-3 font-medium border-b border-neutral-200 w-20 text-right">% Orden</th>
+                <th className="py-2 px-3 font-medium border-b border-neutral-200 w-44">Ítem de Presupuesto</th>
                 <th className="py-2 px-2 border-b border-neutral-200 w-10"></th>
               </tr>
             </thead>
@@ -109,6 +111,20 @@ export default function FormularioOC({
                     </td>
                     <td className="py-2 px-3 text-right text-neutral-500 whitespace-nowrap">
                       {porcentaje.toFixed(1)}%
+                    </td>
+                    <td className="py-2 px-3">
+                      <select value={it.presupuesto_item_id || ''}
+                        onChange={(e) => actualizarItem(i, 'presupuesto_item_id', e.target.value || null)}
+                        className={INPUT}>
+                        <option value="">— Sin vincular —</option>
+                        {presupuestoCapitulos.map((cap) => (
+                          <optgroup key={cap.id} label={`${cap.codigo} · ${cap.nombre}`}>
+                            {(cap.presupuesto_items || []).map((pi) => (
+                              <option key={pi.id} value={pi.id}>{pi.codigo} · {pi.descripcion}</option>
+                            ))}
+                          </optgroup>
+                        ))}
+                      </select>
                     </td>
                     <td className="py-2 px-2 text-center">
                       <button type="button" onClick={() => quitarItem(i)}

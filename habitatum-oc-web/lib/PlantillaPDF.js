@@ -44,13 +44,8 @@ function FilaCuadro({ label, valor, destacado, grande, sutil, negativo }) {
 }
 
 export default function PlantillaOrdenCompraPDF({ oc, items, acumulados, nombreObra, mostrarMarcaHabitatum, nombreEmisor }) {
-  let recuadro = { color: 'green', titulo: 'PAGADA EN SU TOTALIDAD', valor: 0 };
-  if ((oc.pagado || 0) <= 0) {
-    recuadro = { color: 'amber', titulo: 'VALOR A PAGAR AHORA', valor: oc.neto_a_pagar };
-  } else if ((oc.saldo || 0) > 0) {
-    recuadro = { color: 'red', titulo: 'SALDO PENDIENTE POR TRANSFERIR', valor: oc.saldo };
-  }
-  const colores = COLORES_RECUADRO[recuadro.color];
+  const recuadro = { titulo: 'TOTAL A PAGAR', valor: oc.neto_a_pagar };
+  const colores = COLORES_RECUADRO.amber;
 
   return (
     <Document>
