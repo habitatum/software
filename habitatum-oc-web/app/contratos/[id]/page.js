@@ -32,8 +32,6 @@ export default function DetalleContrato() {
 
   if (cargando || !usuario || !contrato) return null;
 
-  const valorPagado = (acumulados?.subtotal_acumulado || 0) - (acumulados?.retenido_acumulado || 0) + (acumulados?.devolucion_acumulada || 0);
-
   return (
     <div>
       <NavBar usuario={usuario} proyecto={proyecto} />
@@ -60,22 +58,24 @@ export default function DetalleContrato() {
         <div className="bg-white rounded-lg shadow-sm border p-5 text-sm space-y-1">
           <h2 className="font-medium mb-2">Acumulados del contrato</h2>
           <div className="flex justify-between"><span>Subtotal acumulado (excluye anticipos)</span><span>{formatoPesos(acumulados?.subtotal_acumulado)}</span></div>
+          <div className="flex justify-between"><span>Total acumulado (excluye anticipos)</span><span>{formatoPesos(acumulados?.total_acumulado)}</span></div>
           <div className="flex justify-between"><span>Retenido acumulado</span><span>{formatoPesos(acumulados?.retenido_acumulado)}</span></div>
-          <div className="flex justify-between"><span>Devolución acumulada</span><span>{formatoPesos(acumulados?.devolucion_acumulada)}</span></div>
-          <div className="flex justify-between font-semibold border-t pt-2 mt-2"><span>Valor pagado a la fecha</span><span>{formatoPesos(valorPagado)}</span></div>
+          <div className="flex justify-between"><span>Amortizado acumulado</span><span>{formatoPesos(acumulados?.amortizado_acumulado)}</span></div>
+          <div className="flex justify-between font-semibold border-t pt-2 mt-2"><span>Devolución acumulada</span><span>{formatoPesos(acumulados?.devolucion_acumulada)}</span></div>
         </div>
 
         <div className="bg-white rounded-lg shadow-sm border overflow-hidden">
           <h2 className="font-medium p-4 pb-0">Órdenes de Compra del contrato</h2>
           <table className="w-full text-sm mt-2">
-            <thead className="bg-gris-calido/30 text-left"><tr><th className="p-3">Folio</th><th className="p-3">Fecha</th><th className="p-3">Tipo pago</th><th className="p-3 text-right">Total</th></tr></thead>
+            <thead className="bg-gris-calido/30 text-left"><tr><th className="p-3">Folio</th><th className="p-3">Fecha</th><th className="p-3">Tipo pago</th><th className="p-3 text-right">Total</th><th className="p-3 text-right">Saldo</th></tr></thead>
             <tbody>
               {ordenes.map((o) => (
                 <tr key={o.id} className="border-t">
                   <td className="p-3"><Link href={`/ordenes-compra/${o.id}`} className="text-blue-700 hover:underline">{o.folio}</Link></td>
                   <td className="p-3">{o.fecha}</td>
                   <td className="p-3">{o.tipo_pago}</td>
-                  <td className="p-3 text-right">{formatoPesos(o.subtotal)}</td>
+                  <td className="p-3 text-right">{formatoPesos(o.total)}</td>
+                  <td className="p-3 text-right">{formatoPesos(o.saldo)}</td>
                 </tr>
               ))}
             </tbody>
