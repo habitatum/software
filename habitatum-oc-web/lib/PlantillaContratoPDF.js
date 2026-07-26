@@ -1,6 +1,7 @@
 import { Document, Page, Text, View, StyleSheet } from '@react-pdf/renderer';
 import { formatoPesos } from './calculosOC';
 import { EncabezadoPDF, COLOR_DORADO } from './EncabezadoPDF';
+import CuadroAcumuladosPDF from './CuadroAcumuladosPDF';
 
 const estilos = StyleSheet.create({
   pagina: { padding: 30, fontSize: 10, fontFamily: 'Helvetica' },
@@ -14,9 +15,6 @@ const estilos = StyleSheet.create({
 });
 
 export default function PlantillaContratoPDF({ contrato, acumulados, ordenes, nombreObra, mostrarMarcaHabitatum, nombreEmisor }) {
-  const valorPagado =
-    (acumulados?.subtotal_acumulado || 0) - (acumulados?.retenido_acumulado || 0) + (acumulados?.devolucion_acumulada || 0);
-
   return (
     <Document>
       <Page size="A4" style={estilos.pagina}>
@@ -34,13 +32,7 @@ export default function PlantillaContratoPDF({ contrato, acumulados, ordenes, no
           <View style={estilos.fila}><Text>Valor inicial:</Text><Text>{formatoPesos(contrato.valor_inicial)}</Text></View>
         </View>
 
-        <View style={estilos.seccion}>
-          <Text style={estilos.tituloSeccion}>Acumulados del contrato</Text>
-          <View style={estilos.fila}><Text>Subtotal acumulado (excluye anticipos)</Text><Text>{formatoPesos(acumulados?.subtotal_acumulado)}</Text></View>
-          <View style={estilos.fila}><Text>Retenido acumulado</Text><Text>{formatoPesos(acumulados?.retenido_acumulado)}</Text></View>
-          <View style={estilos.fila}><Text>Devolución acumulada</Text><Text>{formatoPesos(acumulados?.devolucion_acumulada)}</Text></View>
-          <View style={estilos.fila}><Text style={estilos.totalDestacado}>Valor pagado a la fecha</Text><Text style={estilos.totalDestacado}>{formatoPesos(valorPagado)}</Text></View>
-        </View>
+        <CuadroAcumuladosPDF acumulados={acumulados} />
 
         <View style={estilos.seccion}>
           <Text style={estilos.tituloSeccion}>Órdenes de Compra del contrato</Text>
@@ -48,14 +40,14 @@ export default function PlantillaContratoPDF({ contrato, acumulados, ordenes, no
             <Text style={estilos.colFolio}>Folio</Text>
             <Text style={estilos.colFecha}>Fecha</Text>
             <Text style={estilos.colTipo}>Tipo pago</Text>
-            <Text style={estilos.colVal}>Subtotal</Text>
+            <Text style={estilos.colVal}>Total</Text>
           </View>
           {(ordenes || []).map((o) => (
             <View key={o.id} style={estilos.tablaFila}>
               <Text style={estilos.colFolio}>{o.folio}</Text>
               <Text style={estilos.colFecha}>{o.fecha}</Text>
               <Text style={estilos.colTipo}>{o.tipo_pago}</Text>
-              <Text style={estilos.colVal}>{formatoPesos(o.subtotal)}</Text>
+              <Text style={estilos.colVal}>{formatoPesos(o.total)}</Text>
             </View>
           ))}
           {(!ordenes || ordenes.length === 0) && (
