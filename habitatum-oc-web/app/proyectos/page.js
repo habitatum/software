@@ -18,6 +18,11 @@ export default function SeleccionarProyecto() {
   const [error, setError] = useState('');
   const [guardando, setGuardando] = useState(false);
 
+  const [editandoId, setEditandoId] = useState(null);
+  const [formEdicion, setFormEdicion] = useState({ nombre: '', cliente: '' });
+  const [errorEdicion, setErrorEdicion] = useState('');
+  const [guardandoEdicion, setGuardandoEdicion] = useState(false);
+
   async function cargar() {
     const supabase = crearClienteSupabase();
     const { data } = await supabase.from('proyectos').select('*').eq('estado', 'activo').order('codigo');
@@ -29,6 +34,41 @@ export default function SeleccionarProyecto() {
   function elegir(id) {
     guardarProyectoActualId(id);
     router.push('/dashboard');
+  }
+
+  function abrirEdicion(p, e) {
+    e.stopPropagation();
+    setEditandoId(p.id);
+    setFormEdicion({ nombre: p.nombre, cliente: p.cliente || '' });
+    setErrorEdicion('');
+  }
+
+  function cancelarEdicion(e) {
+    e.stopPropagation();
+    setEditandoId(null);
+    setErrorEdicion('');
+  }
+
+  async function guardarEdicion(id, e) {
+    e.stopPropagation();
+    setErrorEdicion('');
+    if (!formEdicion.nombre.trim()) {
+      setErrorEdicion('El nombre es obligatorio.');
+      return;
+    }
+    setGuardandoEdicion(true);
+    const supabase = crearClienteSupabase();
+    const { error: err } = await supabase
+      .from('proyectos')
+      .update({ nombre: formEdicion.nombre.trim(), cliente: formEdicion.cliente.trim() || null })
+      .eq('id', id);
+    setGuardandoEdicion(false);
+    if (err) {
+      setErrorEdicion(err.message);
+      return;
+    }
+    setEditandoId(null);
+    cargar();
   }
 
   async function crearProyecto(e) {
@@ -84,20 +124,65 @@ export default function SeleccionarProyecto() {
 
         {!cargandoProyectos && (
           <div className="grid sm:grid-cols-2 gap-4 mb-8">
-            {proyectos.map((p) => (
-              <button
-                key={p.id}
-                onClick={() => elegir(p.id)}
-                className="bg-hueso rounded-lg p-5 text-left border border-transparent hover:border-dorado transition-colors"
-              >
-                <p className="font-semibold text-lg">{p.nombre}</p>
-                <p className="text-xs text-neutral-500 mt-1">Código: {p.codigo}</p>
-                {p.cliente && <p className="text-sm text-neutral-600 mt-2">{p.cliente}</p>}
-                {!p.mostrar_marca_habitatum && (
-                  <p className="text-xs text-dorado mt-2">Sin marca HABITATUM en documentos</p>
-                )}
-              </button>
-            ))}
+            {proyectos.map((p) => {
+              const enEdicion = editandoId === p.id;
+              return (
+                <div
+                  key={p.id}
+                  onClick={() => { if (!enEdicion) elegir(p.id); }}
+                  className={`bg-hueso rounded-lg p-5 text-left border border-transparent transition-colors ${enEdicion ? '' : 'hover:border-dorado cursor-pointer'}`}
+                >
+                  {enEdicion ? (
+                    <div className="space-y-2" onClick={(e) => e.stopPropagation()}>
+                      <input
+                        value={formEdicion.nombre}
+                        onChange={(e) => setFormEdicion({ ...formEdicion, nombre: e.target.value })}
+                        placeholder="Nombre del proyecto"
+                        className="border rounded px-3 py-2 text-sm w-full"
+                      />
+                      <input
+                        value={formEdicion.cliente}
+                        onChange={(e) => setFormEdicion({ ...formEdicion, cliente: e.target.value })}
+                        placeholder="Cliente (opcional)"
+                        className="border rounded px-3 py-2 text-sm w-full"
+                      />
+                      {errorEdicion && <p className="text-red-600 text-xs">{errorEdicion}</p>}
+                      <div className="flex gap-2">
+                        <button
+                          onClick={(e) => guardarEdicion(p.id, e)}
+                          disabled={guardandoEdicion}
+                          className="bg-carbon text-hueso px-3 py-1.5 rounded text-xs disabled:opacity-50"
+                        >
+                          {guardandoEdicion ? 'Guardando...' : 'Guardar'}
+                        </button>
+                        <button onClick={cancelarEdicion} className="px-3 py-1.5 rounded text-xs border">
+                          Cancelar
+                        </button>
+                      </div>
+                    </div>
+                  ) : (
+                    <>
+                      <div className="flex items-start justify-between gap-2">
+                        <p className="font-semibold text-lg">{p.nombre}</p>
+                        {usuario.rol === 'admin' && (
+                          <button
+                            onClick={(e) => abrirEdicion(p, e)}
+                            className="text-xs text-neutral-500 hover:text-dorado shrink-0"
+                          >
+                            Editar
+                          </button>
+                        )}
+                      </div>
+                      <p className="text-xs text-neutral-500 mt-1">Código: {p.codigo}</p>
+                      {p.cliente && <p className="text-sm text-neutral-600 mt-2">{p.cliente}</p>}
+                      {!p.mostrar_marca_habitatum && (
+                        <p className="text-xs text-dorado mt-2">Sin marca HABITATUM en documentos</p>
+                      )}
+                    </>
+                  )}
+                </div>
+              );
+            })}
             {proyectos.length === 0 && (
               <p className="text-gris-calido col-span-2 text-center py-8">Aún no hay proyectos creados.</p>
             )}
