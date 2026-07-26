@@ -14,11 +14,9 @@ export default function DetalleOrdenCompra() {
   const { proyecto } = useProyectoActual();
   const [oc, setOc] = useState(null);
   const [items, setItems] = useState([]);
-  const [pagos, setPagos] = useState([]);
   const [acumulados, setAcumulados] = useState(null);
   const [auditoria, setAuditoria] = useState(null);
   const [anulando, setAnulando] = useState(false);
-  const [nuevoPago, setNuevoPago] = useState({ fecha: new Date().toISOString().slice(0, 10), valor: '', nota: '' });
 
   async function cargar() {
     const supabase = crearClienteSupabase();
@@ -27,10 +25,8 @@ export default function DetalleOrdenCompra() {
       .select('*, proveedores(*), contratos(numero_contrato)')
       .eq('id', id).single();
     const { data: itemsData } = await supabase.from('items_oc').select('*').eq('orden_compra_id', id).order('id');
-    const { data: pagosData } = await supabase.from('pagos').select('*').eq('orden_compra_id', id).order('fecha');
     setOc(ocData);
     setItems(itemsData || []);
-    setPagos(pagosData || []);
     if (ocData?.contrato_id) {
       const { data: acum } = await supabase.from('v_acumulados_contrato').select('*').eq('contrato_id', ocData.contrato_id).single();
       setAcumulados(acum);
@@ -51,17 +47,6 @@ export default function DetalleOrdenCompra() {
 
   useEffect(() => { if (usuario) cargar(); }, [usuario]); // eslint-disable-line
   useEffect(() => { if (usuario?.rol === 'admin') cargarAuditoria(); }, [usuario]); // eslint-disable-line
-
-  async function registrarPago(e) {
-    e.preventDefault();
-    const supabase = crearClienteSupabase();
-    await supabase.from('pagos').insert({
-      orden_compra_id: id, fecha: nuevoPago.fecha, valor: nuevoPago.valor,
-      nota: nuevoPago.nota, registrado_por: usuario.id,
-    });
-    setNuevoPago({ fecha: new Date().toISOString().slice(0, 10), valor: '', nota: '' });
-    cargar();
-  }
 
   async function anularOrden() {
     if (!window.confirm('¿Confirmas anular esta Orden de Compra? Esta acción debe ser excepcional.')) return;
@@ -105,6 +90,12 @@ export default function DetalleOrdenCompra() {
                 {anulando ? 'Anulando...' : 'Anular Orden de Compra'}
               </button>
             )}
+            {usuario.rol !== 'lectura' && oc.estado === 'VIGENTE' && (
+              <Link href={`/ordenes-compra/${id}/editar`}
+                className="border border-neutral-300 px-4 py-2 rounded text-sm hover:bg-neutral-50">
+                Editar
+              </Link>
+            )}
             <a href={`/api/ordenes-compra/${id}/pdf`} target="_blank" rel="noreferrer"
               className="bg-carbon text-hueso px-4 py-2 rounded text-sm">
               Descargar PDF
@@ -132,7 +123,6 @@ export default function DetalleOrdenCompra() {
           <Dato label="Contrato" valor={oc.contratos?.numero_contrato ?? '—'} />
           <Dato label="Fecha" valor={oc.fecha} />
           <Dato label="Tipo de orden" valor={oc.tipo_orden} />
-          <Dato label="Capítulo" valor={oc.capitulo} />
           <Dato label="Responsable" valor={oc.responsable} />
           <Dato label="Tipo de pago" valor={oc.tipo_pago} />
           {oc.descripcion && <div className="col-span-2"><Dato label="Descripción" valor={oc.descripcion} /></div>}
@@ -151,19 +141,25 @@ export default function DetalleOrdenCompra() {
                   <th className="py-2 px-3 font-medium border-b border-neutral-200 w-24 text-right">Cantidad</th>
                   <th className="py-2 px-3 font-medium border-b border-neutral-200 w-32 text-right">Precio unitario</th>
                   <th className="py-2 px-3 font-medium border-b border-neutral-200 w-32 text-right">Subtotal</th>
+                  <th className="py-2 px-3 font-medium border-b border-neutral-200 w-20 text-right">% Orden</th>
                 </tr>
               </thead>
               <tbody>
-                {items.map((it, i) => (
-                  <tr key={it.id} className={`${i % 2 === 1 ? 'bg-neutral-50/60' : ''} border-b border-neutral-100 last:border-b-0 hover:bg-hueso/60`}>
-                    <td className="py-2 px-3">{it.descripcion}</td>
-                    <td className="py-2 px-3">{it.unidad || '—'}</td>
-                    <td className="py-2 px-3 text-right">{it.cantidad}</td>
-                    <td className="py-2 px-3 text-right">{formatoPesos(it.valor_unitario)}</td>
-                    <td className="py-2 px-3 text-right font-medium whitespace-nowrap">{formatoPesos(it.cantidad * it.valor_unitario)}</td>
-                  </tr>
-                ))}
-                {items.length === 0 && <tr><td className="py-3 px-3 text-neutral-400" colSpan={5}>Sin ítems.</td></tr>}
+                {items.map((it, i) => {
+                  const subtotalItem = it.cantidad * it.valor_unitario;
+                  const porcentaje = oc.total > 0 ? (subtotalItem / oc.total) * 100 : 0;
+                  return (
+                    <tr key={it.id} className={`${i % 2 === 1 ? 'bg-neutral-50/60' : ''} border-b border-neutral-100 last:border-b-0 hover:bg-hueso/60`}>
+                      <td className="py-2 px-3">{it.descripcion}</td>
+                      <td className="py-2 px-3">{it.unidad || '—'}</td>
+                      <td className="py-2 px-3 text-right">{it.cantidad}</td>
+                      <td className="py-2 px-3 text-right">{formatoPesos(it.valor_unitario)}</td>
+                      <td className="py-2 px-3 text-right font-medium whitespace-nowrap">{formatoPesos(subtotalItem)}</td>
+                      <td className="py-2 px-3 text-right text-neutral-500 whitespace-nowrap">{porcentaje.toFixed(1)}%</td>
+                    </tr>
+                  );
+                })}
+                {items.length === 0 && <tr><td className="py-3 px-3 text-neutral-400" colSpan={6}>Sin ítems.</td></tr>}
               </tbody>
             </table>
           </div>
@@ -206,8 +202,6 @@ export default function DetalleOrdenCompra() {
               <FilaResumen label="+ Devolución retenido" valor={oc.devolucion_retenido} />
             )}
             <FilaResumen label="A PAGAR" valor={oc.neto_a_pagar} destacado grande />
-            <FilaResumen label="Pagado" valor={oc.pagado} sutil />
-            <FilaResumen label="Saldo" valor={oc.saldo} destacado />
             {oc.tipo_pago === 'ANTICIPO' && (
               <FilaResumen label="Saldo del anticipo por amortizar" valor={oc.saldo_anticipo_por_amortizar} destacado />
             )}
@@ -225,40 +219,6 @@ export default function DetalleOrdenCompra() {
             <div className="flex justify-between font-semibold border-t pt-2 mt-2"><span>Devolución acumulada</span><span>{formatoPesos(acumulados.devolucion_acumulada)}</span></div>
           </div>
         )}
-
-        <div className="bg-white rounded-lg shadow-sm border p-5">
-          <h2 className="font-medium mb-3">Pagos registrados</h2>
-          <table className="w-full text-sm mb-4">
-            <tbody>
-              {pagos.map((p) => (
-                <tr key={p.id} className="border-t">
-                  <td className="py-2">{p.fecha}</td>
-                  <td className="py-2 text-right">{formatoPesos(p.valor)}</td>
-                  <td className="py-2 text-neutral-500">{p.nota}</td>
-                </tr>
-              ))}
-              {pagos.length === 0 && <tr><td className="py-2 text-neutral-400">Sin pagos registrados aún.</td></tr>}
-            </tbody>
-          </table>
-
-          {usuario.rol !== 'lectura' && (
-            <form onSubmit={registrarPago} className="flex gap-2 items-end">
-              <div>
-                <label className="block text-xs mb-1">Fecha</label>
-                <input type="date" value={nuevoPago.fecha} onChange={(e) => setNuevoPago({ ...nuevoPago, fecha: e.target.value })} className="border rounded px-2 py-1 text-sm" />
-              </div>
-              <div>
-                <label className="block text-xs mb-1">Valor</label>
-                <input type="number" required value={nuevoPago.valor} onChange={(e) => setNuevoPago({ ...nuevoPago, valor: e.target.value })} className="border rounded px-2 py-1 text-sm" />
-              </div>
-              <div className="flex-1">
-                <label className="block text-xs mb-1">Nota</label>
-                <input value={nuevoPago.nota} onChange={(e) => setNuevoPago({ ...nuevoPago, nota: e.target.value })} className="border rounded px-2 py-1 text-sm w-full" />
-              </div>
-              <button className="bg-carbon text-hueso px-4 py-1.5 rounded text-sm">Registrar</button>
-            </form>
-          )}
-        </div>
       </main>
     </div>
   );
