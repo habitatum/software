@@ -192,11 +192,6 @@ with subtotales as (
   from items_oc
   group by orden_compra_id
 ),
-pagado_por_oc as (
-  select orden_compra_id, coalesce(sum(valor), 0) as pagado
-  from pagos
-  group by orden_compra_id
-),
 base as (
   select
     oc.*,
@@ -209,11 +204,9 @@ base as (
     case when oc.tipo_impuesto = 'CON_AIU' then round(coalesce(s.subtotal, 0) * oc.porcentaje_administracion / 100, 2) else 0 end as valor_administracion,
     case when oc.tipo_impuesto = 'CON_AIU' then round(coalesce(s.subtotal, 0) * oc.porcentaje_imprevistos / 100, 2) else 0 end as valor_imprevistos,
     case when oc.tipo_impuesto = 'CON_AIU' then round(coalesce(s.subtotal, 0) * oc.porcentaje_utilidad / 100, 2) else 0 end as valor_utilidad,
-    case when oc.tipo_impuesto = 'CON_AIU' then (oc.porcentaje_administracion + oc.porcentaje_imprevistos + oc.porcentaje_utilidad) else 0 end as porcentaje_aiu,
-    coalesce(p.pagado, 0) as pagado
+    case when oc.tipo_impuesto = 'CON_AIU' then (oc.porcentaje_administracion + oc.porcentaje_imprevistos + oc.porcentaje_utilidad) else 0 end as porcentaje_aiu
   from ordenes_compra oc
   left join subtotales s on s.orden_compra_id = oc.id
-  left join pagado_por_oc p on p.orden_compra_id = oc.id
 ),
 calculado as (
   select
@@ -235,7 +228,10 @@ con_neto as (
   select
     con_derivados.*,
     (total - valor_amortizacion - valor_retenido + coalesce(devolucion_retenido, 0)) as neto_a_pagar,
-    (total - pagado) as saldo
+    -- Toda OC se asume pagada desde que se crea (decisión del usuario): ya no se
+    -- suma desde la tabla `pagos`.
+    total as pagado,
+    0::numeric as saldo
   from con_derivados
 ),
 amortizado_por_anticipo as (
