@@ -30,6 +30,7 @@ export default function EditarOrdenCompra() {
   const [contratos, setContratos] = useState([]);
   const [anticipos, setAnticipos] = useState([]);
   const [usuarios, setUsuarios] = useState([]);
+  const [presupuestoCapitulos, setPresupuestoCapitulos] = useState([]);
   const [guardando, setGuardando] = useState(false);
   const [error, setError] = useState('');
 
@@ -37,13 +38,14 @@ export default function EditarOrdenCompra() {
     if (!usuario || !proyecto) return;
     async function cargar() {
       const supabase = crearClienteSupabase();
-      const [{ data: ocData }, { data: itemsData }, { data: prov }, { data: cont }, { data: ant }, { data: usrs }] = await Promise.all([
+      const [{ data: ocData }, { data: itemsData }, { data: prov }, { data: cont }, { data: ant }, { data: usrs }, { data: pres }] = await Promise.all([
         supabase.from('ordenes_compra').select('*').eq('id', id).single(),
         supabase.from('items_oc').select('*').eq('orden_compra_id', id).order('id'),
         supabase.from('proveedores').select('id, nombre').order('nombre'),
         supabase.from('contratos').select('id, numero_contrato').eq('proyecto_id', proyecto.id).order('numero_contrato'),
         supabase.from('ordenes_compra').select('id, folio, contrato_id').eq('proyecto_id', proyecto.id).eq('tipo_pago', 'ANTICIPO').neq('id', id),
         supabase.from('usuarios').select('id, nombre').eq('activo', true).order('nombre'),
+        supabase.from('presupuestos').select('id').eq('proyecto_id', proyecto.id).maybeSingle(),
       ]);
       setFolio(ocData?.folio || '');
       setOc(ocData);
@@ -52,6 +54,14 @@ export default function EditarOrdenCompra() {
       setContratos(cont || []);
       setAnticipos(ant || []);
       setUsuarios(usrs || []);
+      if (pres) {
+        const { data: caps } = await supabase
+          .from('presupuesto_capitulos')
+          .select('id, codigo, nombre, presupuesto_items(id, codigo, descripcion)')
+          .eq('presupuesto_id', pres.id)
+          .order('orden');
+        setPresupuestoCapitulos(caps || []);
+      }
     }
     cargar();
   }, [usuario, proyecto, id]);
@@ -83,6 +93,7 @@ export default function EditarOrdenCompra() {
       .filter((it) => it.descripcion)
       .map((it) => ({
         descripcion: it.descripcion, unidad: it.unidad, cantidad: it.cantidad, valor_unitario: it.valor_unitario,
+        presupuesto_item_id: it.presupuesto_item_id || null,
         orden_compra_id: id,
       }));
 
@@ -105,6 +116,7 @@ export default function EditarOrdenCompra() {
           oc={oc} setOc={setOc}
           items={items} setItems={setItems}
           proveedores={proveedores} contratos={contratos} anticipos={anticipos} usuarios={usuarios}
+          presupuestoCapitulos={presupuestoCapitulos}
           calculo={calculo}
           onSubmit={guardar}
           guardando={guardando}
