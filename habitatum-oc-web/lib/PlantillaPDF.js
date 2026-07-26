@@ -21,6 +21,7 @@ const estilos = StyleSheet.create({
   colCant: { flex: 1, textAlign: 'right' },
   colPrecio: { flex: 1.5, textAlign: 'right' },
   colVal: { flex: 1.5, textAlign: 'right' },
+  colPct: { flex: 1, textAlign: 'right' },
   cuadroOrden: { backgroundColor: '#2e2e2e', color: '#efece6', borderRadius: 4, padding: 12, marginBottom: 12 },
   cuadroTitulo: { color: '#cdc5ba', fontWeight: 'bold', marginBottom: 6, fontSize: 11 },
   filaCuadro: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 2 },
@@ -71,7 +72,6 @@ export default function PlantillaOrdenCompraPDF({ oc, items, acumulados, nombreO
           <View style={estilos.fila}><Text>NIT:</Text><Text>{oc.proveedores?.nit}</Text></View>
           <View style={estilos.fila}><Text>Contrato:</Text><Text>{oc.contratos?.numero_contrato ?? '—'}</Text></View>
           <View style={estilos.fila}><Text>Fecha:</Text><Text>{oc.fecha}</Text></View>
-          <View style={estilos.fila}><Text>Capítulo:</Text><Text>{oc.capitulo}</Text></View>
           <View style={estilos.fila}><Text>Responsable:</Text><Text>{oc.responsable}</Text></View>
           {oc.descripcion && <View style={estilos.fila}><Text>Descripción:</Text><Text>{oc.descripcion}</Text></View>}
         </View>
@@ -84,16 +84,22 @@ export default function PlantillaOrdenCompraPDF({ oc, items, acumulados, nombreO
             <Text style={estilos.colCant}>Cant.</Text>
             <Text style={estilos.colPrecio}>Precio unit.</Text>
             <Text style={estilos.colVal}>Subtotal</Text>
+            <Text style={estilos.colPct}>% Orden</Text>
           </View>
-          {items.map((it, i) => (
-            <View key={i} style={estilos.tablaFila}>
-              <Text style={estilos.colDesc}>{it.descripcion}</Text>
-              <Text style={estilos.colUnidad}>{it.unidad || '—'}</Text>
-              <Text style={estilos.colCant}>{it.cantidad}</Text>
-              <Text style={estilos.colPrecio}>{formatoPesos(it.valor_unitario)}</Text>
-              <Text style={estilos.colVal}>{formatoPesos(it.cantidad * it.valor_unitario)}</Text>
-            </View>
-          ))}
+          {items.map((it, i) => {
+            const subtotalItem = it.cantidad * it.valor_unitario;
+            const porcentaje = oc.total > 0 ? (subtotalItem / oc.total) * 100 : 0;
+            return (
+              <View key={i} style={estilos.tablaFila}>
+                <Text style={estilos.colDesc}>{it.descripcion}</Text>
+                <Text style={estilos.colUnidad}>{it.unidad || '—'}</Text>
+                <Text style={estilos.colCant}>{it.cantidad}</Text>
+                <Text style={estilos.colPrecio}>{formatoPesos(it.valor_unitario)}</Text>
+                <Text style={estilos.colVal}>{formatoPesos(subtotalItem)}</Text>
+                <Text style={estilos.colPct}>{porcentaje.toFixed(1)}%</Text>
+              </View>
+            );
+          })}
         </View>
 
         <View style={estilos.cuadroOrden}>
@@ -131,8 +137,6 @@ export default function PlantillaOrdenCompraPDF({ oc, items, acumulados, nombreO
             <FilaCuadro label="+ Devolución retenido" valor={oc.devolucion_retenido} />
           )}
           <FilaCuadro label="A PAGAR" valor={oc.neto_a_pagar} grande />
-          <FilaCuadro label="Pagado" valor={oc.pagado} sutil />
-          <FilaCuadro label="Saldo" valor={oc.saldo} destacado />
           {oc.tipo_pago === 'ANTICIPO' && (
             <FilaCuadro label="Saldo del anticipo por amortizar" valor={oc.saldo_anticipo_por_amortizar} destacado />
           )}
