@@ -5,6 +5,8 @@ import { useProyectoActual } from '@/lib/useProyectoActual';
 import { crearClienteSupabase } from '@/lib/supabaseClient';
 import { formatoPesos } from '@/lib/calculosOC';
 import { parsearPresupuesto } from '@/lib/parsePresupuesto';
+import { calcularPendientePorCortar, cerrarCorte, mapaItemsPresupuesto } from '@/lib/calcularCorte';
+import { exportarControlPresupuestal, prepararCortesParaExportar } from '@/lib/exportarControlPresupuestal';
 import NavBar from '@/components/NavBar';
 
 export default function Presupuesto() {
@@ -18,6 +20,12 @@ export default function Presupuesto() {
   const [subiendo, setSubiendo] = useState(false);
   const [error, setError] = useState('');
   const inputRef = useRef(null);
+
+  const [cortes, setCortes] = useState([]);
+  const [pendiente, setPendiente] = useState(null);
+  const [cerrando, setCerrando] = useState(false);
+  const [exportando, setExportando] = useState(null);
+  const [fechaCierre, setFechaCierre] = useState(new Date().toISOString().slice(0, 10));
 
   async function cargar() {
     setCargandoDatos(true);
@@ -41,14 +49,70 @@ export default function Presupuesto() {
       const mapa = {};
       (ejec || []).forEach((e) => { mapa[e.presupuesto_item_id] = Number(e.ejecutado) || 0; });
       setEjecutados(mapa);
+
+      const { data: cortesData } = await supabase
+        .from('presupuesto_cortes')
+        .select('*, presupuesto_corte_items(*), presupuesto_corte_ocs(*)')
+        .eq('presupuesto_id', p.id)
+        .order('numero');
+      const cortesNormalizados = (cortesData || []).map((c) => ({
+        ...c,
+        items: c.presupuesto_corte_items || [],
+        ocs: c.presupuesto_corte_ocs || [],
+      }));
+      setCortes(cortesNormalizados);
+
+      const ultimoCorte = cortesNormalizados[cortesNormalizados.length - 1] || null;
+      const pend = await calcularPendientePorCortar(supabase, proyecto.id, ultimoCorte);
+      setPendiente(pend);
     } else {
       setCapitulos([]);
       setEjecutados({});
+      setCortes([]);
+      setPendiente(null);
     }
     setCargandoDatos(false);
   }
 
   useEffect(() => { if (usuario && proyecto) cargar(); }, [usuario, proyecto]); // eslint-disable-line
+
+  async function confirmarCierreCorte() {
+    if (!window.confirm(`¿Cerrar el Corte ${cortes.length + 1} con fecha de corte ${fechaCierre}? Una vez cerrado no se puede modificar.`)) return;
+    setCerrando(true);
+    setError('');
+    try {
+      const supabase = crearClienteSupabase();
+      const { data: { session } } = await supabase.auth.getSession();
+      const ultimoCorte = cortes[cortes.length - 1] || null;
+      await cerrarCorte(supabase, {
+        presupuestoId: presupuesto.id,
+        proyectoId: proyecto.id,
+        numero: cortes.length + 1,
+        ultimoCorte,
+        fechaHasta: fechaCierre,
+        usuarioId: session?.user?.id || null,
+        mapaItems: mapaItemsPresupuesto(capitulos),
+      });
+      await cargar();
+    } catch (err) {
+      setError(err.message || 'No se pudo cerrar el corte.');
+    } finally {
+      setCerrando(false);
+    }
+  }
+
+  async function exportar(hastaNumero) {
+    setExportando(hastaNumero);
+    setError('');
+    try {
+      const cortesPreparados = prepararCortesParaExportar(cortes, capitulos);
+      await exportarControlPresupuestal({ proyecto, presupuesto, capitulos, cortes: cortesPreparados, hastaNumero });
+    } catch (err) {
+      setError(err.message || 'No se pudo exportar el control presupuestal.');
+    } finally {
+      setExportando(null);
+    }
+  }
 
   function toggleCapitulo(id) {
     setExpandidos((prev) => ({ ...prev, [id]: !prev[id] }));
@@ -179,6 +243,79 @@ export default function Presupuesto() {
               <FilaResumenGrande label="Presupuestado" valor={totalPresupuestado} />
               <FilaResumenGrande label="Ejecutado" valor={totalEjecutado} />
               <FilaResumenGrande label="Saldo" valor={totalPresupuestado - totalEjecutado} />
+            </div>
+
+            <div className="bg-white rounded-lg shadow-sm border p-5 space-y-4">
+              <div className="flex items-center justify-between">
+                <h2 className="font-semibold">Cortes de Control Presupuestal</h2>
+                {cortes.length > 0 && (
+                  <button
+                    onClick={() => exportar(cortes[cortes.length - 1].numero)}
+                    disabled={exportando !== null}
+                    className="text-sm border rounded px-3 py-1.5 hover:bg-gris-calido/20"
+                  >
+                    {exportando === cortes[cortes.length - 1].numero ? 'Exportando...' : `Exportar último corte (Corte ${cortes[cortes.length - 1].numero})`}
+                  </button>
+                )}
+              </div>
+
+              {cortes.length === 0 && (
+                <p className="text-sm text-neutral-500">Todavía no se ha cerrado ningún corte para este proyecto.</p>
+              )}
+
+              {cortes.length > 0 && (
+                <table className="w-full text-sm">
+                  <thead className="text-left text-neutral-500">
+                    <tr>
+                      <th className="py-1">Corte</th>
+                      <th className="py-1">Periodo</th>
+                      <th className="py-1 text-right">Ejecutado en el periodo</th>
+                      <th className="py-1 w-40"></th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {cortes.map((c) => {
+                      const valorCorte = (c.items || []).reduce((acc, it) => acc + Number(it.valor_ejecutado || 0), 0);
+                      return (
+                        <tr key={c.id} className="border-t">
+                          <td className="py-2 font-medium">Corte {c.numero}</td>
+                          <td className="py-2 text-neutral-500">{c.fecha_desde ? `${c.fecha_desde} → ${c.fecha_hasta}` : `hasta ${c.fecha_hasta}`}</td>
+                          <td className="py-2 text-right">{formatoPesos(valorCorte)}</td>
+                          <td className="py-2 text-right">
+                            <button onClick={() => exportar(c.numero)} disabled={exportando !== null} className="text-xs border rounded px-2 py-1 hover:bg-gris-calido/20">
+                              {exportando === c.numero ? 'Exportando...' : 'Exportar hasta aquí'}
+                            </button>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              )}
+
+              {usuario.rol !== 'lectura' && pendiente && (
+                <div className="bg-gris-calido/10 border border-gris-calido/40 rounded p-4 flex items-center justify-between gap-4 flex-wrap">
+                  <div className="text-sm">
+                    <p className="text-neutral-500">
+                      Ejecutado sin cortar {pendiente.fechaDesde ? `desde ${pendiente.fechaDesde}` : 'desde el inicio'} hasta hoy ({pendiente.ocs.length} Órdenes de Compra):
+                    </p>
+                    <p className="font-semibold text-base">
+                      {formatoPesos(Object.values(pendiente.porItem).reduce((acc, v) => acc + v.valor, 0))}
+                    </p>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <label className="text-xs text-neutral-500">Fecha de cierre</label>
+                    <input type="date" value={fechaCierre} onChange={(e) => setFechaCierre(e.target.value)} className="border rounded px-2 py-1 text-sm" />
+                    <button
+                      onClick={confirmarCierreCorte}
+                      disabled={cerrando}
+                      className="bg-carbon text-hueso px-4 py-1.5 rounded text-sm disabled:opacity-50"
+                    >
+                      {cerrando ? 'Cerrando...' : `Cerrar Corte ${cortes.length + 1}`}
+                    </button>
+                  </div>
+                </div>
+              )}
             </div>
 
             <div className="bg-white rounded-lg shadow-sm border overflow-hidden">
