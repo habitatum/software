@@ -196,6 +196,51 @@ create table presupuesto_items (
   orden int not null default 0
 );
 
+-- ---------- CORTES DE CONTROL PRESUPUESTAL ----------
+-- Un "corte" es una foto congelada de lo ejecutado en un periodo (normalmente
+-- mensual, para la reunión de seguimiento de costos con el cliente). Una vez
+-- cerrado, no se recalcula: sus valores quedan fijos aunque después se editen
+-- o anulen Órdenes de Compra viejas. El periodo se define por oc.fecha.
+create table presupuesto_cortes (
+  id uuid primary key default gen_random_uuid(),
+  presupuesto_id uuid not null references presupuestos(id) on delete cascade,
+  numero int not null,
+  fecha_desde date, -- null = sin límite inferior (Corte 1)
+  fecha_hasta date not null,
+  creado_por uuid references usuarios(id),
+  creado_en timestamptz not null default now(),
+  unique (presupuesto_id, numero)
+);
+
+-- Snapshot congelado de lo ejecutado por ítem DURANTE ese corte (no acumulado).
+create table presupuesto_corte_items (
+  id uuid primary key default gen_random_uuid(),
+  corte_id uuid not null references presupuesto_cortes(id) on delete cascade,
+  presupuesto_item_id uuid not null references presupuesto_items(id) on delete cascade,
+  cantidad_ejecutada numeric(14,2) not null default 0,
+  valor_ejecutado numeric(14,2) not null default 0,
+  unique (corte_id, presupuesto_item_id)
+);
+
+-- Detalle congelado de las Órdenes de Compra que componen cada corte (hoja de
+-- soporte tipo "EXT. N"), denormalizado para que nunca cambie aunque la OC
+-- original se edite o borre después.
+create table presupuesto_corte_ocs (
+  id uuid primary key default gen_random_uuid(),
+  corte_id uuid not null references presupuesto_cortes(id) on delete cascade,
+  orden_compra_id uuid references ordenes_compra(id) on delete set null,
+  folio text,
+  fecha date,
+  proveedor text,
+  capitulo_codigo text,
+  item_codigo text,
+  item_descripcion text,
+  descripcion text,
+  cantidad numeric(14,2),
+  valor_unitario numeric(14,2),
+  valor numeric(14,2) not null default 0
+);
+
 -- ---------- ÍTEMS DE CADA ORDEN ----------
 create table items_oc (
   id uuid primary key default gen_random_uuid(),
@@ -331,6 +376,9 @@ alter table pagos enable row level security;
 alter table presupuestos enable row level security;
 alter table presupuesto_capitulos enable row level security;
 alter table presupuesto_items enable row level security;
+alter table presupuesto_cortes enable row level security;
+alter table presupuesto_corte_items enable row level security;
+alter table presupuesto_corte_ocs enable row level security;
 
 -- Función auxiliar: rol del usuario autenticado
 create or replace function rol_actual() returns rol_usuario as $$
@@ -348,6 +396,9 @@ create policy "lectura_general_pagos" on pagos for select using (auth.uid() is n
 create policy "lectura_general_presupuestos" on presupuestos for select using (auth.uid() is not null);
 create policy "lectura_general_presupuesto_capitulos" on presupuesto_capitulos for select using (auth.uid() is not null);
 create policy "lectura_general_presupuesto_items" on presupuesto_items for select using (auth.uid() is not null);
+create policy "lectura_general_presupuesto_cortes" on presupuesto_cortes for select using (auth.uid() is not null);
+create policy "lectura_general_presupuesto_corte_items" on presupuesto_corte_items for select using (auth.uid() is not null);
+create policy "lectura_general_presupuesto_corte_ocs" on presupuesto_corte_ocs for select using (auth.uid() is not null);
 
 -- Escritura: admin y operativo, NUNCA lectura
 create policy "escritura_proveedores" on proveedores for all
@@ -368,6 +419,15 @@ create policy "escritura_presupuesto_capitulos_admin" on presupuesto_capitulos f
   using (rol_actual() = 'admin') with check (rol_actual() = 'admin');
 create policy "escritura_presupuesto_items_admin" on presupuesto_items for all
   using (rol_actual() = 'admin') with check (rol_actual() = 'admin');
+
+-- Cortes: cerrar un corte es una acción operativa (como crear una OC), no
+-- requiere ser admin. No se contempla "update": un corte cerrado no se edita.
+create policy "escritura_presupuesto_cortes" on presupuesto_cortes for all
+  using (rol_actual() in ('admin','operativo')) with check (rol_actual() in ('admin','operativo'));
+create policy "escritura_presupuesto_corte_items" on presupuesto_corte_items for all
+  using (rol_actual() in ('admin','operativo')) with check (rol_actual() in ('admin','operativo'));
+create policy "escritura_presupuesto_corte_ocs" on presupuesto_corte_ocs for all
+  using (rol_actual() in ('admin','operativo')) with check (rol_actual() in ('admin','operativo'));
 
 -- Usuarios: solo admin puede crear/editar otros usuarios
 create policy "escritura_usuarios_admin" on usuarios for update
