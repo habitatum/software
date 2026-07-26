@@ -74,7 +74,7 @@ export default function ListadoOrdenesCompra() {
                 <th className="p-3">Proveedor</th>
                 <th className="p-3">Fecha</th>
                 <th className="p-3 text-right">Total</th>
-                <th className="p-3 text-right">Saldo</th>
+                <th className="p-3 text-right">A Pagar</th>
                 <th className="p-3">Estado</th>
               </tr>
             </thead>
@@ -88,7 +88,7 @@ export default function ListadoOrdenesCompra() {
                   <td className="p-3">{o.proveedores?.nombre ?? '—'}</td>
                   <td className="p-3">{o.fecha}</td>
                   <td className="p-3 text-right">{formatoPesos(o.total)}</td>
-                  <td className="p-3 text-right">{formatoPesos(o.saldo)}</td>
+                  <td className="p-3 text-right">{formatoPesos(o.neto_a_pagar)}</td>
                   <td className="p-3">
                     <span className={`text-xs px-2 py-1 rounded ${o.estado === 'VIGENTE' ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>
                       {o.estado}
