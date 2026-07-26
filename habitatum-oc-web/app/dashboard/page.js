@@ -31,7 +31,7 @@ export default function Dashboard() {
       setIndicadores({
         ocVigentes: vigentes.length,
         totalMes: esteMes.reduce((acc, o) => acc + Number(o.subtotal || 0), 0),
-        saldoPendiente: vigentes.reduce((acc, o) => acc + (Number(o.subtotal || 0) - Number(o.pagado || 0)), 0),
+        saldoPendiente: vigentes.reduce((acc, o) => acc + Number(o.neto_a_pagar || 0), 0),
         contratosActivos: contratosActivos || 0,
       });
     }
@@ -50,7 +50,7 @@ export default function Dashboard() {
         <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
           <Tarjeta titulo="OC vigentes" valor={indicadores?.ocVigentes ?? '—'} />
           <Tarjeta titulo="Emitido este mes" valor={indicadores ? formatoPesos(indicadores.totalMes) : '—'} />
-          <Tarjeta titulo="Saldo pendiente" valor={indicadores ? formatoPesos(indicadores.saldoPendiente) : '—'} />
+          <Tarjeta titulo="Total a pagar" valor={indicadores ? formatoPesos(indicadores.saldoPendiente) : '—'} />
           <Tarjeta titulo="Contratos activos" valor={indicadores?.contratosActivos ?? '—'} />
         </div>
 
