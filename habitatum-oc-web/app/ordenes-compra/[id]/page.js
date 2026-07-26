@@ -24,7 +24,10 @@ export default function DetalleOrdenCompra() {
       .from('v_ordenes_compra_calculadas')
       .select('*, proveedores(*), contratos(numero_contrato)')
       .eq('id', id).single();
-    const { data: itemsData } = await supabase.from('items_oc').select('*').eq('orden_compra_id', id).order('id');
+    const { data: itemsData } = await supabase
+      .from('items_oc')
+      .select('*, presupuesto_items(codigo, descripcion)')
+      .eq('orden_compra_id', id).order('id');
     setOc(ocData);
     setItems(itemsData || []);
     if (ocData?.contrato_id) {
@@ -60,19 +63,6 @@ export default function DetalleOrdenCompra() {
   }
 
   if (cargando || !usuario || !oc) return null;
-
-  // Recuadro destacado: igual lógica que el sistema anterior (Apps Script).
-  let recuadro = { color: 'green', titulo: 'PAGADA EN SU TOTALIDAD', valor: 0 };
-  if ((oc.pagado || 0) <= 0) {
-    recuadro = { color: 'amber', titulo: 'VALOR A PAGAR AHORA', valor: oc.neto_a_pagar };
-  } else if ((oc.saldo || 0) > 0) {
-    recuadro = { color: 'red', titulo: 'SALDO PENDIENTE POR TRANSFERIR', valor: oc.saldo };
-  }
-  const coloresRecuadro = {
-    amber: 'bg-amber-50 border-amber-300 text-amber-900',
-    red: 'bg-red-50 border-red-300 text-red-900',
-    green: 'bg-green-50 border-green-300 text-green-900',
-  };
 
   return (
     <div>
@@ -112,9 +102,9 @@ export default function DetalleOrdenCompra() {
           </div>
         )}
 
-        <div className={`rounded-lg border p-4 flex items-center justify-between ${coloresRecuadro[recuadro.color]}`}>
-          <span className="font-medium text-sm">{recuadro.titulo}</span>
-          <span className="text-xl font-semibold">{formatoPesos(recuadro.valor)}</span>
+        <div className="rounded-lg border p-4 flex items-center justify-between bg-amber-50 border-amber-300 text-amber-900">
+          <span className="font-medium text-sm">TOTAL A PAGAR</span>
+          <span className="text-xl font-semibold">{formatoPesos(oc.neto_a_pagar)}</span>
         </div>
 
         <div className="bg-white rounded-lg shadow-sm border p-5 grid grid-cols-2 gap-3 text-sm">
@@ -142,6 +132,7 @@ export default function DetalleOrdenCompra() {
                   <th className="py-2 px-3 font-medium border-b border-neutral-200 w-32 text-right">Precio unitario</th>
                   <th className="py-2 px-3 font-medium border-b border-neutral-200 w-32 text-right">Subtotal</th>
                   <th className="py-2 px-3 font-medium border-b border-neutral-200 w-20 text-right">% Orden</th>
+                  <th className="py-2 px-3 font-medium border-b border-neutral-200">Ítem de Presupuesto</th>
                 </tr>
               </thead>
               <tbody>
@@ -156,10 +147,13 @@ export default function DetalleOrdenCompra() {
                       <td className="py-2 px-3 text-right">{formatoPesos(it.valor_unitario)}</td>
                       <td className="py-2 px-3 text-right font-medium whitespace-nowrap">{formatoPesos(subtotalItem)}</td>
                       <td className="py-2 px-3 text-right text-neutral-500 whitespace-nowrap">{porcentaje.toFixed(1)}%</td>
+                      <td className="py-2 px-3 text-neutral-500">
+                        {it.presupuesto_items ? `${it.presupuesto_items.codigo} · ${it.presupuesto_items.descripcion}` : '—'}
+                      </td>
                     </tr>
                   );
                 })}
-                {items.length === 0 && <tr><td className="py-3 px-3 text-neutral-400" colSpan={6}>Sin ítems.</td></tr>}
+                {items.length === 0 && <tr><td className="py-3 px-3 text-neutral-400" colSpan={7}>Sin ítems.</td></tr>}
               </tbody>
             </table>
           </div>
