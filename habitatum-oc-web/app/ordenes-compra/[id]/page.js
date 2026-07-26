@@ -16,6 +16,8 @@ export default function DetalleOrdenCompra() {
   const [items, setItems] = useState([]);
   const [pagos, setPagos] = useState([]);
   const [acumulados, setAcumulados] = useState(null);
+  const [auditoria, setAuditoria] = useState(null);
+  const [anulando, setAnulando] = useState(false);
   const [nuevoPago, setNuevoPago] = useState({ fecha: new Date().toISOString().slice(0, 10), valor: '', nota: '' });
 
   async function cargar() {
@@ -37,7 +39,18 @@ export default function DetalleOrdenCompra() {
     }
   }
 
+  async function cargarAuditoria() {
+    const supabase = crearClienteSupabase();
+    const { data } = await supabase
+      .from('ordenes_compra')
+      .select('creado_en, modificado_en, creador:usuarios!ordenes_compra_creado_por_fkey(nombre), modificador:usuarios!ordenes_compra_modificado_por_fkey(nombre)')
+      .eq('id', id)
+      .single();
+    setAuditoria(data);
+  }
+
   useEffect(() => { if (usuario) cargar(); }, [usuario]); // eslint-disable-line
+  useEffect(() => { if (usuario?.rol === 'admin') cargarAuditoria(); }, [usuario]); // eslint-disable-line
 
   async function registrarPago(e) {
     e.preventDefault();
@@ -48,6 +61,17 @@ export default function DetalleOrdenCompra() {
     });
     setNuevoPago({ fecha: new Date().toISOString().slice(0, 10), valor: '', nota: '' });
     cargar();
+  }
+
+  async function anularOrden() {
+    if (!window.confirm('¿Confirmas anular esta Orden de Compra? Esta acción debe ser excepcional.')) return;
+    setAnulando(true);
+    const supabase = crearClienteSupabase();
+    const { error } = await supabase.from('ordenes_compra').update({ estado: 'ANULADA' }).eq('id', id);
+    setAnulando(false);
+    if (error) { alert('No se pudo anular: ' + error.message); return; }
+    cargar();
+    cargarAuditoria();
   }
 
   if (cargando || !usuario || !oc) return null;
@@ -74,11 +98,28 @@ export default function DetalleOrdenCompra() {
             <h1 className="text-2xl font-semibold">{oc.folio}</h1>
             {oc.estado === 'ANULADA' && <span className="text-xs font-medium text-red-600">ANULADA</span>}
           </div>
-          <a href={`/api/ordenes-compra/${id}/pdf`} target="_blank" rel="noreferrer"
-            className="bg-carbon text-hueso px-4 py-2 rounded text-sm">
-            Descargar PDF
-          </a>
+          <div className="flex items-center gap-2">
+            {usuario.rol === 'admin' && oc.estado === 'VIGENTE' && (
+              <button onClick={anularOrden} disabled={anulando}
+                className="border border-red-300 text-red-700 px-4 py-2 rounded text-sm hover:bg-red-50 disabled:opacity-50">
+                {anulando ? 'Anulando...' : 'Anular Orden de Compra'}
+              </button>
+            )}
+            <a href={`/api/ordenes-compra/${id}/pdf`} target="_blank" rel="noreferrer"
+              className="bg-carbon text-hueso px-4 py-2 rounded text-sm">
+              Descargar PDF
+            </a>
+          </div>
         </div>
+
+        {usuario.rol === 'admin' && auditoria && (
+          <div className="bg-neutral-50 border border-neutral-200 rounded-lg p-3 text-xs text-neutral-500 space-y-0.5">
+            <p>Creado por <span className="font-medium text-neutral-700">{auditoria.creador?.nombre ?? '—'}</span> el {new Date(auditoria.creado_en).toLocaleString('es-CO')}</p>
+            {auditoria.modificado_en && (
+              <p>Última modificación por <span className="font-medium text-neutral-700">{auditoria.modificador?.nombre ?? '—'}</span> el {new Date(auditoria.modificado_en).toLocaleString('es-CO')}</p>
+            )}
+          </div>
+        )}
 
         <div className={`rounded-lg border p-4 flex items-center justify-between ${coloresRecuadro[recuadro.color]}`}>
           <span className="font-medium text-sm">{recuadro.titulo}</span>
@@ -101,28 +142,28 @@ export default function DetalleOrdenCompra() {
         {/* Ítems */}
         <div className="bg-white rounded-lg shadow-sm border p-5">
           <h2 className="font-medium mb-3">Ítems</h2>
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm">
+          <div className="overflow-x-auto rounded-md border border-neutral-200">
+            <table className="w-full text-sm border-collapse">
               <thead>
-                <tr className="text-left text-xs text-neutral-500">
-                  <th className="pb-2 font-medium">Descripción</th>
-                  <th className="pb-2 font-medium w-20">Unidad</th>
-                  <th className="pb-2 font-medium w-24 text-right">Cantidad</th>
-                  <th className="pb-2 font-medium w-32 text-right">Precio unitario</th>
-                  <th className="pb-2 font-medium w-32 text-right">Subtotal</th>
+                <tr className="text-left text-xs text-neutral-500 bg-gris-calido/30">
+                  <th className="py-2 px-3 font-medium border-b border-neutral-200">Descripción</th>
+                  <th className="py-2 px-3 font-medium border-b border-neutral-200 w-20">Unidad</th>
+                  <th className="py-2 px-3 font-medium border-b border-neutral-200 w-24 text-right">Cantidad</th>
+                  <th className="py-2 px-3 font-medium border-b border-neutral-200 w-32 text-right">Precio unitario</th>
+                  <th className="py-2 px-3 font-medium border-b border-neutral-200 w-32 text-right">Subtotal</th>
                 </tr>
               </thead>
               <tbody>
-                {items.map((it) => (
-                  <tr key={it.id} className="border-t">
-                    <td className="py-1.5 pr-2">{it.descripcion}</td>
-                    <td className="py-1.5 pr-2">{it.unidad || '—'}</td>
-                    <td className="py-1.5 pr-2 text-right">{it.cantidad}</td>
-                    <td className="py-1.5 pr-2 text-right">{formatoPesos(it.valor_unitario)}</td>
-                    <td className="py-1.5 pr-2 text-right font-medium whitespace-nowrap">{formatoPesos(it.cantidad * it.valor_unitario)}</td>
+                {items.map((it, i) => (
+                  <tr key={it.id} className={`${i % 2 === 1 ? 'bg-neutral-50/60' : ''} border-b border-neutral-100 last:border-b-0 hover:bg-hueso/60`}>
+                    <td className="py-2 px-3">{it.descripcion}</td>
+                    <td className="py-2 px-3">{it.unidad || '—'}</td>
+                    <td className="py-2 px-3 text-right">{it.cantidad}</td>
+                    <td className="py-2 px-3 text-right">{formatoPesos(it.valor_unitario)}</td>
+                    <td className="py-2 px-3 text-right font-medium whitespace-nowrap">{formatoPesos(it.cantidad * it.valor_unitario)}</td>
                   </tr>
                 ))}
-                {items.length === 0 && <tr><td className="py-2 text-neutral-400" colSpan={5}>Sin ítems.</td></tr>}
+                {items.length === 0 && <tr><td className="py-3 px-3 text-neutral-400" colSpan={5}>Sin ítems.</td></tr>}
               </tbody>
             </table>
           </div>
