@@ -67,7 +67,7 @@ export default function DetalleContrato() {
         <div className="bg-white rounded-lg shadow-sm border overflow-hidden">
           <h2 className="font-medium p-4 pb-0">Órdenes de Compra del contrato</h2>
           <table className="w-full text-sm mt-2">
-            <thead className="bg-gris-calido/30 text-left"><tr><th className="p-3">Folio</th><th className="p-3">Fecha</th><th className="p-3">Tipo pago</th><th className="p-3 text-right">Total</th><th className="p-3 text-right">Saldo</th></tr></thead>
+            <thead className="bg-gris-calido/30 text-left"><tr><th className="p-3">Folio</th><th className="p-3">Fecha</th><th className="p-3">Tipo pago</th><th className="p-3 text-right">Total</th><th className="p-3 text-right">A Pagar</th></tr></thead>
             <tbody>
               {ordenes.map((o) => (
                 <tr key={o.id} className="border-t">
@@ -75,7 +75,7 @@ export default function DetalleContrato() {
                   <td className="p-3">{o.fecha}</td>
                   <td className="p-3">{o.tipo_pago}</td>
                   <td className="p-3 text-right">{formatoPesos(o.total)}</td>
-                  <td className="p-3 text-right">{formatoPesos(o.saldo)}</td>
+                  <td className="p-3 text-right">{formatoPesos(o.neto_a_pagar)}</td>
                 </tr>
               ))}
             </tbody>
