@@ -157,6 +157,45 @@ create trigger trg_prevent_non_admin_anular
   before update on ordenes_compra
   for each row execute function prevent_non_admin_anular();
 
+-- ---------- PRESUPUESTO ----------
+-- Se carga desde el Excel "FORMULARIO DE PRECIOS" (mismo formato para todos
+-- los proyectos). Un proyecto tiene UN presupuesto activo: al volver a cargar
+-- el Excel se reemplaza todo (capítulos e ítems anteriores se borran por
+-- cascada). Se define antes de ÍTEMS DE CADA ORDEN porque items_oc referencia
+-- presupuesto_items.
+create table presupuestos (
+  id uuid primary key default gen_random_uuid(),
+  proyecto_id uuid not null references proyectos(id) on delete cascade unique,
+  nombre_archivo text,
+  total_costos_directos numeric(14,2),
+  total_costos_indirectos numeric(14,2),
+  valor_total numeric(14,2),
+  cargado_por uuid references usuarios(id),
+  cargado_en timestamptz not null default now()
+);
+
+create table presupuesto_capitulos (
+  id uuid primary key default gen_random_uuid(),
+  presupuesto_id uuid not null references presupuestos(id) on delete cascade,
+  codigo text not null,
+  nombre text not null,
+  categoria text, -- 'DIRECTO' | 'INDIRECTO'
+  valor_presupuestado numeric(14,2) not null default 0,
+  orden int not null default 0
+);
+
+create table presupuesto_items (
+  id uuid primary key default gen_random_uuid(),
+  capitulo_id uuid not null references presupuesto_capitulos(id) on delete cascade,
+  codigo text not null,
+  descripcion text not null,
+  unidad text,
+  cantidad numeric(14,2),
+  valor_unitario numeric(14,2),
+  valor_parcial numeric(14,2) not null default 0,
+  orden int not null default 0
+);
+
 -- ---------- ÍTEMS DE CADA ORDEN ----------
 create table items_oc (
   id uuid primary key default gen_random_uuid(),
@@ -164,7 +203,8 @@ create table items_oc (
   descripcion text not null,
   unidad text, -- ej. "UND", "M2", "GLB"
   cantidad numeric(12,2) not null default 1,
-  valor_unitario numeric(14,2) not null default 0
+  valor_unitario numeric(14,2) not null default 0,
+  presupuesto_item_id uuid references presupuesto_items(id) on delete set null
 );
 
 -- ---------- PAGOS ----------
@@ -266,6 +306,19 @@ where contrato_id is not null and estado <> 'ANULADA'
 group by contrato_id;
 
 -- ============================================================
+-- VISTA: ejecutado por ítem de presupuesto (suma de los ítems de OC
+-- vinculados, excluyendo Órdenes de Compra ANULADAS)
+-- ============================================================
+create view v_presupuesto_ejecutado as
+select
+  io.presupuesto_item_id,
+  sum(io.cantidad * io.valor_unitario) as ejecutado
+from items_oc io
+join ordenes_compra oc on oc.id = io.orden_compra_id
+where io.presupuesto_item_id is not null and oc.estado <> 'ANULADA'
+group by io.presupuesto_item_id;
+
+-- ============================================================
 -- SEGURIDAD: Row Level Security por rol
 -- ============================================================
 alter table usuarios enable row level security;
@@ -275,6 +328,9 @@ alter table contratos enable row level security;
 alter table ordenes_compra enable row level security;
 alter table items_oc enable row level security;
 alter table pagos enable row level security;
+alter table presupuestos enable row level security;
+alter table presupuesto_capitulos enable row level security;
+alter table presupuesto_items enable row level security;
 
 -- Función auxiliar: rol del usuario autenticado
 create or replace function rol_actual() returns rol_usuario as $$
@@ -289,6 +345,9 @@ create policy "lectura_general_contratos" on contratos for select using (auth.ui
 create policy "lectura_general_oc" on ordenes_compra for select using (auth.uid() is not null);
 create policy "lectura_general_items" on items_oc for select using (auth.uid() is not null);
 create policy "lectura_general_pagos" on pagos for select using (auth.uid() is not null);
+create policy "lectura_general_presupuestos" on presupuestos for select using (auth.uid() is not null);
+create policy "lectura_general_presupuesto_capitulos" on presupuesto_capitulos for select using (auth.uid() is not null);
+create policy "lectura_general_presupuesto_items" on presupuesto_items for select using (auth.uid() is not null);
 
 -- Escritura: admin y operativo, NUNCA lectura
 create policy "escritura_proveedores" on proveedores for all
@@ -301,6 +360,14 @@ create policy "escritura_items" on items_oc for all
   using (rol_actual() in ('admin','operativo')) with check (rol_actual() in ('admin','operativo'));
 create policy "escritura_pagos" on pagos for all
   using (rol_actual() in ('admin','operativo')) with check (rol_actual() in ('admin','operativo'));
+
+-- Presupuesto: cargar/reemplazar solo Admin (fuente de verdad = Excel).
+create policy "escritura_presupuestos_admin" on presupuestos for all
+  using (rol_actual() = 'admin') with check (rol_actual() = 'admin');
+create policy "escritura_presupuesto_capitulos_admin" on presupuesto_capitulos for all
+  using (rol_actual() = 'admin') with check (rol_actual() = 'admin');
+create policy "escritura_presupuesto_items_admin" on presupuesto_items for all
+  using (rol_actual() = 'admin') with check (rol_actual() = 'admin');
 
 -- Usuarios: solo admin puede crear/editar otros usuarios
 create policy "escritura_usuarios_admin" on usuarios for update
