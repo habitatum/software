@@ -63,11 +63,11 @@ create table contratos (
 );
 
 -- ---------- ÓRDENES DE COMPRA ----------
-create sequence oc_folio_seq start 1;
-
+-- El folio (OC-{código proyecto}-{consecutivo}) se calcula por proyecto mediante
+-- el trigger set_folio_por_proyecto definido más abajo, no con una secuencia global.
 create table ordenes_compra (
   id uuid primary key default gen_random_uuid(),
-  folio text not null default ('OC-' || lpad(nextval('oc_folio_seq')::text, 4, '0')),
+  folio text,
   tipo_orden tipo_orden_enum not null default 'COMPRA',
   proyecto_id uuid references proyectos(id),
   contrato_id uuid references contratos(id),
@@ -92,8 +92,70 @@ create table ordenes_compra (
   notas text,
   creado_por uuid references usuarios(id),
   creado_en timestamptz not null default now(),
+  modificado_por uuid references usuarios(id),
+  modificado_en timestamptz,
   unique (folio)
 );
+
+-- Folio por proyecto: OC-{código proyecto}-{consecutivo propio del proyecto}.
+create or replace function set_folio_por_proyecto() returns trigger as $$
+declare
+  v_codigo text;
+  v_siguiente int;
+begin
+  if new.folio is not null then
+    return new;
+  end if;
+
+  select codigo into v_codigo from proyectos where id = new.proyecto_id;
+
+  select coalesce(max((regexp_match(folio, '-(\d+)$'))[1]::int), 0) + 1
+    into v_siguiente
+  from ordenes_compra
+  where proyecto_id = new.proyecto_id;
+
+  new.folio := 'OC-' || v_codigo || '-' || lpad(v_siguiente::text, 4, '0');
+  return new;
+end;
+$$ language plpgsql security definer;
+
+create trigger trg_set_folio_por_proyecto
+  before insert on ordenes_compra
+  for each row execute function set_folio_por_proyecto();
+
+-- Auditoría: creado_por/modificado_por se calculan siempre en el servidor con
+-- auth.uid(), el cliente no puede suplantar a otro usuario.
+create or replace function set_auditoria_oc() returns trigger as $$
+begin
+  if TG_OP = 'INSERT' then
+    new.creado_por := auth.uid();
+  elsif TG_OP = 'UPDATE' then
+    new.creado_por := old.creado_por;
+    new.creado_en := old.creado_en;
+    new.modificado_por := auth.uid();
+    new.modificado_en := now();
+  end if;
+  return new;
+end;
+$$ language plpgsql security definer;
+
+create trigger trg_set_auditoria_oc
+  before insert or update on ordenes_compra
+  for each row execute function set_auditoria_oc();
+
+-- Anular: solo el Admin puede pasar una OC a estado ANULADA (validado en la BD).
+create or replace function prevent_non_admin_anular() returns trigger as $$
+begin
+  if new.estado = 'ANULADA' and old.estado <> 'ANULADA' and rol_actual() <> 'admin' then
+    raise exception 'Solo un administrador puede anular una Orden de Compra';
+  end if;
+  return new;
+end;
+$$ language plpgsql security definer;
+
+create trigger trg_prevent_non_admin_anular
+  before update on ordenes_compra
+  for each row execute function prevent_non_admin_anular();
 
 -- ---------- ÍTEMS DE CADA ORDEN ----------
 create table items_oc (
