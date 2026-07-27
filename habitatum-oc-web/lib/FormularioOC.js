@@ -83,7 +83,7 @@ export default function FormularioOC({
             <tbody>
               {items.map((it, i) => {
                 const subtotalItem = (Number(it.cantidad) || 0) * (Number(it.valor_unitario) || 0);
-                const porcentaje = calculo.total > 0 ? (subtotalItem / calculo.total) * 100 : 0;
+                const porcentaje = calculo.subtotal > 0 ? (subtotalItem / calculo.subtotal) * 100 : 0;
                 return (
                   <tr key={i} className={`${i % 2 === 1 ? 'bg-neutral-50/60' : ''} border-b border-neutral-100 last:border-b-0`}>
                     <td className="py-2 px-3">

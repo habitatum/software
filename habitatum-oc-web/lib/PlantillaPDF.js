@@ -82,7 +82,7 @@ export default function PlantillaOrdenCompraPDF({ oc, items, acumulados, nombreO
           </View>
           {items.map((it, i) => {
             const subtotalItem = it.cantidad * it.valor_unitario;
-            const porcentaje = oc.total > 0 ? (subtotalItem / oc.total) * 100 : 0;
+            const porcentaje = oc.subtotal > 0 ? (subtotalItem / oc.subtotal) * 100 : 0;
             return (
               <View key={i} style={estilos.tablaFila}>
                 <Text style={estilos.colDesc}>{it.descripcion}</Text>
