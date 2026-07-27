@@ -87,7 +87,7 @@ export default function NuevaOrdenCompra() {
 
     const filasItems = items
       .filter((it) => it.descripcion)
-      .map((it) => ({ ...it, orden_compra_id: nuevaOC.id }));
+      .map((it, idx) => ({ ...it, orden: idx, orden_compra_id: nuevaOC.id }));
 
     const { error: errItems } = await supabase.from('items_oc').insert(filasItems);
     if (errItems) { setError(errItems.message); setGuardando(false); return; }
