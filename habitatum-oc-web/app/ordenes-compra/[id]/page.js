@@ -27,7 +27,7 @@ export default function DetalleOrdenCompra() {
     const { data: itemsData } = await supabase
       .from('items_oc')
       .select('*, presupuesto_items(codigo, descripcion)')
-      .eq('orden_compra_id', id).order('id');
+      .eq('orden_compra_id', id).order('orden').order('id');
     setOc(ocData);
     setItems(itemsData || []);
     if (ocData?.contrato_id) {
@@ -138,7 +138,7 @@ export default function DetalleOrdenCompra() {
               <tbody>
                 {items.map((it, i) => {
                   const subtotalItem = it.cantidad * it.valor_unitario;
-                  const porcentaje = oc.total > 0 ? (subtotalItem / oc.total) * 100 : 0;
+                  const porcentaje = oc.subtotal > 0 ? (subtotalItem / oc.subtotal) * 100 : 0;
                   return (
                     <tr key={it.id} className={`${i % 2 === 1 ? 'bg-neutral-50/60' : ''} border-b border-neutral-100 last:border-b-0 hover:bg-hueso/60`}>
                       <td className="py-2 px-3">{it.descripcion}</td>
