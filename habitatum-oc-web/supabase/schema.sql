@@ -249,7 +249,8 @@ create table items_oc (
   unidad text, -- ej. "UND", "M2", "GLB"
   cantidad numeric(12,2) not null default 1,
   valor_unitario numeric(14,2) not null default 0,
-  presupuesto_item_id uuid references presupuesto_items(id) on delete set null
+  presupuesto_item_id uuid references presupuesto_items(id) on delete set null,
+  orden int not null default 0 -- posición real en que el usuario capturó el ítem (no usar id/uuid para ordenar)
 );
 
 -- ---------- PAGOS ----------
