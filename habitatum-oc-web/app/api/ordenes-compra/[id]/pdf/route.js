@@ -22,7 +22,7 @@ export async function GET(request, { params }) {
 
   if (!oc) return new Response('Orden de Compra no encontrada', { status: 404 });
 
-  const { data: items } = await supabase.from('items_oc').select('*').eq('orden_compra_id', id).order('id');
+  const { data: items } = await supabase.from('items_oc').select('*').eq('orden_compra_id', id).order('orden').order('id');
 
   let acumulados = null;
   if (oc.contrato_id) {
