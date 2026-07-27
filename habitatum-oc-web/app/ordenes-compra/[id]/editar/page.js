@@ -40,7 +40,7 @@ export default function EditarOrdenCompra() {
       const supabase = crearClienteSupabase();
       const [{ data: ocData }, { data: itemsData }, { data: prov }, { data: cont }, { data: ant }, { data: usrs }, { data: pres }] = await Promise.all([
         supabase.from('ordenes_compra').select('*').eq('id', id).single(),
-        supabase.from('items_oc').select('*').eq('orden_compra_id', id).order('id'),
+        supabase.from('items_oc').select('*').eq('orden_compra_id', id).order('orden').order('id'),
         supabase.from('proveedores').select('id, nombre').order('nombre'),
         supabase.from('contratos').select('id, numero_contrato').eq('proyecto_id', proyecto.id).order('numero_contrato'),
         supabase.from('ordenes_compra').select('id, folio, contrato_id').eq('proyecto_id', proyecto.id).eq('tipo_pago', 'ANTICIPO').neq('id', id),
@@ -91,9 +91,10 @@ export default function EditarOrdenCompra() {
 
     const filasItems = items
       .filter((it) => it.descripcion)
-      .map((it) => ({
+      .map((it, idx) => ({
         descripcion: it.descripcion, unidad: it.unidad, cantidad: it.cantidad, valor_unitario: it.valor_unitario,
         presupuesto_item_id: it.presupuesto_item_id || null,
+        orden: idx,
         orden_compra_id: id,
       }));
 
