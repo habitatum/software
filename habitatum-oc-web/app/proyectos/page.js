@@ -19,7 +19,7 @@ export default function SeleccionarProyecto() {
   const [guardando, setGuardando] = useState(false);
 
   const [editandoId, setEditandoId] = useState(null);
-  const [formEdicion, setFormEdicion] = useState({ nombre: '', cliente: '' });
+  const [formEdicion, setFormEdicion] = useState({ nombre: '', cliente: '', mostrarMarca: true, nombreEmisor: '' });
   const [errorEdicion, setErrorEdicion] = useState('');
   const [guardandoEdicion, setGuardandoEdicion] = useState(false);
 
@@ -39,7 +39,12 @@ export default function SeleccionarProyecto() {
   function abrirEdicion(p, e) {
     e.stopPropagation();
     setEditandoId(p.id);
-    setFormEdicion({ nombre: p.nombre, cliente: p.cliente || '' });
+    setFormEdicion({
+      nombre: p.nombre,
+      cliente: p.cliente || '',
+      mostrarMarca: p.mostrar_marca_habitatum,
+      nombreEmisor: p.nombre_emisor || '',
+    });
     setErrorEdicion('');
   }
 
@@ -56,11 +61,20 @@ export default function SeleccionarProyecto() {
       setErrorEdicion('El nombre es obligatorio.');
       return;
     }
+    if (!formEdicion.mostrarMarca && !formEdicion.nombreEmisor.trim()) {
+      setErrorEdicion('Escribe el nombre que debe aparecer en los documentos de este proyecto.');
+      return;
+    }
     setGuardandoEdicion(true);
     const supabase = crearClienteSupabase();
     const { error: err } = await supabase
       .from('proyectos')
-      .update({ nombre: formEdicion.nombre.trim(), cliente: formEdicion.cliente.trim() || null })
+      .update({
+        nombre: formEdicion.nombre.trim(),
+        cliente: formEdicion.cliente.trim() || null,
+        mostrar_marca_habitatum: formEdicion.mostrarMarca,
+        nombre_emisor: formEdicion.mostrarMarca ? null : formEdicion.nombreEmisor.trim(),
+      })
       .eq('id', id);
     setGuardandoEdicion(false);
     if (err) {
@@ -146,6 +160,22 @@ export default function SeleccionarProyecto() {
                         placeholder="Cliente (opcional)"
                         className="border rounded px-3 py-2 text-sm w-full"
                       />
+                      <label className="flex items-center gap-2 text-xs">
+                        <input
+                          type="checkbox"
+                          checked={formEdicion.mostrarMarca}
+                          onChange={(e) => setFormEdicion({ ...formEdicion, mostrarMarca: e.target.checked })}
+                        />
+                        Mostrar marca HABITATUM en los documentos
+                      </label>
+                      {!formEdicion.mostrarMarca && (
+                        <input
+                          value={formEdicion.nombreEmisor}
+                          onChange={(e) => setFormEdicion({ ...formEdicion, nombreEmisor: e.target.value })}
+                          placeholder="Nombre a mostrar en los documentos"
+                          className="border rounded px-3 py-2 text-sm w-full"
+                        />
+                      )}
                       {errorEdicion && <p className="text-red-600 text-xs">{errorEdicion}</p>}
                       <div className="flex gap-2">
                         <button
