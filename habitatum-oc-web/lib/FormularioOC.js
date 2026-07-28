@@ -7,6 +7,9 @@ import { formatoPesos } from '@/lib/calculosOC';
 // clases de Tailwind directamente, igual que en el resto de la app.
 const INPUT = 'border border-neutral-300 rounded-md px-3 py-2 text-sm w-full bg-white focus:outline-none focus:ring-2 focus:ring-carbon/20 focus:border-carbon transition-colors';
 
+// Unidades de medida disponibles para los ítems de una Orden de Compra.
+const UNIDADES = ['Und', 'Glo', 'm2', 'm3', 'm', 'Gal', 'Kg', 'Hr', 'Día', 'Lt'];
+
 // Formulario compartido entre Nueva Orden de Compra y Editar Orden de Compra.
 export default function FormularioOC({
   oc, setOc, items, setItems,
@@ -67,17 +70,27 @@ export default function FormularioOC({
       {/* Ítems */}
       <Seccion titulo="Ítems">
         <div className="overflow-x-auto rounded-md border border-neutral-200">
-          <table className="w-full text-sm border-collapse">
+          <table className="w-full text-sm border-collapse table-fixed">
+            <colgroup>
+              <col style={{ width: '32%' }} />
+              <col style={{ width: '8%' }} />
+              <col style={{ width: '7%' }} />
+              <col style={{ width: '12%' }} />
+              <col style={{ width: '12%' }} />
+              <col style={{ width: '7%' }} />
+              <col style={{ width: '18%' }} />
+              <col style={{ width: '4%' }} />
+            </colgroup>
             <thead>
               <tr className="text-left text-xs text-neutral-500 bg-gris-calido/30">
                 <th className="py-2 px-3 font-medium border-b border-neutral-200">Descripción</th>
-                <th className="py-2 px-3 font-medium border-b border-neutral-200 w-24">Unidad</th>
-                <th className="py-2 px-3 font-medium border-b border-neutral-200 w-28 text-right">Cantidad</th>
-                <th className="py-2 px-3 font-medium border-b border-neutral-200 w-36 text-right">Precio unitario</th>
-                <th className="py-2 px-3 font-medium border-b border-neutral-200 w-36 text-right">Subtotal</th>
-                <th className="py-2 px-3 font-medium border-b border-neutral-200 w-20 text-right">% Orden</th>
-                <th className="py-2 px-3 font-medium border-b border-neutral-200 w-44">Ítem de Presupuesto</th>
-                <th className="py-2 px-2 border-b border-neutral-200 w-10"></th>
+                <th className="py-2 px-3 font-medium border-b border-neutral-200">Unidad</th>
+                <th className="py-2 px-3 font-medium border-b border-neutral-200 text-right">Cantidad</th>
+                <th className="py-2 px-3 font-medium border-b border-neutral-200 text-right">Precio unitario</th>
+                <th className="py-2 px-3 font-medium border-b border-neutral-200 text-right">Subtotal</th>
+                <th className="py-2 px-3 font-medium border-b border-neutral-200 text-right">% Orden</th>
+                <th className="py-2 px-3 font-medium border-b border-neutral-200">Ítem de Presupuesto</th>
+                <th className="py-2 px-2 border-b border-neutral-200"></th>
               </tr>
             </thead>
             <tbody>
@@ -92,9 +105,15 @@ export default function FormularioOC({
                         className={INPUT} />
                     </td>
                     <td className="py-2 px-3">
-                      <input placeholder="UND" value={it.unidad}
+                      <select value={it.unidad || ''}
                         onChange={(e) => actualizarItem(i, 'unidad', e.target.value)}
-                        className={INPUT} />
+                        className={INPUT}>
+                        <option value="">—</option>
+                        {UNIDADES.map((u) => <option key={u} value={u}>{u}</option>)}
+                        {it.unidad && !UNIDADES.includes(it.unidad) && (
+                          <option value={it.unidad}>{it.unidad}</option>
+                        )}
+                      </select>
                     </td>
                     <td className="py-2 px-3">
                       <input type="number" value={it.cantidad}
