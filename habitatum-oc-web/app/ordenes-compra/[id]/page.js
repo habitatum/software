@@ -1,6 +1,6 @@
 'use client';
 import { useEffect, useState } from 'react';
-import { useParams } from 'next/navigation';
+import { useParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { useUsuarioActual } from '@/lib/useUsuarioActual';
 import { useProyectoActual } from '@/lib/useProyectoActual';
@@ -10,6 +10,7 @@ import NavBar from '@/components/NavBar';
 
 export default function DetalleOrdenCompra() {
   const { id } = useParams();
+  const router = useRouter();
   const { usuario, cargando } = useUsuarioActual();
   const { proyecto } = useProyectoActual();
   const [oc, setOc] = useState(null);
@@ -17,6 +18,7 @@ export default function DetalleOrdenCompra() {
   const [acumulados, setAcumulados] = useState(null);
   const [auditoria, setAuditoria] = useState(null);
   const [anulando, setAnulando] = useState(false);
+  const [eliminando, setEliminando] = useState(false);
 
   async function cargar() {
     const supabase = crearClienteSupabase();
@@ -62,6 +64,18 @@ export default function DetalleOrdenCompra() {
     cargarAuditoria();
   }
 
+  async function eliminarOrden() {
+    if (!window.confirm(
+      `¿Eliminar definitivamente la Orden de Compra ${oc.folio}? Esta acción no se puede deshacer y se borrarán también sus ítems. El consecutivo de folio quedará libre para la próxima Orden de Compra.`
+    )) return;
+    setEliminando(true);
+    const supabase = crearClienteSupabase();
+    const { error } = await supabase.from('ordenes_compra').delete().eq('id', id);
+    setEliminando(false);
+    if (error) { alert('No se pudo eliminar: ' + error.message); return; }
+    router.push('/ordenes-compra');
+  }
+
   if (cargando || !usuario || !oc) return null;
 
   return (
@@ -78,6 +92,12 @@ export default function DetalleOrdenCompra() {
               <button onClick={anularOrden} disabled={anulando}
                 className="border border-red-300 text-red-700 px-4 py-2 rounded text-sm hover:bg-red-50 disabled:opacity-50">
                 {anulando ? 'Anulando...' : 'Anular Orden de Compra'}
+              </button>
+            )}
+            {usuario.rol === 'admin' && (
+              <button onClick={eliminarOrden} disabled={eliminando}
+                className="bg-red-700 text-white px-4 py-2 rounded text-sm hover:bg-red-800 disabled:opacity-50">
+                {eliminando ? 'Eliminando...' : 'Eliminar OC'}
               </button>
             )}
             {usuario.rol !== 'lectura' && oc.estado === 'VIGENTE' && (
