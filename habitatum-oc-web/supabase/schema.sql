@@ -32,6 +32,7 @@ create table proyectos (
   estado text not null default 'activo', -- 'activo' | 'inactivo'
   mostrar_marca_habitatum boolean not null default true, -- false = proyecto donde se actúa como persona natural, sin marca HABITATUM
   nombre_emisor text, -- nombre a mostrar en los documentos cuando mostrar_marca_habitatum = false (ej. "Arq. Andrés David Hincapié")
+  telegram_chat_id text unique, -- id del grupo de Telegram vinculado (bitácora de obra + registro fotográfico)
   creado_en timestamptz not null default now()
 );
 
@@ -447,3 +448,59 @@ create policy "creacion_proyectos_admin" on proyectos for insert
   with check (rol_actual() = 'admin');
 create policy "actualizacion_proyectos_admin" on proyectos for update
   using (rol_actual() = 'admin');
+
+-- ============================================================
+-- BITÁCORA DE OBRA + REGISTRO FOTOGRÁFICO (alimentados por Telegram)
+-- Un bot de Telegram (webhook en /api/telegram/webhook, con la service role
+-- key, que no pasa por RLS) recibe las fotos del grupo vinculado a cada
+-- proyecto (proyectos.telegram_chat_id), las sube a Storage, las describe
+-- con IA y las guarda en bitacora_fotos. bitacora_dias guarda el resumen
+-- narrativo del día (se recalcula con cada foto nueva) que alimenta la
+-- pestaña "Bitácora". telegram_grupos_pendientes registra los chat_id que
+-- aún no se han vinculado a ningún proyecto, para que el Admin los asigne.
+-- ============================================================
+create table bitacora_fotos (
+  id uuid primary key default gen_random_uuid(),
+  proyecto_id uuid not null references proyectos(id) on delete cascade,
+  fecha date not null,
+  hora time not null default current_time,
+  foto_url text not null,
+  descripcion_ia text,
+  remitente text,
+  telegram_message_id bigint,
+  creado_en timestamptz not null default now()
+);
+create index idx_bitacora_fotos_proyecto_fecha on bitacora_fotos (proyecto_id, fecha);
+
+create table bitacora_dias (
+  id uuid primary key default gen_random_uuid(),
+  proyecto_id uuid not null references proyectos(id) on delete cascade,
+  fecha date not null,
+  resumen_texto text,
+  cantidad_fotos int not null default 0,
+  actualizado_en timestamptz not null default now(),
+  unique (proyecto_id, fecha)
+);
+
+create table telegram_grupos_pendientes (
+  chat_id text primary key,
+  titulo text,
+  primer_mensaje_en timestamptz not null default now()
+);
+
+alter table bitacora_fotos enable row level security;
+alter table bitacora_dias enable row level security;
+alter table telegram_grupos_pendientes enable row level security;
+
+create policy "lectura_general_bitacora_fotos" on bitacora_fotos for select using (auth.uid() is not null);
+create policy "lectura_general_bitacora_dias" on bitacora_dias for select using (auth.uid() is not null);
+create policy "admin_telegram_grupos_pendientes" on telegram_grupos_pendientes for all
+  using (rol_actual() = 'admin') with check (rol_actual() = 'admin');
+
+-- Bucket público: son fotos de avance de obra, sin datos sensibles.
+insert into storage.buckets (id, name, public)
+values ('bitacora-fotos', 'bitacora-fotos', true)
+on conflict (id) do nothing;
+
+create policy "lectura_bitacora_fotos_storage" on storage.objects for select
+  using (bucket_id = 'bitacora-fotos' and auth.uid() is not null);
