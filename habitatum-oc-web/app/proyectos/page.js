@@ -23,13 +23,45 @@ export default function SeleccionarProyecto() {
   const [errorEdicion, setErrorEdicion] = useState('');
   const [guardandoEdicion, setGuardandoEdicion] = useState(false);
 
+  const [gruposPendientes, setGruposPendientes] = useState([]);
+  const [vinculando, setVinculando] = useState(null); // chat_id que se está vinculando
+
   async function cargar() {
     const supabase = crearClienteSupabase();
     const { data } = await supabase.from('proyectos').select('*').eq('estado', 'activo').order('codigo');
     setProyectos(data || []);
     setCargandoProyectos(false);
   }
+  async function cargarGruposPendientes() {
+    const supabase = crearClienteSupabase();
+    const { data } = await supabase.from('telegram_grupos_pendientes').select('*').order('primer_mensaje_en');
+    setGruposPendientes(data || []);
+  }
   useEffect(() => { if (usuario) cargar(); }, [usuario]); // eslint-disable-line
+  useEffect(() => { if (usuario?.rol === 'admin') cargarGruposPendientes(); }, [usuario]); // eslint-disable-line
+
+  async function vincularGrupo(chatId, proyectoId) {
+    if (!proyectoId) return;
+    setVinculando(chatId);
+    const supabase = crearClienteSupabase();
+    const { error: err } = await supabase.from('proyectos').update({ telegram_chat_id: chatId }).eq('id', proyectoId);
+    if (!err) {
+      await supabase.from('telegram_grupos_pendientes').delete().eq('chat_id', chatId);
+      cargar();
+      cargarGruposPendientes();
+    } else {
+      alert('No se pudo vincular: ' + err.message);
+    }
+    setVinculando(null);
+  }
+
+  async function desvincularGrupo(proyectoId, e) {
+    e.stopPropagation();
+    if (!window.confirm('¿Desvincular el grupo de Telegram de este proyecto? Las fotos que ya se recibieron no se pierden.')) return;
+    const supabase = crearClienteSupabase();
+    await supabase.from('proyectos').update({ telegram_chat_id: null }).eq('id', proyectoId);
+    cargar();
+  }
 
   function elegir(id) {
     guardarProyectoActualId(id);
@@ -208,6 +240,18 @@ export default function SeleccionarProyecto() {
                       {!p.mostrar_marca_habitatum && (
                         <p className="text-xs text-dorado mt-2">Sin marca HABITATUM en documentos</p>
                       )}
+                      {p.telegram_chat_id ? (
+                        <div className="flex items-center gap-2 mt-2">
+                          <p className="text-xs text-green-700">Grupo de Telegram vinculado</p>
+                          {usuario.rol === 'admin' && (
+                            <button onClick={(e) => desvincularGrupo(p.id, e)} className="text-xs text-neutral-400 hover:text-red-600 underline">
+                              Desvincular
+                            </button>
+                          )}
+                        </div>
+                      ) : (
+                        <p className="text-xs text-neutral-400 mt-2">Sin grupo de Telegram vinculado</p>
+                      )}
                     </>
                   )}
                 </div>
@@ -216,6 +260,32 @@ export default function SeleccionarProyecto() {
             {proyectos.length === 0 && (
               <p className="text-gris-calido col-span-2 text-center py-8">Aún no hay proyectos creados.</p>
             )}
+          </div>
+        )}
+
+        {usuario.rol === 'admin' && gruposPendientes.length > 0 && (
+          <div className="bg-hueso rounded-lg p-5 mb-6">
+            <h2 className="font-medium mb-1">Grupos de Telegram por vincular</h2>
+            <p className="text-xs text-neutral-500 mb-3">
+              Estos grupos enviaron una foto pero todavía no están asignados a ningún proyecto. Elige a cuál
+              proyecto pertenecen para que sus fotos empiecen a llenar la Bitácora y el Registro Fotográfico.
+            </p>
+            <div className="space-y-2">
+              {gruposPendientes.map((g) => (
+                <div key={g.chat_id} className="flex items-center gap-2 bg-white rounded border p-2">
+                  <span className="text-sm flex-1">{g.titulo}</span>
+                  <select
+                    defaultValue=""
+                    disabled={vinculando === g.chat_id}
+                    onChange={(e) => vincularGrupo(g.chat_id, e.target.value)}
+                    className="border rounded px-2 py-1 text-sm"
+                  >
+                    <option value="" disabled>Vincular a proyecto...</option>
+                    {proyectos.map((p) => <option key={p.id} value={p.id}>{p.nombre}</option>)}
+                  </select>
+                </div>
+              ))}
+            </div>
           </div>
         )}
 
