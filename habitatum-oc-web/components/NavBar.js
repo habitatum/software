@@ -18,6 +18,8 @@ export default function NavBar({ usuario, proyecto }) {
     { href: '/ordenes-compra', label: 'Órdenes de Compra' },
     { href: '/contratos', label: 'Contratos' },
     { href: '/presupuesto', label: 'Presupuesto' },
+    { href: '/bitacora', label: 'Bitácora' },
+    { href: '/registro-fotografico', label: 'Registro Fotográfico' },
     { href: '/proveedores', label: 'Proveedores' },
   ];
   if (usuario?.rol === 'admin') enlaces.push({ href: '/usuarios', label: 'Usuarios' });
