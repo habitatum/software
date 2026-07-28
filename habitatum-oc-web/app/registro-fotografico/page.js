@@ -72,12 +72,16 @@ export default function RegistroFotografico() {
                 <a key={foto.id} href={foto.foto_url} target="_blank" rel="noreferrer" className="block group">
                   <img
                     src={foto.foto_url}
-                    alt={foto.descripcion_ia || 'Foto de avance de obra'}
+                    alt={foto.titulo_ia || foto.descripcion_ia || 'Foto de avance de obra'}
                     className="w-full h-28 object-cover rounded-md border border-neutral-200 group-hover:opacity-90"
                   />
                   <p className="text-xs text-neutral-400 mt-1">{foto.hora?.slice(0, 5)}</p>
-                  {foto.descripcion_ia && (
-                    <p className="text-xs text-neutral-500 leading-snug">{foto.descripcion_ia}</p>
+                  {(foto.titulo_ia || foto.descripcion_ia) && (
+                    <p className="text-xs text-neutral-500 leading-snug">
+                      {foto.titulo_ia && <span className="font-semibold text-neutral-700">{foto.titulo_ia}</span>}
+                      {foto.titulo_ia && foto.descripcion_ia && ' — '}
+                      {foto.descripcion_ia}
+                    </p>
                   )}
                 </a>
               ))}
