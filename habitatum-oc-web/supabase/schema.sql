@@ -406,8 +406,14 @@ create policy "escritura_proveedores" on proveedores for all
   using (rol_actual() in ('admin','operativo')) with check (rol_actual() in ('admin','operativo'));
 create policy "escritura_contratos" on contratos for all
   using (rol_actual() in ('admin','operativo')) with check (rol_actual() in ('admin','operativo'));
-create policy "escritura_oc" on ordenes_compra for all
+-- Insertar/actualizar OC: admin y operativo. Eliminar (borrado permanente,
+-- distinto de Anular) es exclusivo del Admin (ver migración 010).
+create policy "insertar_oc" on ordenes_compra for insert
+  with check (rol_actual() in ('admin','operativo'));
+create policy "actualizar_oc" on ordenes_compra for update
   using (rol_actual() in ('admin','operativo')) with check (rol_actual() in ('admin','operativo'));
+create policy "eliminar_oc_admin" on ordenes_compra for delete
+  using (rol_actual() = 'admin');
 create policy "escritura_items" on items_oc for all
   using (rol_actual() in ('admin','operativo')) with check (rol_actual() in ('admin','operativo'));
 create policy "escritura_pagos" on pagos for all
