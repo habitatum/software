@@ -465,6 +465,7 @@ create table bitacora_fotos (
   fecha date not null,
   hora time not null default current_time,
   foto_url text not null,
+  titulo_ia text,
   descripcion_ia text,
   remitente text,
   telegram_message_id bigint,
