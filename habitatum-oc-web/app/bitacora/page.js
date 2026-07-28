@@ -4,6 +4,7 @@ import { useUsuarioActual } from '@/lib/useUsuarioActual';
 import { useProyectoActual } from '@/lib/useProyectoActual';
 import { crearClienteSupabase } from '@/lib/supabaseClient';
 import NavBar from '@/components/NavBar';
+import { exportarBitacora } from '@/lib/exportarBitacora';
 
 function formatoFechaLarga(fecha) {
   const d = new Date(fecha + 'T00:00:00');
@@ -16,6 +17,7 @@ export default function BitacoraDeObra() {
   const [dias, setDias] = useState([]);
   const [fotosPorDia, setFotosPorDia] = useState({});
   const [cargandoDatos, setCargandoDatos] = useState(true);
+  const [exportando, setExportando] = useState(false);
 
   useEffect(() => {
     if (!usuario || !proyecto) return;
@@ -39,13 +41,35 @@ export default function BitacoraDeObra() {
 
   if (cargando || !usuario || !proyecto) return null;
 
+  async function descargarExcel() {
+    setExportando(true);
+    try {
+      await exportarBitacora({ proyecto, dias, fotosPorDia });
+    } catch (e) {
+      alert('No se pudo generar el Excel: ' + e.message);
+    } finally {
+      setExportando(false);
+    }
+  }
+
   return (
     <div>
       <NavBar usuario={usuario} proyecto={proyecto} />
       <main className="p-8 max-w-4xl mx-auto space-y-6">
-        <div>
-          <h1 className="text-2xl font-semibold">Bitácora de obra</h1>
-          <p className="text-sm text-neutral-500 mt-1">{proyecto.nombre}</p>
+        <div className="flex items-start justify-between gap-4">
+          <div>
+            <h1 className="text-2xl font-semibold">Bitácora de obra</h1>
+            <p className="text-sm text-neutral-500 mt-1">{proyecto.nombre}</p>
+          </div>
+          {dias.length > 0 && (
+            <button
+              onClick={descargarExcel}
+              disabled={exportando}
+              className="bg-neutral-800 text-white px-4 py-2 rounded text-sm hover:bg-neutral-900 disabled:opacity-50 whitespace-nowrap"
+            >
+              {exportando ? 'Generando...' : 'Descargar Excel'}
+            </button>
+          )}
         </div>
 
         {!proyecto.telegram_chat_id && (
@@ -71,11 +95,15 @@ export default function BitacoraDeObra() {
                 <a key={foto.id} href={foto.foto_url} target="_blank" rel="noreferrer" className="block group">
                   <img
                     src={foto.foto_url}
-                    alt={foto.descripcion_ia || 'Foto de avance de obra'}
+                    alt={foto.titulo_ia || foto.descripcion_ia || 'Foto de avance de obra'}
                     className="w-full h-28 object-cover rounded-md border border-neutral-200 group-hover:opacity-90"
                   />
-                  {foto.descripcion_ia && (
-                    <p className="text-xs text-neutral-500 mt-1 leading-snug">{foto.descripcion_ia}</p>
+                  {(foto.titulo_ia || foto.descripcion_ia) && (
+                    <p className="text-xs text-neutral-500 mt-1 leading-snug">
+                      {foto.titulo_ia && <span className="font-semibold text-neutral-700">{foto.titulo_ia}</span>}
+                      {foto.titulo_ia && foto.descripcion_ia && ' — '}
+                      {foto.descripcion_ia}
+                    </p>
                   )}
                 </a>
               ))}
