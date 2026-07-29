@@ -152,9 +152,10 @@ export default function RegistroFotografico() {
                       <div className="flex gap-1.5">
                         <button onClick={() => guardarFoto(foto)} disabled={guardando} className="bg-carbon text-hueso px-2 py-1 rounded text-xs disabled:opacity-50">Guardar</button>
                         <button onClick={() => setEditandoFotoId(null)} className="text-xs text-neutral-500 px-1">Cancelar</button>
+                      </div>
                     </div>
                   ) : (
-                    <>
+                    <div>
                       {(foto.titulo_ia || foto.descripcion_ia) && (
                         <p className="text-xs text-neutral-500 leading-snug">
                           {foto.titulo_ia && <span className="font-semibold text-neutral-700">{foto.titulo_ia}</span>}
@@ -174,7 +175,7 @@ export default function RegistroFotografico() {
                           </button>
                         </div>
                       )}
-                    </>
+                    </div>
                   )}
                 </div>
               ))}
