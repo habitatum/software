@@ -13,7 +13,18 @@ import {
 // en una hoja nueva sin repetir el encabezado, igual que en el Doc.
 const CARBON = '2E2E2E';
 const GRIS_ENCABEZADO = 'CEC5BA';
-const BORDE_GRID = { style: BorderStyle.SINGLE, size: 4, color: 'BFBFBF' };
+// Fuente única del documento: el Google Doc real usa Arial 11 por defecto
+// (confirmado en el propio Doc). La librería `docx` no hereda esa fuente
+// sola — sin `font` cada TextRun cae en la fuente por defecto de Word
+// (normalmente Calibri/Aptos), que es la causa de que el Word descargado
+// se vea con una tipografía distinta a la del Doc. Por eso aquí se fija
+// explícitamente en cada TextRun del archivo.
+const FUENTE = 'Arial';
+// Borde de la cuadrícula de fotos: el Doc usa el borde por defecto de una
+// tabla nueva de Google Docs (negro, ~1pt), no un gris claro. Antes esta
+// constante usaba BFBFBF a 0.5pt, que se veía visiblemente más tenue que
+// el Doc real.
+const BORDE_GRID = { style: BorderStyle.SINGLE, size: 8, color: '000000' };
 const SIN_BORDE = { style: BorderStyle.NONE, size: 0, color: 'FFFFFF' };
 const SIN_BORDES = { top: SIN_BORDE, bottom: SIN_BORDE, left: SIN_BORDE, right: SIN_BORDE };
 
@@ -97,10 +108,13 @@ async function celdaFoto(foto) {
   const titulo = foto.titulo_ia || '';
   const detalle = foto.descripcion_ia || '';
   const runs = [];
-  if (titulo) runs.push(new TextRun({ text: titulo, bold: true, size: 18, color: CARBON }));
-  if (titulo && detalle) runs.push(new TextRun({ text: ' — ', size: 18, color: CARBON }));
-  if (detalle) runs.push(new TextRun({ text: detalle, size: 18, color: CARBON }));
-  if (runs.length === 0) runs.push(new TextRun({ text: '', size: 18 }));
+  // size en `docx` está en medios-punto: 22 = 11pt, igual que el texto
+  // normal (Arial 11) del Doc real — antes estas leyendas usaban 18 (9pt),
+  // más pequeño que en el Doc.
+  if (titulo) runs.push(new TextRun({ text: titulo, bold: true, size: 22, color: CARBON, font: FUENTE }));
+  if (titulo && detalle) runs.push(new TextRun({ text: ' — ', size: 22, color: CARBON, font: FUENTE }));
+  if (detalle) runs.push(new TextRun({ text: detalle, size: 22, color: CARBON, font: FUENTE }));
+  if (runs.length === 0) runs.push(new TextRun({ text: '', size: 22, font: FUENTE }));
   hijosCelda.push(new Paragraph({ spacing: { before: 80 }, children: runs }));
 
   return new TableCell({
@@ -156,9 +170,9 @@ function tablaEncabezado(proyecto, logo) {
     borders: SIN_BORDES,
     verticalAlign: VerticalAlign.CENTER,
     children: [
-      new Paragraph({ children: [new TextRun({ text: 'HABITATUM SAS', bold: true, size: 22, color: CARBON })] }),
-      new Paragraph({ children: [new TextRun({ text: 'BITÁCORA DIARIA DE OBRA', bold: true, size: 22, color: CARBON })] }),
-      new Paragraph({ children: [new TextRun({ text: `OBRA: ${proyecto?.nombre || ''}`, bold: true, size: 22, color: CARBON })] }),
+      new Paragraph({ children: [new TextRun({ text: 'HABITATUM SAS', bold: true, size: 22, color: CARBON, font: FUENTE })] }),
+      new Paragraph({ children: [new TextRun({ text: 'BITÁCORA DIARIA DE OBRA', bold: true, size: 22, color: CARBON, font: FUENTE })] }),
+      new Paragraph({ children: [new TextRun({ text: `OBRA: ${proyecto?.nombre || ''}`, bold: true, size: 22, color: CARBON, font: FUENTE })] }),
     ],
   });
 
@@ -175,9 +189,9 @@ function tablaEncabezado(proyecto, logo) {
     borders: SIN_BORDES,
     verticalAlign: VerticalAlign.CENTER,
     children: [
-      new Paragraph({ children: [new TextRun({ text: 'Código: PLC', size: 18, color: CARBON })] }),
-      new Paragraph({ children: [new TextRun({ text: 'Versión: 01', size: 18, color: CARBON })] }),
-      new Paragraph({ children: [new TextRun({ text: `Elaboración: ${new Date().toLocaleDateString('es-CO')}`, size: 18, color: CARBON })] }),
+      new Paragraph({ children: [new TextRun({ text: 'Código: PLC', size: 18, color: CARBON, font: FUENTE })] }),
+      new Paragraph({ children: [new TextRun({ text: 'Versión: 01', size: 18, color: CARBON, font: FUENTE })] }),
+      new Paragraph({ children: [new TextRun({ text: `Elaboración: ${new Date().toLocaleDateString('es-CO')}`, size: 18, color: CARBON, font: FUENTE })] }),
     ],
   });
 
@@ -212,7 +226,7 @@ export async function exportarBitacora({ proyecto, dias, fotosPorDia, fechasSele
     hijos.push(
       new Paragraph({
         spacing: { before: 200, after: 100 },
-        children: [new TextRun({ text: `FECHA: ${fechaLargaEs(dia.fecha)}`, bold: true, size: 22, color: CARBON })],
+        children: [new TextRun({ text: `FECHA: ${fechaLargaEs(dia.fecha)}`, bold: true, size: 22, color: CARBON, font: FUENTE })],
       })
     );
 
@@ -220,7 +234,7 @@ export async function exportarBitacora({ proyecto, dias, fotosPorDia, fechasSele
       hijos.push(
         new Paragraph({
           spacing: { after: 200 },
-          children: [new TextRun({ text: dia.resumen_texto, italics: true, size: 20, color: CARBON })],
+          children: [new TextRun({ text: dia.resumen_texto, italics: true, size: 20, color: CARBON, font: FUENTE })],
         })
       );
     }
