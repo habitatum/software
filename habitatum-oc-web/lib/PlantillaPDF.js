@@ -65,6 +65,13 @@ export default function PlantillaOrdenCompraPDF({ oc, items, acumulados, nombreO
         <View style={estilos.seccion}>
           <View style={estilos.fila}><Text>Proveedor:</Text><Text>{oc.proveedores?.nombre}</Text></View>
           <View style={estilos.fila}><Text>NIT:</Text><Text>{oc.proveedores?.nit}</Text></View>
+          {oc.proveedores?.numero_cuenta && (
+            <View style={estilos.fila}>
+              <Text>Cuenta:</Text>
+              <Text>{oc.proveedores.numero_cuenta}{oc.proveedores?.tipo_cuenta ? ` (${oc.proveedores.tipo_cuenta})` : ''}</Text>
+            </View>
+          )}
+          {oc.proveedores?.banco && <View style={estilos.fila}><Text>Banco:</Text><Text>{oc.proveedores.banco}</Text></View>}
           <View style={estilos.fila}><Text>Contrato:</Text><Text>{oc.contratos?.numero_contrato ?? '—'}</Text></View>
           <View style={estilos.fila}><Text>Fecha:</Text><Text>{oc.fecha}</Text></View>
           <View style={estilos.fila}><Text>Responsable:</Text><Text>{oc.responsable}</Text></View>
