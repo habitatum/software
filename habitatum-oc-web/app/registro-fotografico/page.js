@@ -4,6 +4,7 @@ import { useUsuarioActual } from '@/lib/useUsuarioActual';
 import { useProyectoActual } from '@/lib/useProyectoActual';
 import { crearClienteSupabase } from '@/lib/supabaseClient';
 import NavBar from '@/components/NavBar';
+import { moverFotoAFecha } from '@/lib/moverFotoFecha';
 
 function formatoFechaLarga(fecha) {
   const d = new Date(fecha + 'T00:00:00');
@@ -17,18 +18,19 @@ function rutaStorageDesdeUrl(url) {
 }
 
 // Archivo cronológico simple de todas las fotos recibidas por Telegram: a
-// diferencia de la Bitácora (que resalta el relato del día), aquí lo
-// importante es el archivo foto por foto, agrupado por fecha para que sea
-// fácil ubicar una imagen puntual.
+// diferencia de la Bitácora (que resalta el relato del día con título y
+// detalle de cada foto), aquí solo importa el archivo foto por foto,
+// agrupado por fecha, sin texto — para que sea fácil ubicar una imagen
+// puntual de un vistazo.
 export default function RegistroFotografico() {
   const { usuario, cargando } = useUsuarioActual();
   const { proyecto } = useProyectoActual();
   const [gruposPorFecha, setGruposPorFecha] = useState([]);
   const [cargandoDatos, setCargandoDatos] = useState(true);
-  const [editandoFotoId, setEditandoFotoId] = useState(null);
-  const [borradorFoto, setBorradorFoto] = useState({ titulo_ia: '', descripcion_ia: '' });
-  const [guardando, setGuardando] = useState(false);
   const [eliminandoFotoId, setEliminandoFotoId] = useState(null);
+  const [editandoFechaFotoId, setEditandoFechaFotoId] = useState(null);
+  const [borradorFecha, setBorradorFecha] = useState('');
+  const [moviendoFoto, setMoviendoFoto] = useState(false);
 
   const puedeGestionar = usuario?.rol === 'admin' || usuario?.puede_gestionar_bitacora;
 
@@ -58,27 +60,6 @@ export default function RegistroFotografico() {
 
   if (cargando || !usuario || !proyecto) return null;
 
-  function abrirEdicionFoto(foto) {
-    setEditandoFotoId(foto.id);
-    setBorradorFoto({ titulo_ia: foto.titulo_ia || '', descripcion_ia: foto.descripcion_ia || '' });
-  }
-
-  async function guardarFoto(foto) {
-    setGuardando(true);
-    const supabase = crearClienteSupabase();
-    const { error } = await supabase
-      .from('bitacora_fotos')
-      .update({ titulo_ia: borradorFoto.titulo_ia || null, descripcion_ia: borradorFoto.descripcion_ia || null })
-      .eq('id', foto.id);
-    setGuardando(false);
-    if (error) {
-      alert('No se pudo guardar: ' + error.message);
-      return;
-    }
-    setEditandoFotoId(null);
-    cargar();
-  }
-
   async function eliminarFoto(foto) {
     if (!confirm('¿Eliminar esta foto? Esta acción no se puede deshacer.')) return;
     setEliminandoFotoId(foto.id);
@@ -96,6 +77,25 @@ export default function RegistroFotografico() {
       alert('No se pudo eliminar: ' + error.message);
       return;
     }
+    cargar();
+  }
+
+  function abrirEdicionFecha(foto) {
+    setEditandoFechaFotoId(foto.id);
+    setBorradorFecha(foto.fecha);
+  }
+
+  async function guardarFecha(foto) {
+    if (!borradorFecha) return;
+    setMoviendoFoto(true);
+    const supabase = crearClienteSupabase();
+    const { error } = await moverFotoAFecha(supabase, { foto, nuevaFecha: borradorFecha, proyectoId: proyecto.id });
+    setMoviendoFoto(false);
+    if (error) {
+      alert('No se pudo cambiar la fecha: ' + error.message);
+      return;
+    }
+    setEditandoFechaFotoId(null);
     cargar();
   }
 
@@ -128,54 +128,40 @@ export default function RegistroFotografico() {
                   <a href={foto.foto_url} target="_blank" rel="noreferrer" className="block">
                     <img
                       src={foto.foto_url}
-                      alt={foto.titulo_ia || foto.descripcion_ia || 'Foto de avance de obra'}
+                      alt="Foto de avance de obra"
                       className="w-full h-28 object-cover rounded-md border border-neutral-200 group-hover:opacity-90"
                     />
                   </a>
                   <p className="text-xs text-neutral-400 mt-1">{foto.hora?.slice(0, 5)}</p>
 
-                  {editandoFotoId === foto.id ? (
+                  {editandoFechaFotoId === foto.id ? (
                     <div className="mt-1 space-y-1">
                       <input
-                        value={borradorFoto.titulo_ia}
-                        onChange={(e) => setBorradorFoto({ ...borradorFoto, titulo_ia: e.target.value })}
-                        placeholder="Título"
-                        className="w-full border rounded px-2 py-1 text-xs font-semibold"
-                      />
-                      <textarea
-                        value={borradorFoto.descripcion_ia}
-                        onChange={(e) => setBorradorFoto({ ...borradorFoto, descripcion_ia: e.target.value })}
-                        placeholder="Detalle"
-                        rows={2}
+                        type="date"
+                        value={borradorFecha}
+                        onChange={(e) => setBorradorFecha(e.target.value)}
                         className="w-full border rounded px-2 py-1 text-xs"
                       />
                       <div className="flex gap-1.5">
-                        <button onClick={() => guardarFoto(foto)} disabled={guardando} className="bg-carbon text-hueso px-2 py-1 rounded text-xs disabled:opacity-50">Guardar</button>
-                        <button onClick={() => setEditandoFotoId(null)} className="text-xs text-neutral-500 px-1">Cancelar</button>
+                        <button onClick={() => guardarFecha(foto)} disabled={moviendoFoto} className="bg-carbon text-hueso px-2 py-1 rounded text-xs disabled:opacity-50">
+                          {moviendoFoto ? 'Moviendo...' : 'Mover'}
+                        </button>
+                        <button onClick={() => setEditandoFechaFotoId(null)} className="text-xs text-neutral-500 px-1">Cancelar</button>
                       </div>
                     </div>
                   ) : (
-                    <div>
-                      {(foto.titulo_ia || foto.descripcion_ia) && (
-                        <p className="text-xs text-neutral-500 leading-snug">
-                          {foto.titulo_ia && <span className="font-semibold text-neutral-700">{foto.titulo_ia}</span>}
-                          {foto.titulo_ia && foto.descripcion_ia && ' — '}
-                          {foto.descripcion_ia}
-                        </p>
-                      )}
-                      {puedeGestionar && (
-                        <div className="flex gap-2 mt-1">
-                          <button onClick={() => abrirEdicionFoto(foto)} className="text-xs text-neutral-400 hover:text-neutral-700 underline">Editar</button>
-                          <button
-                            onClick={() => eliminarFoto(foto)}
-                            disabled={eliminandoFotoId === foto.id}
-                            className="text-xs text-red-400 hover:text-red-700 underline disabled:opacity-50"
-                          >
-                            {eliminandoFotoId === foto.id ? 'Eliminando...' : 'Eliminar'}
-                          </button>
-                        </div>
-                      )}
-                    </div>
+                    puedeGestionar && (
+                      <div className="flex gap-2 mt-1 flex-wrap">
+                        <button onClick={() => abrirEdicionFecha(foto)} className="text-xs text-neutral-400 hover:text-neutral-700 underline">Cambiar día</button>
+                        <button
+                          onClick={() => eliminarFoto(foto)}
+                          disabled={eliminandoFotoId === foto.id}
+                          className="text-xs text-red-400 hover:text-red-700 underline disabled:opacity-50"
+                        >
+                          {eliminandoFotoId === foto.id ? 'Eliminando...' : 'Eliminar'}
+                        </button>
+                      </div>
+                    )
                   )}
                 </div>
               ))}
