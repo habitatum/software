@@ -57,6 +57,11 @@ export default function Usuarios() {
     await supabase.from('usuarios').update({ activo: !activo }).eq('id', id);
     cargar();
   }
+  async function alternarPermisoBitacora(id, actual) {
+    const supabase = crearClienteSupabase();
+    await supabase.from('usuarios').update({ puede_gestionar_bitacora: !actual }).eq('id', id);
+    cargar();
+  }
 
   function abrirReset(u) {
     setFilaResetAbierta(filaResetAbierta === u.id ? null : u.id);
@@ -164,7 +169,7 @@ export default function Usuarios() {
 
         <div className="bg-white rounded-lg shadow-sm border overflow-hidden">
           <table className="w-full text-sm">
-            <thead className="bg-gris-calido/30 text-left"><tr><th className="p-3">Nombre</th><th className="p-3">Correo / Usuario</th><th className="p-3">Rol</th><th className="p-3">Estado</th><th className="p-3">Acciones</th></tr></thead>
+            <thead className="bg-gris-calido/30 text-left"><tr><th className="p-3">Nombre</th><th className="p-3">Correo / Usuario</th><th className="p-3">Rol</th><th className="p-3">Estado</th><th className="p-3">Bitácora</th><th className="p-3">Acciones</th></tr></thead>
             <tbody>
               {usuarios.map((u) => (
                 <Fragment key={u.id}>
@@ -184,6 +189,21 @@ export default function Usuarios() {
                       </button>
                     </td>
                     <td className="p-3">
+                      {u.rol === 'admin' ? (
+                        <span className="text-xs text-neutral-400">Incluido (admin)</span>
+                      ) : (
+                        <label className="flex items-center gap-1.5 cursor-pointer text-xs">
+                          <input
+                            type="checkbox"
+                            checked={!!u.puede_gestionar_bitacora}
+                            onChange={() => alternarPermisoBitacora(u.id, u.puede_gestionar_bitacora)}
+                            className="rounded border-neutral-300"
+                          />
+                          Editar/eliminar/exportar
+                        </label>
+                      )}
+                    </td>
+                    <td className="p-3">
                       <button
                         onClick={() => abrirReset(u)}
                         disabled={reseteando === u.id}
@@ -195,7 +215,7 @@ export default function Usuarios() {
                   </tr>
                   {filaResetAbierta === u.id && (
                     <tr className="border-t bg-neutral-50">
-                      <td colSpan={5} className="p-3">
+                      <td colSpan={6} className="p-3">
                         <div className="flex items-end gap-2 flex-wrap">
                           <div>
                             <label className="block text-xs mb-1">Nueva contraseña para {u.nombre} (mínimo 6 caracteres)</label>
