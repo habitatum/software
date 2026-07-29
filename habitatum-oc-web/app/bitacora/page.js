@@ -5,6 +5,7 @@ import { useProyectoActual } from '@/lib/useProyectoActual';
 import { crearClienteSupabase } from '@/lib/supabaseClient';
 import NavBar from '@/components/NavBar';
 import { exportarBitacora } from '@/lib/exportarBitacora';
+import { moverFotoAFecha } from '@/lib/moverFotoFecha';
 
 function formatoFechaLarga(fecha) {
   const d = new Date(fecha + 'T00:00:00');
@@ -33,6 +34,9 @@ export default function BitacoraDeObra() {
   const [borradorResumen, setBorradorResumen] = useState('');
   const [guardando, setGuardando] = useState(false);
   const [eliminandoFotoId, setEliminandoFotoId] = useState(null);
+  const [editandoFechaFotoId, setEditandoFechaFotoId] = useState(null);
+  const [borradorFecha, setBorradorFecha] = useState('');
+  const [moviendoFoto, setMoviendoFoto] = useState(false);
 
   const puedeGestionar = usuario?.rol === 'admin' || usuario?.puede_gestionar_bitacora;
 
@@ -124,6 +128,25 @@ export default function BitacoraDeObra() {
       alert('No se pudo eliminar: ' + error.message);
       return;
     }
+    cargar();
+  }
+
+  function abrirEdicionFecha(foto) {
+    setEditandoFechaFotoId(foto.id);
+    setBorradorFecha(foto.fecha);
+  }
+
+  async function guardarFecha(foto) {
+    if (!borradorFecha) return;
+    setMoviendoFoto(true);
+    const supabase = crearClienteSupabase();
+    const { error } = await moverFotoAFecha(supabase, { foto, nuevaFecha: borradorFecha, proyectoId: proyecto.id });
+    setMoviendoFoto(false);
+    if (error) {
+      alert('No se pudo cambiar la fecha: ' + error.message);
+      return;
+    }
+    setEditandoFechaFotoId(null);
     cargar();
   }
 
@@ -254,8 +277,23 @@ export default function BitacoraDeObra() {
                       <div className="flex gap-1.5">
                         <button onClick={() => guardarFoto(foto)} disabled={guardando} className="bg-carbon text-hueso px-2 py-1 rounded text-xs disabled:opacity-50">Guardar</button>
                         <button onClick={() => setEditandoFotoId(null)} className="text-xs text-neutral-500 px-1">Cancelar</button>
+                      </div>
                     </div>
-                  </div>
+                  ) : editandoFechaFotoId === foto.id ? (
+                    <div className="mt-1 space-y-1">
+                      <input
+                        type="date"
+                        value={borradorFecha}
+                        onChange={(e) => setBorradorFecha(e.target.value)}
+                        className="w-full border rounded px-2 py-1 text-xs"
+                      />
+                      <div className="flex gap-1.5">
+                        <button onClick={() => guardarFecha(foto)} disabled={moviendoFoto} className="bg-carbon text-hueso px-2 py-1 rounded text-xs disabled:opacity-50">
+                          {moviendoFoto ? 'Moviendo...' : 'Mover'}
+                        </button>
+                        <button onClick={() => setEditandoFechaFotoId(null)} className="text-xs text-neutral-500 px-1">Cancelar</button>
+                      </div>
+                    </div>
                   ) : (
                     <>
                       {(foto.titulo_ia || foto.descripcion_ia) && (
@@ -266,8 +304,9 @@ export default function BitacoraDeObra() {
                         </p>
                       )}
                       {puedeGestionar && (
-                        <div className="flex gap-2 mt-1">
+                        <div className="flex gap-2 mt-1 flex-wrap">
                           <button onClick={() => abrirEdicionFoto(foto)} className="text-xs text-neutral-400 hover:text-neutral-700 underline">Editar</button>
+                          <button onClick={() => abrirEdicionFecha(foto)} className="text-xs text-neutral-400 hover:text-neutral-700 underline">Cambiar día</button>
                           <button
                             onClick={() => eliminarFoto(foto)}
                             disabled={eliminandoFotoId === foto.id}
