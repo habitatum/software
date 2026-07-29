@@ -130,6 +130,15 @@ export default function DetalleOrdenCompra() {
         <div className="bg-white rounded-lg shadow-sm border p-5 grid grid-cols-2 gap-3 text-sm">
           <Dato label="Proveedor" valor={oc.proveedores?.nombre} />
           <Dato label="NIT" valor={oc.proveedores?.nit} />
+          <Dato
+            label="Cuenta"
+            valor={
+              oc.proveedores?.numero_cuenta
+                ? `${oc.proveedores.numero_cuenta}${oc.proveedores?.tipo_cuenta ? ` (${oc.proveedores.tipo_cuenta})` : ''}`
+                : null
+            }
+          />
+          <Dato label="Banco" valor={oc.proveedores?.banco} />
           <Dato label="Contrato" valor={oc.contratos?.numero_contrato ?? '—'} />
           <Dato label="Fecha" valor={oc.fecha} />
           <Dato label="Tipo de orden" valor={oc.tipo_orden} />
@@ -186,11 +195,11 @@ export default function DetalleOrdenCompra() {
             <FilaResumen label="Subtotal" valor={oc.subtotal} />
             {Number(oc.descuento) > 0 && <FilaResumen label="- Descuento" valor={oc.descuento} negativo />}
             {oc.tipo_impuesto === 'CON_IVA' && (
-              <FilaResumen label={`+ IVA (${oc.porcentaje_iva || 0}%)`} valor={oc.valor_iva} />
+              <FilaResumen label={` + IVA (${oc.porcentaje_iva || 0}%)`} valor={oc.valor_iva} />
             )}
             {oc.tipo_impuesto === 'CON_AIU' && (
               <>
-                <FilaResumen label={`+ AIU (${oc.porcentaje_aiu || 0}%)`} valor={oc.valor_aiu} />
+                <FilaResumen label={` + AIU (${oc.porcentaje_aiu || 0}%)`} valor={oc.valor_aiu} />
                 {Number(oc.porcentaje_administracion) > 0 && (
                   <FilaResumen label={`   · Administración (${oc.porcentaje_administracion}%)`} valor={oc.valor_administracion} sutil />
                 )}
