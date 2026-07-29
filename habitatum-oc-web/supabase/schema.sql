@@ -18,6 +18,7 @@ create table usuarios (
   usuario text unique, -- nombre de usuario para login sin correo real (correo interno sintético)
   rol rol_usuario not null default 'lectura',
   activo boolean not null default true,
+  puede_gestionar_bitacora boolean not null default false, -- permiso delegado: editar/eliminar fotos y exportar Word aunque no sea admin
   creado_en timestamptz not null default now()
 );
 
@@ -466,7 +467,7 @@ create table bitacora_fotos (
   hora time not null default current_time,
   foto_url text not null,
   titulo_ia text,
-  descripcion_ia text,
+  descripcion_ia text, -- "detalle" en el formato título+detalle (igual al skill bitacora-obra)
   remitente text,
   telegram_message_id bigint,
   creado_en timestamptz not null default now()
@@ -505,3 +506,19 @@ on conflict (id) do nothing;
 
 create policy "lectura_bitacora_fotos_storage" on storage.objects for select
   using (bucket_id = 'bitacora-fotos' and auth.uid() is not null);
+
+-- Permiso delegado de Bitácora: admin siempre, o cualquier usuario marcado
+-- por el admin con puede_gestionar_bitacora = true (ver migración 013).
+create or replace function puede_gestionar_bitacora_actual() returns boolean as $$
+  select coalesce(rol = 'admin' or puede_gestionar_bitacora, false)
+  from usuarios where id = auth.uid();
+$$ language sql stable security definer;
+
+create policy "actualizar_bitacora_fotos_autorizados" on bitacora_fotos for update
+  using (puede_gestionar_bitacora_actual()) with check (puede_gestionar_bitacora_actual());
+create policy "eliminar_bitacora_fotos_autorizados" on bitacora_fotos for delete
+  using (puede_gestionar_bitacora_actual());
+create policy "actualizar_bitacora_dias_autorizados" on bitacora_dias for update
+  using (puede_gestionar_bitacora_actual()) with check (puede_gestionar_bitacora_actual());
+create policy "eliminar_bitacora_fotos_storage" on storage.objects for delete
+  using (bucket_id = 'bitacora-fotos' and puede_gestionar_bitacora_actual());
