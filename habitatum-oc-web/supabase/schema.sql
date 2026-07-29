@@ -522,3 +522,9 @@ create policy "actualizar_bitacora_dias_autorizados" on bitacora_dias for update
   using (puede_gestionar_bitacora_actual()) with check (puede_gestionar_bitacora_actual());
 create policy "eliminar_bitacora_fotos_storage" on storage.objects for delete
   using (bucket_id = 'bitacora-fotos' and puede_gestionar_bitacora_actual());
+
+
+-- Permite crear la fila de bitacora_dias del día destino cuando se mueve una
+-- foto a una fecha que todavía no tiene ninguna foto (ver migración 014).
+create policy "insertar_bitacora_dias_autorizados" on bitacora_dias for insert
+  with check (puede_gestionar_bitacora_actual());
