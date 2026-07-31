@@ -39,7 +39,7 @@ export default function NuevaOrdenCompra() {
       // Los Proveedores son globales: se muestran todos, sin filtrar por proyecto.
       const [{ data: prov }, { data: cont }, { data: ant }, { data: usrs }, { data: pres }] = await Promise.all([
         supabase.from('proveedores').select('id, nombre').order('nombre'),
-        supabase.from('contratos').select('id, numero_contrato, estado').eq('proyecto_id', proyecto.id).order('numero_contrato'),
+        supabase.from('contratos').select('id, numero_contrato, estado, valor_inicial').eq('proyecto_id', proyecto.id).order('numero_contrato'),
         supabase.from('ordenes_compra').select('id, folio, contrato_id').eq('proyecto_id', proyecto.id).eq('tipo_pago', 'ANTICIPO'),
         supabase.from('usuarios').select('id, nombre').eq('activo', true).order('nombre'),
         supabase.from('presupuestos').select('id').eq('proyecto_id', proyecto.id).maybeSingle(),
