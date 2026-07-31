@@ -1,12 +1,12 @@
 'use client';
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
-import * as XLSX from 'xlsx';
 import { useUsuarioActual } from '@/lib/useUsuarioActual';
 import { useProyectoActual } from '@/lib/useProyectoActual';
 import { crearClienteSupabase } from '@/lib/supabaseClient';
 import { formatoPesos } from '@/lib/calculosOC';
 import { TIPOS_CONTRATO, NOMBRES_TIPO_CONTRATO, plantillaClausulas } from '@/lib/plantillasContrato';
+import { parseItemsExcel } from '@/lib/parseItemsContrato';
 import NavBar from '@/components/NavBar';
 
 const ANIO_ACTUAL = new Date().getFullYear();
@@ -29,27 +29,6 @@ const VACIO_LEGAL = {
   items_excel: [],
 };
 const VACIO = { anio: ANIO_ACTUAL, consecutivo: 1, contratista_id: '', concepto: '', valor_inicial: 0, ...VACIO_LEGAL };
-
-// Nombres de columnas que se aceptan en el Excel importado (sin distinguir mayúsculas/tildes) —
-// la idea es que el Excel siempre traiga las mismas 4 columnas, pero si alguien usa un nombre
-// parecido (ej. "Precio unitario" en vez de "Valor unitario") igual se reconoce.
-const ALIAS_COLUMNAS = {
-  descripcion: ['descripcion', 'descripción', 'item', 'ítem', 'concepto'],
-  unidad: ['unidad', 'und', 'un'],
-  cantidad: ['cantidad', 'cant'],
-  valorUnitario: ['valor unitario', 'valor_unitario', 'precio unitario', 'precio_unitario', 'vr unitario', 'vr. unitario'],
-};
-function normalizar(s) {
-  return String(s || '').trim().toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '');
-}
-function encontrarColumna(headers, alias) {
-  const normalizados = headers.map(normalizar);
-  for (const a of alias) {
-    const idx = normalizados.indexOf(normalizar(a));
-    if (idx !== -1) return headers[idx];
-  }
-  return null;
-}
 
 export default function Contratos() {
   const { usuario, cargando } = useUsuarioActual();
@@ -121,9 +100,11 @@ export default function Contratos() {
 
   // Importa el cuadro de ítems desde un archivo Excel (.xlsx/.xls/.csv). Es puramente
   // informativo (se guarda en la columna items_excel y se muestra en el PDF del contrato) —
-  // no participa en ningún cálculo del software. Si el archivo no trae las columnas esperadas
-  // (Descripción, Cantidad, Valor unitario — Unidad es opcional), se avisa con un mensaje claro
-  // en vez de fallar en silencio.
+  // no participa en ningún cálculo del software. El archivo no tiene que traer siempre
+  // exactamente el mismo formato: parseItemsExcel() reconoce encabezados parecidos
+  // (ej. "Valor Uni" en vez de "Valor Unitario"), ignora columnas de más (Item, Subtotal,
+  // IVA...) y filas de título o de TOTAL. Si de verdad no logra identificar Descripción,
+  // Cantidad y Valor unitario, avisa con un mensaje claro en vez de fallar en silencio.
   function importarExcel(e) {
     const archivo = e.target.files?.[0];
     if (!archivo) return;
@@ -131,35 +112,7 @@ export default function Contratos() {
     const lector = new FileReader();
     lector.onload = (evento) => {
       try {
-        const libro = XLSX.read(evento.target.result, { type: 'array' });
-        const hoja = libro.Sheets[libro.SheetNames[0]];
-        const filas = XLSX.utils.sheet_to_json(hoja, { defval: '' });
-        if (!filas.length) throw new Error('El archivo no tiene filas de datos.');
-        const headers = Object.keys(filas[0]);
-        const colDescripcion = encontrarColumna(headers, ALIAS_COLUMNAS.descripcion);
-        const colUnidad = encontrarColumna(headers, ALIAS_COLUMNAS.unidad);
-        const colCantidad = encontrarColumna(headers, ALIAS_COLUMNAS.cantidad);
-        const colValorUnitario = encontrarColumna(headers, ALIAS_COLUMNAS.valorUnitario);
-        if (!colDescripcion || !colCantidad || !colValorUnitario) {
-          throw new Error(
-            'No se encontraron las columnas esperadas (Descripción, Cantidad, Valor unitario). ' +
-            'Columnas encontradas en el archivo: ' + headers.join(', ')
-          );
-        }
-        const items = filas
-          .map((f) => {
-            const cantidad = Number(f[colCantidad]) || 0;
-            const valorUnitario = Number(f[colValorUnitario]) || 0;
-            return {
-              descripcion: String(f[colDescripcion] || '').trim(),
-              unidad: colUnidad ? String(f[colUnidad] || '').trim() : '',
-              cantidad,
-              valorUnitario,
-              total: cantidad * valorUnitario,
-            };
-          })
-          .filter((it) => it.descripcion);
-        if (!items.length) throw new Error('No se encontraron filas con descripción para importar.');
+        const items = parseItemsExcel(evento.target.result);
         setForm((f) => ({ ...f, items_excel: items }));
       } catch (err) {
         setErrorExcel(err.message || 'No se pudo leer el archivo.');
@@ -364,7 +317,7 @@ export default function Contratos() {
               <p className="text-xs text-neutral-500 font-medium mb-1">Cuadro de ítems (importado de Excel — informativo, aparece en el PDF)</p>
               <input type="file" accept=".xlsx,.xls,.csv" onChange={importarExcel} className="text-sm" />
               <p className="text-[11px] text-neutral-400 mt-1">
-                Columnas esperadas: Descripción, Unidad (opcional), Cantidad, Valor unitario.
+                No tiene que ser un formato exacto: se reconocen encabezados parecidos a Descripción, Unidad (opcional), Cantidad y Valor unitario aunque el archivo traiga columnas de más o esté abreviado.
               </p>
               {errorExcel && <p className="text-red-600 text-xs mt-1">{errorExcel}</p>}
               {form.items_excel.length > 0 && (
