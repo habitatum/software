@@ -248,33 +248,48 @@ export default function Contratos() {
             </p>
 
             <div className="grid grid-cols-3 gap-3">
-              <input
-                required
-                type="number"
-                placeholder="Año"
-                value={form.anio}
-                onChange={(e) => cambiarAnio(e.target.value)}
-                className="border rounded px-3 py-2 text-sm"
-              />
-              <select
-                required
-                value={form.consecutivo}
-                onChange={(e) => setForm({ ...form, consecutivo: Number(e.target.value) })}
-                className="border rounded px-3 py-2 text-sm"
-              >
-                {disponiblesParaElAnio.map((n) => (
-                  <option key={n} value={n}>{String(n).padStart(2, '0')}</option>
-                ))}
-              </select>
-              <input type="number" placeholder="Valor inicial" value={form.valor_inicial} onChange={(e) => setForm({ ...form, valor_inicial: e.target.value })} className="border rounded px-3 py-2 text-sm" />
+              <div>
+                <label className="block text-xs text-neutral-500 mb-1">Año</label>
+                <input
+                  required
+                  type="number"
+                  placeholder="Año"
+                  value={form.anio}
+                  onChange={(e) => cambiarAnio(e.target.value)}
+                  className="border rounded px-3 py-2 text-sm w-full"
+                />
+              </div>
+              <div>
+                <label className="block text-xs text-neutral-500 mb-1">Consecutivo</label>
+                <select
+                  required
+                  value={form.consecutivo}
+                  onChange={(e) => setForm({ ...form, consecutivo: Number(e.target.value) })}
+                  className="border rounded px-3 py-2 text-sm w-full"
+                >
+                  {disponiblesParaElAnio.map((n) => (
+                    <option key={n} value={n}>{String(n).padStart(2, '0')}</option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label className="block text-xs text-neutral-500 mb-1">Valor inicial</label>
+                <input type="number" placeholder="Valor inicial" value={form.valor_inicial} onChange={(e) => setForm({ ...form, valor_inicial: e.target.value })} className="border rounded px-3 py-2 text-sm w-full" />
+              </div>
               <p className="col-span-3 text-xs text-neutral-400 -mt-1">
                 N° de contrato: {proyecto.codigo}-{form.anio}-{String(form.consecutivo).padStart(2, '0')}
               </p>
-              <select required value={form.contratista_id} onChange={(e) => setForm({ ...form, contratista_id: e.target.value })} className="border rounded px-3 py-2 text-sm col-span-3">
-                <option value="">Contratista...</option>
-                {proveedores.map((p) => <option key={p.id} value={p.id}>{p.nombre}</option>)}
-              </select>
-              <input placeholder="Concepto" value={form.concepto} onChange={(e) => setForm({ ...form, concepto: e.target.value })} className="border rounded px-3 py-2 text-sm col-span-3" />
+              <div className="col-span-3">
+                <label className="block text-xs text-neutral-500 mb-1">Contratista</label>
+                <select required value={form.contratista_id} onChange={(e) => setForm({ ...form, contratista_id: e.target.value })} className="border rounded px-3 py-2 text-sm w-full">
+                  <option value="">Contratista...</option>
+                  {proveedores.map((p) => <option key={p.id} value={p.id}>{p.nombre}</option>)}
+                </select>
+              </div>
+              <div className="col-span-3">
+                <label className="block text-xs text-neutral-500 mb-1">Concepto</label>
+                <input placeholder="Concepto" value={form.concepto} onChange={(e) => setForm({ ...form, concepto: e.target.value })} className="border rounded px-3 py-2 text-sm w-full" />
+              </div>
             </div>
 
             <div className="border-t pt-3">
