@@ -2,31 +2,13 @@
 import { useEffect, useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
-import * as XLSX from 'xlsx';
 import { useUsuarioActual } from '@/lib/useUsuarioActual';
 import { useProyectoActual } from '@/lib/useProyectoActual';
 import { crearClienteSupabase } from '@/lib/supabaseClient';
 import { formatoPesos } from '@/lib/calculosOC';
 import { TIPOS_CONTRATO, NOMBRES_TIPO_CONTRATO, plantillaClausulas, clausulasDelContrato } from '@/lib/plantillasContrato';
+import { parseItemsExcel } from '@/lib/parseItemsContrato';
 import NavBar from '@/components/NavBar';
-
-const ALIAS_COLUMNAS = {
-  descripcion: ['descripcion', 'descripción', 'item', 'ítem', 'concepto'],
-  unidad: ['unidad', 'und', 'un'],
-  cantidad: ['cantidad', 'cant'],
-  valorUnitario: ['valor unitario', 'valor_unitario', 'precio unitario', 'precio_unitario', 'vr unitario', 'vr. unitario'],
-};
-function normalizar(s) {
-  return String(s || '').trim().toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '');
-}
-function encontrarColumna(headers, alias) {
-  const normalizados = headers.map(normalizar);
-  for (const a of alias) {
-    const idx = normalizados.indexOf(normalizar(a));
-    if (idx !== -1) return headers[idx];
-  }
-  return null;
-}
 
 function campoFormEdicion(contrato) {
   return {
@@ -95,6 +77,8 @@ export default function DetalleContrato() {
     setForm({ ...form, clausulas: form.clausulas.map((c, i) => (i === idx ? { ...c, [campo]: valor } : c)) });
   }
 
+  // Importa el cuadro de ítems desde Excel (misma lógica flexible que en la
+  // creación del contrato: no exige un formato exacto, ver lib/parseItemsContrato.js).
   function importarExcel(e) {
     const archivo = e.target.files?.[0];
     if (!archivo) return;
@@ -102,26 +86,7 @@ export default function DetalleContrato() {
     const lector = new FileReader();
     lector.onload = (evento) => {
       try {
-        const libro = XLSX.read(evento.target.result, { type: 'array' });
-        const hoja = libro.Sheets[libro.SheetNames[0]];
-        const filas = XLSX.utils.sheet_to_json(hoja, { defval: '' });
-        if (!filas.length) throw new Error('El archivo no tiene filas de datos.');
-        const headers = Object.keys(filas[0]);
-        const colDescripcion = encontrarColumna(headers, ALIAS_COLUMNAS.descripcion);
-        const colUnidad = encontrarColumna(headers, ALIAS_COLUMNAS.unidad);
-        const colCantidad = encontrarColumna(headers, ALIAS_COLUMNAS.cantidad);
-        const colValorUnitario = encontrarColumna(headers, ALIAS_COLUMNAS.valorUnitario);
-        if (!colDescripcion || !colCantidad || !colValorUnitario) {
-          throw new Error('No se encontraron las columnas esperadas (Descripción, Cantidad, Valor unitario). Columnas encontradas: ' + headers.join(', '));
-        }
-        const items = filas
-          .map((f) => {
-            const cantidad = Number(f[colCantidad]) || 0;
-            const valorUnitario = Number(f[colValorUnitario]) || 0;
-            return { descripcion: String(f[colDescripcion] || '').trim(), unidad: colUnidad ? String(f[colUnidad] || '').trim() : '', cantidad, valorUnitario, total: cantidad * valorUnitario };
-          })
-          .filter((it) => it.descripcion);
-        if (!items.length) throw new Error('No se encontraron filas con descripción para importar.');
+        const items = parseItemsExcel(evento.target.result);
         setForm((f) => ({ ...f, items_excel: items }));
       } catch (err) {
         setErrorExcel(err.message || 'No se pudo leer el archivo.');
@@ -419,6 +384,9 @@ export default function DetalleContrato() {
             <div className="border-t pt-3">
               <p className="text-xs text-neutral-500 font-medium mb-1">Cuadro de ítems (importado de Excel — informativo)</p>
               <input type="file" accept=".xlsx,.xls,.csv" onChange={importarExcel} className="text-sm" />
+              <p className="text-[11px] text-neutral-400 mt-1">
+                No tiene que ser un formato exacto: se reconocen encabezados parecidos a Descripción, Unidad (opcional), Cantidad y Valor unitario aunque el archivo traiga columnas de más o esté abreviado.
+              </p>
               {errorExcel && <p className="text-red-600 text-xs mt-1">{errorExcel}</p>}
               {form.items_excel.length > 0 && (
                 <div className="mt-2 border rounded overflow-hidden">
