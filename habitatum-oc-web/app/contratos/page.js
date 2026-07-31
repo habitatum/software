@@ -416,8 +416,13 @@ export default function Contratos() {
             </thead>
             <tbody>
               {contratos.map((c) => (
-                <tr key={c.id} className="border-t hover:bg-hueso">
-                  <td className="p-3"><Link href={`/contratos/${c.id}`} className="text-blue-700 hover:underline">{c.numero_contrato}</Link></td>
+                <tr key={c.id} className={`border-t hover:bg-hueso ${c.estado === 'ANULADO' ? 'opacity-60' : ''}`}>
+                  <td className="p-3">
+                    <Link href={`/contratos/${c.id}`} className="text-blue-700 hover:underline">{c.numero_contrato}</Link>
+                    {c.estado === 'ANULADO' && (
+                      <span className="ml-2 bg-red-100 text-red-700 text-[10px] font-semibold px-1.5 py-0.5 rounded align-middle">ANULADO</span>
+                    )}
+                  </td>
                   <td className="p-3">{c.proveedores?.nombre}</td>
                   <td className="p-3 text-right">{formatoPesos(c.valor_inicial)}</td>
                 </tr>
