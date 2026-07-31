@@ -249,23 +249,23 @@ export default function SeleccionarProyecto() {
                           className="border rounded px-3 py-2 text-sm w-full"
                         />
                       )}
-                      <p className="text-[11px] text-neutral-400 pt-1">Datos del Contratante para el PDF de Contratos:</p>
+                      <p className="text-[11px] text-neutral-400 pt-1">Datos del Cliente (Contratante real en el PDF de Contratos — el nombre de arriba, "Cliente", es el que aparece como Contratante):</p>
                       <input
                         value={formEdicion.nitEmpresa}
                         onChange={(e) => setFormEdicion({ ...formEdicion, nitEmpresa: e.target.value })}
-                        placeholder="NIT de la empresa"
+                        placeholder="NIT / Cédula del cliente"
                         className="border rounded px-3 py-2 text-sm w-full"
                       />
                       <input
                         value={formEdicion.representanteLegal}
                         onChange={(e) => setFormEdicion({ ...formEdicion, representanteLegal: e.target.value })}
-                        placeholder="Representante legal"
+                        placeholder="Representante legal del cliente (si aplica)"
                         className="border rounded px-3 py-2 text-sm w-full"
                       />
                       <input
                         value={formEdicion.telefonoEmpresa}
                         onChange={(e) => setFormEdicion({ ...formEdicion, telefonoEmpresa: e.target.value })}
-                        placeholder="Teléfono de la empresa"
+                        placeholder="Teléfono del cliente"
                         className="border rounded px-3 py-2 text-sm w-full"
                       />
                       <input
@@ -413,23 +413,23 @@ export default function SeleccionarProyecto() {
                 )}
 
                 <p className="text-xs text-neutral-500 pt-2">
-                  Datos del Contratante (opcionales aquí, se pueden completar después con "Editar") — se usan al generar el PDF de un Contrato de este proyecto:
+                  Datos del Cliente (opcionales aquí, se pueden completar después con "Editar") — el Cliente es siempre el Contratante real en el PDF de un Contrato de este proyecto:
                 </p>
                 <div className="grid sm:grid-cols-2 gap-3">
                   <input
-                    placeholder="NIT de la empresa"
+                    placeholder="NIT / Cédula del cliente"
                     value={form.nitEmpresa}
                     onChange={(e) => setForm({ ...form, nitEmpresa: e.target.value })}
                     className="border rounded px-3 py-2 text-sm"
                   />
                   <input
-                    placeholder="Representante legal"
+                    placeholder="Representante legal del cliente (si aplica)"
                     value={form.representanteLegal}
                     onChange={(e) => setForm({ ...form, representanteLegal: e.target.value })}
                     className="border rounded px-3 py-2 text-sm"
                   />
                   <input
-                    placeholder="Teléfono de la empresa"
+                    placeholder="Teléfono del cliente"
                     value={form.telefonoEmpresa}
                     onChange={(e) => setForm({ ...form, telefonoEmpresa: e.target.value })}
                     className="border rounded px-3 py-2 text-sm"
