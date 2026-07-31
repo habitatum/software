@@ -16,14 +16,12 @@ const GRIS_ENCABEZADO = 'CEC5BA';
 // Fuente única del documento: el Google Doc real usa Arial 11 por defecto
 // (confirmado en el propio Doc). La librería `docx` no hereda esa fuente
 // sola — sin `font` cada TextRun cae en la fuente por defecto de Word
-// (normalmente Calibri/Aptos), que es la causa de que el Word descargado
-// se vea con una tipografía distinta a la del Doc. Por eso aquí se fija
+// (normalmente Calibri/Aptos), que era la causa de que el Word descargado
+// se viera con una tipografía distinta a la del Doc. Por eso aquí se fija
 // explícitamente en cada TextRun del archivo.
 const FUENTE = 'Arial';
 // Borde de la cuadrícula de fotos: el Doc usa el borde por defecto de una
-// tabla nueva de Google Docs (negro, ~1pt), no un gris claro. Antes esta
-// constante usaba BFBFBF a 0.5pt, que se veía visiblemente más tenue que
-// el Doc real.
+// tabla nueva de Google Docs (negro, ~1pt), no un gris claro.
 const BORDE_GRID = { style: BorderStyle.SINGLE, size: 8, color: '000000' };
 const SIN_BORDE = { style: BorderStyle.NONE, size: 0, color: 'FFFFFF' };
 const SIN_BORDES = { top: SIN_BORDE, bottom: SIN_BORDE, left: SIN_BORDE, right: SIN_BORDE };
@@ -79,11 +77,20 @@ function celdaFotoVacia() {
   });
 }
 
-// Misma proporción que MAX_W=252 / MAX_H=283 puntos de llenarCelda() en el
-// Doc (celda más alta que ancha, pensada para una hoja vertical con 2
-// columnas) — convertidos a "píxeles" de docx a 96dpi (pt * 96/72).
+// Tamaño máximo de cada foto dentro de la grilla 2x2. Antes esto usaba
+// 336x377px (252x283pt, la misma medida del Doc), pero esa medida NO deja
+// espacio para la leyenda (título + detalle, 1-3 líneas) ni los márgenes de
+// celda debajo de la foto — probado con LibreOffice generando el .docx real:
+// con fotos en formato retrato (las más altas, típicas de celular en
+// vertical) más una leyenda y el resumen del día, las DOS filas de la
+// cuadrícula ya no cabían en una sola hoja y la segunda fila se iba a la
+// página siguiente, rompiendo el "4 fotos por hoja" que sí cumple el Doc.
+// 280px (210pt) de alto máximo sí deja ese espacio: se validó generando el
+// .docx con LibreOffice (headless) variando esta constante hasta confirmar
+// 1 sola página incluso en el caso más exigente (encabezado con nombre de
+// obra largo + resumen del día + leyenda de foto realista).
 const MAX_W = 336;
-const MAX_H = 377;
+const MAX_H = 280;
 
 async function celdaFoto(foto) {
   const img = await urlABuffer(foto.foto_url);
@@ -109,8 +116,7 @@ async function celdaFoto(foto) {
   const detalle = foto.descripcion_ia || '';
   const runs = [];
   // size en `docx` está en medios-punto: 22 = 11pt, igual que el texto
-  // normal (Arial 11) del Doc real — antes estas leyendas usaban 18 (9pt),
-  // más pequeño que en el Doc.
+  // normal (Arial 11) del Doc real.
   if (titulo) runs.push(new TextRun({ text: titulo, bold: true, size: 22, color: CARBON, font: FUENTE }));
   if (titulo && detalle) runs.push(new TextRun({ text: ' — ', size: 22, color: CARBON, font: FUENTE }));
   if (detalle) runs.push(new TextRun({ text: detalle, size: 22, color: CARBON, font: FUENTE }));
@@ -133,7 +139,9 @@ function tablaGrupoDeFotos(celdas) {
   for (let i = 0; i < celdas.length; i += 2) {
     const par = [celdas[i], celdas[i + 1]].filter(Boolean);
     if (par.length === 1) par.push(celdaFotoVacia());
-    filas.push(new TableRow({ children: par }));
+    // `cantSplit: false` evita que Word corte una fila de fotos a la mitad
+    // entre dos páginas (defensa extra además del ajuste de MAX_H arriba).
+    filas.push(new TableRow({ cantSplit: false, children: par }));
   }
   return new Table({ width: { size: 100, type: WidthType.PERCENTAGE }, rows: filas });
 }
@@ -141,14 +149,21 @@ function tablaGrupoDeFotos(celdas) {
 // Encabezado de 3 columnas (85:293:162 pt ≈ 16%:54%:30% de las 540pt de
 // ancho útil de la página), fondo #CEC5BA en las tres, igual que
 // crearEncabezado() en el Doc: logo | empresa/obra | código-versión-elaboración.
+//
+// Si el proyecto tiene mostrar_marca_habitatum = false, se oculta el logo y
+// el nombre "HABITATUM SAS" se reemplaza por proyecto.nombre_emisor —
+// mismo criterio que ya usa EncabezadoPDF.js para los PDF de Órdenes de
+// Compra y Contratos (mostrarMarcaHabitatum / nombreEmisor).
 function tablaEncabezado(proyecto, logo) {
+  const mostrarMarca = proyecto?.mostrar_marca_habitatum !== false;
+
   const celdaLogo = new TableCell({
     width: { size: 16, type: WidthType.PERCENTAGE },
     shading: { fill: GRIS_ENCABEZADO, type: ShadingType.CLEAR, color: 'auto' },
     borders: SIN_BORDES,
     verticalAlign: VerticalAlign.CENTER,
     children:
-      logo && logo.width
+      mostrarMarca && logo && logo.width
         ? [
             new Paragraph({
               children: [
@@ -170,7 +185,17 @@ function tablaEncabezado(proyecto, logo) {
     borders: SIN_BORDES,
     verticalAlign: VerticalAlign.CENTER,
     children: [
-      new Paragraph({ children: [new TextRun({ text: 'HABITATUM SAS', bold: true, size: 22, color: CARBON, font: FUENTE })] }),
+      new Paragraph({
+        children: [
+          new TextRun({
+            text: mostrarMarca ? 'HABITATUM SAS' : (proyecto?.nombre_emisor || ''),
+            bold: true,
+            size: 22,
+            color: CARBON,
+            font: FUENTE,
+          }),
+        ],
+      }),
       new Paragraph({ children: [new TextRun({ text: 'BITÁCORA DIARIA DE OBRA', bold: true, size: 22, color: CARBON, font: FUENTE })] }),
       new Paragraph({ children: [new TextRun({ text: `OBRA: ${proyecto?.nombre || ''}`, bold: true, size: 22, color: CARBON, font: FUENTE })] }),
     ],
@@ -178,11 +203,15 @@ function tablaEncabezado(proyecto, logo) {
 
   // Mismo bloque "Código / Versión / Elaboración" que CODIGO_PROYECTO /
   // VERSION_DOC / FECHA_ELABORACION en el Doc (metadatos fijos de control
-  // documental, sin negrita, alineados a la izquierda). Como estos valores
-  // se configuran una sola vez por proyecto en Apps Script y aquí el Word se
-  // genera bajo demanda, "Elaboración" usa la fecha en que se genera el
-  // archivo — si HABITATUM ya tiene código y versión fijos para este formato,
-  // dime cuáles son y los dejo fijos también.
+  // documental, sin negrita, alineados a la izquierda). "Elaboración" es la
+  // fecha en que se creó el formato/proyecto (fija, como el 02/11/25 del
+  // Doc real de Reforma 423) — se toma de proyecto.creado_en, NO de la
+  // fecha en que se descarga el Word (antes usaba `new Date()`, por lo que
+  // cambiaba cada vez que alguien pulsaba "Descargar Word").
+  const fechaElaboracion = proyecto?.creado_en
+    ? new Date(proyecto.creado_en).toLocaleDateString('es-CO')
+    : new Date().toLocaleDateString('es-CO');
+
   const celdaCodigo = new TableCell({
     width: { size: 30, type: WidthType.PERCENTAGE },
     shading: { fill: GRIS_ENCABEZADO, type: ShadingType.CLEAR, color: 'auto' },
@@ -191,7 +220,7 @@ function tablaEncabezado(proyecto, logo) {
     children: [
       new Paragraph({ children: [new TextRun({ text: 'Código: PLC', size: 18, color: CARBON, font: FUENTE })] }),
       new Paragraph({ children: [new TextRun({ text: 'Versión: 01', size: 18, color: CARBON, font: FUENTE })] }),
-      new Paragraph({ children: [new TextRun({ text: `Elaboración: ${new Date().toLocaleDateString('es-CO')}`, size: 18, color: CARBON, font: FUENTE })] }),
+      new Paragraph({ children: [new TextRun({ text: `Elaboración: ${fechaElaboracion}`, size: 18, color: CARBON, font: FUENTE })] }),
     ],
   });
 
@@ -214,7 +243,8 @@ export async function exportarBitacora({ proyecto, dias, fotosPorDia, fechasSele
   const diasOrdenados = [...diasFiltrados].sort((a, b) => (a.fecha < b.fecha ? -1 : 1));
   if (diasOrdenados.length === 0) return;
 
-  const logo = await urlABuffer('/logo-habitatum.png');
+  const mostrarMarca = proyecto?.mostrar_marca_habitatum !== false;
+  const logo = mostrarMarca ? await urlABuffer('/logo-habitatum.png') : null;
   const hijos = [];
 
   for (let i = 0; i < diasOrdenados.length; i++) {
