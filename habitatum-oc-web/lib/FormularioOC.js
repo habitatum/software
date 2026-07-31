@@ -1,5 +1,5 @@
 'use client';
-import { formatoPesos } from '@/lib/calculosOC';
+import { formatoPesos, redondear } from '@/lib/calculosOC';
 
 // Antes esto vivía como .input dentro de <style jsx global> con @apply, pero
 // styled-jsx no pasa ese bloque por el pipeline de Tailwind: la clase nunca se
@@ -28,6 +28,45 @@ export default function FormularioOC({
     setItems((prev) => prev.filter((_, idx) => idx !== i));
   }
 
+  const contratoSeleccionado = contratos.find((c) => c.id === oc.contrato_id);
+  const valorCalculadoAnticipo = contratoSeleccionado
+    ? redondear(Number(contratoSeleccionado.valor_inicial || 0) * (Number(oc.porcentaje_anticipo) || 0) / 100)
+    : 0;
+
+  // El valor de una OC de Anticipo se calcula solo: Valor inicial del
+  // Contrato × % de anticipo, y se usa como único ítem de la orden. Esto
+  // solo se recalcula ante un cambio explícito del usuario (Contrato, % o
+  // Tipo de pago) — nunca al cargar el formulario — para no alterar en
+  // silencio los ítems de una OC que ya existía antes de este cambio.
+  function recalcularItemAnticipo(nuevoOc) {
+    const contrato = contratos.find((c) => c.id === nuevoOc.contrato_id);
+    const porcentaje = Number(nuevoOc.porcentaje_anticipo) || 0;
+    if (!contrato || porcentaje <= 0) return;
+    const valor = redondear(Number(contrato.valor_inicial || 0) * porcentaje / 100);
+    setItems([{
+      descripcion: `Anticipo (${porcentaje}% del contrato ${contrato.numero_contrato || ''})`.trim(),
+      unidad: 'Glo',
+      cantidad: 1,
+      valor_unitario: valor,
+    }]);
+  }
+
+  function actualizarContrato(id) {
+    const nuevoOc = { ...oc, contrato_id: id };
+    setOc(nuevoOc);
+    if (nuevoOc.tipo_pago === 'ANTICIPO') recalcularItemAnticipo(nuevoOc);
+  }
+  function actualizarPorcentajeAnticipo(valor) {
+    const nuevoOc = { ...oc, porcentaje_anticipo: valor };
+    setOc(nuevoOc);
+    recalcularItemAnticipo(nuevoOc);
+  }
+  function actualizarTipoPago(valor) {
+    const nuevoOc = { ...oc, tipo_pago: valor };
+    setOc(nuevoOc);
+    if (valor === 'ANTICIPO') recalcularItemAnticipo(nuevoOc);
+  }
+
   return (
     <form onSubmit={onSubmit} className="space-y-6">
       {/* Datos generales */}
@@ -41,7 +80,7 @@ export default function FormularioOC({
             </select>
           </Campo>
           <Campo label="Contrato (opcional)">
-            <select value={oc.contrato_id} onChange={(e) => setOc({ ...oc, contrato_id: e.target.value })} className={INPUT}>
+            <select value={oc.contrato_id} onChange={(e) => actualizarContrato(e.target.value)} className={INPUT}>
               <option value="">— Sin contrato —</option>
               {contratos.map((c) => (
                 <option key={c.id} value={c.id}>
@@ -219,17 +258,39 @@ export default function FormularioOC({
       <Seccion titulo="Anticipo y amortización">
         <div className="grid grid-cols-2 gap-4">
           <Campo label="Tipo de pago">
-            <select value={oc.tipo_pago} onChange={(e) => setOc({ ...oc, tipo_pago: e.target.value })} className={INPUT}>
+            <select value={oc.tipo_pago} onChange={(e) => actualizarTipoPago(e.target.value)} className={INPUT}>
               <option value="NORMAL">Normal</option>
               <option value="ANTICIPO">Anticipo</option>
             </select>
           </Campo>
           {oc.tipo_pago === 'ANTICIPO' && (
             <Campo label="% que representa del contrato">
-              <input type="number" value={oc.porcentaje_anticipo} onChange={(e) => setOc({ ...oc, porcentaje_anticipo: e.target.value })} className={INPUT} />
+              <input type="number" value={oc.porcentaje_anticipo} onChange={(e) => actualizarPorcentajeAnticipo(e.target.value)} className={INPUT} />
             </Campo>
           )}
         </div>
+
+        {oc.tipo_pago === 'ANTICIPO' && (
+          <div className="bg-neutral-50 border border-neutral-200 rounded-md px-3 py-2 text-sm text-neutral-600">
+            {contratoSeleccionado ? (
+              <>
+                <div className="flex justify-between">
+                  <span>Valor inicial del contrato</span><span>{formatoPesos(contratoSeleccionado.valor_inicial)}</span>
+                </div>
+                <div className="flex justify-between font-medium text-neutral-800">
+                  <span>Valor calculado del anticipo ({Number(oc.porcentaje_anticipo) || 0}%)</span>
+                  <span>{formatoPesos(valorCalculadoAnticipo)}</span>
+                </div>
+                <p className="text-xs text-neutral-400 mt-1">
+                  Este valor se calcula solo (Valor inicial × %) y se usa como único ítem de esta orden. Si cambias el % o el Contrato, el ítem se recalcula automáticamente.
+                </p>
+              </>
+            ) : (
+              <p>Selecciona un Contrato arriba para calcular el valor del anticipo automáticamente a partir de su Valor inicial.</p>
+            )}
+          </div>
+        )}
+
         {oc.tipo_pago === 'NORMAL' && (
           <div className="grid grid-cols-2 gap-4">
             <Campo label="Referencia a anticipo (opcional)">

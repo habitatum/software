@@ -71,7 +71,7 @@ export function calcularOrdenCompra(oc, items, pagado = 0, totalAnticipoReferenc
   };
 }
 
-function redondear(n) {
+export function redondear(n) {
   return Math.round((Number(n) || 0) * 100) / 100;
 }
 
