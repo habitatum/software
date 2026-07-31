@@ -42,7 +42,7 @@ export default function EditarOrdenCompra() {
         supabase.from('ordenes_compra').select('*').eq('id', id).single(),
         supabase.from('items_oc').select('*').eq('orden_compra_id', id).order('orden').order('id'),
         supabase.from('proveedores').select('id, nombre').order('nombre'),
-        supabase.from('contratos').select('id, numero_contrato').eq('proyecto_id', proyecto.id).order('numero_contrato'),
+        supabase.from('contratos').select('id, numero_contrato, estado').eq('proyecto_id', proyecto.id).order('numero_contrato'),
         supabase.from('ordenes_compra').select('id, folio, contrato_id').eq('proyecto_id', proyecto.id).eq('tipo_pago', 'ANTICIPO').neq('id', id),
         supabase.from('usuarios').select('id, nombre').eq('activo', true).order('nombre'),
         supabase.from('presupuestos').select('id').eq('proyecto_id', proyecto.id).maybeSingle(),
@@ -51,7 +51,10 @@ export default function EditarOrdenCompra() {
       setOc(ocData);
       setItems((itemsData && itemsData.length > 0) ? itemsData : [{ descripcion: '', unidad: '', cantidad: 1, valor_unitario: 0 }]);
       setProveedores(prov || []);
-      setContratos(cont || []);
+      // Se excluyen los contratos anulados del desplegable, salvo que sea el
+      // contrato que esta misma OC ya tenía asignado (para no romper la
+      // edición de una OC vieja vinculada a un contrato que se anuló después).
+      setContratos((cont || []).filter((c) => c.estado !== 'ANULADO' || c.id === ocData?.contrato_id));
       setAnticipos(ant || []);
       setUsuarios(usrs || []);
       if (pres) {
