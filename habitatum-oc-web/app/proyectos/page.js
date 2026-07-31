@@ -6,7 +6,10 @@ import { useUsuarioActual } from '@/lib/useUsuarioActual';
 import { crearClienteSupabase } from '@/lib/supabaseClient';
 import { guardarProyectoActualId } from '@/lib/proyectoActual';
 
-const VACIO = { nombre: '', codigo: '', cliente: '', mostrarMarca: true, nombreEmisor: '' };
+const VACIO = {
+  nombre: '', codigo: '', cliente: '', mostrarMarca: true, nombreEmisor: '',
+  nitEmpresa: '', representanteLegal: '', telefonoEmpresa: '', direccionObra: '', ciudad: '',
+};
 
 export default function SeleccionarProyecto() {
   const { usuario, cargando } = useUsuarioActual();
@@ -21,8 +24,10 @@ export default function SeleccionarProyecto() {
   const [editandoId, setEditandoId] = useState(null);
   // "codigo" se agrega aquí para poder editarlo después de creado el proyecto
   // (antes solo se podía asignar una vez, al crear). Sigue siendo solo-admin,
-  // igual que el resto de este bloque de edición.
-  const [formEdicion, setFormEdicion] = useState({ nombre: '', codigo: '', cliente: '', mostrarMarca: true, nombreEmisor: '' });
+  // igual que el resto de este bloque de edición. Los campos nit/representante/
+  // teléfono/dirección/ciudad son los datos del Contratante que se usan al
+  // generar el PDF legal de un Contrato de este proyecto.
+  const [formEdicion, setFormEdicion] = useState({ ...VACIO });
   const [errorEdicion, setErrorEdicion] = useState('');
   const [guardandoEdicion, setGuardandoEdicion] = useState(false);
 
@@ -80,6 +85,11 @@ export default function SeleccionarProyecto() {
       cliente: p.cliente || '',
       mostrarMarca: p.mostrar_marca_habitatum,
       nombreEmisor: p.nombre_emisor || '',
+      nitEmpresa: p.nit_empresa || '',
+      representanteLegal: p.representante_legal || '',
+      telefonoEmpresa: p.telefono_empresa || '',
+      direccionObra: p.direccion_obra || '',
+      ciudad: p.ciudad || '',
     });
     setErrorEdicion('');
   }
@@ -115,6 +125,11 @@ export default function SeleccionarProyecto() {
         cliente: formEdicion.cliente.trim() || null,
         mostrar_marca_habitatum: formEdicion.mostrarMarca,
         nombre_emisor: formEdicion.mostrarMarca ? null : formEdicion.nombreEmisor.trim(),
+        nit_empresa: formEdicion.nitEmpresa.trim() || null,
+        representante_legal: formEdicion.representanteLegal.trim() || null,
+        telefono_empresa: formEdicion.telefonoEmpresa.trim() || null,
+        direccion_obra: formEdicion.direccionObra.trim() || null,
+        ciudad: formEdicion.ciudad.trim() || null,
       })
       .eq('id', id);
     setGuardandoEdicion(false);
@@ -153,6 +168,11 @@ export default function SeleccionarProyecto() {
         cliente: form.cliente.trim() || null,
         mostrar_marca_habitatum: form.mostrarMarca,
         nombre_emisor: form.mostrarMarca ? null : form.nombreEmisor.trim(),
+        nit_empresa: form.nitEmpresa.trim() || null,
+        representante_legal: form.representanteLegal.trim() || null,
+        telefono_empresa: form.telefonoEmpresa.trim() || null,
+        direccion_obra: form.direccionObra.trim() || null,
+        ciudad: form.ciudad.trim() || null,
       })
       .select()
       .single();
@@ -229,6 +249,37 @@ export default function SeleccionarProyecto() {
                           className="border rounded px-3 py-2 text-sm w-full"
                         />
                       )}
+                      <p className="text-[11px] text-neutral-400 pt-1">Datos del Contratante para el PDF de Contratos:</p>
+                      <input
+                        value={formEdicion.nitEmpresa}
+                        onChange={(e) => setFormEdicion({ ...formEdicion, nitEmpresa: e.target.value })}
+                        placeholder="NIT de la empresa"
+                        className="border rounded px-3 py-2 text-sm w-full"
+                      />
+                      <input
+                        value={formEdicion.representanteLegal}
+                        onChange={(e) => setFormEdicion({ ...formEdicion, representanteLegal: e.target.value })}
+                        placeholder="Representante legal"
+                        className="border rounded px-3 py-2 text-sm w-full"
+                      />
+                      <input
+                        value={formEdicion.telefonoEmpresa}
+                        onChange={(e) => setFormEdicion({ ...formEdicion, telefonoEmpresa: e.target.value })}
+                        placeholder="Teléfono de la empresa"
+                        className="border rounded px-3 py-2 text-sm w-full"
+                      />
+                      <input
+                        value={formEdicion.direccionObra}
+                        onChange={(e) => setFormEdicion({ ...formEdicion, direccionObra: e.target.value })}
+                        placeholder="Dirección de la obra"
+                        className="border rounded px-3 py-2 text-sm w-full"
+                      />
+                      <input
+                        value={formEdicion.ciudad}
+                        onChange={(e) => setFormEdicion({ ...formEdicion, ciudad: e.target.value })}
+                        placeholder="Ciudad"
+                        className="border rounded px-3 py-2 text-sm w-full"
+                      />
                       {errorEdicion && <p className="text-red-600 text-xs">{errorEdicion}</p>}
                       <div className="flex gap-2">
                         <button
@@ -360,6 +411,42 @@ export default function SeleccionarProyecto() {
                     className="border rounded px-3 py-2 text-sm w-full"
                   />
                 )}
+
+                <p className="text-xs text-neutral-500 pt-2">
+                  Datos del Contratante (opcionales aquí, se pueden completar después con "Editar") — se usan al generar el PDF de un Contrato de este proyecto:
+                </p>
+                <div className="grid sm:grid-cols-2 gap-3">
+                  <input
+                    placeholder="NIT de la empresa"
+                    value={form.nitEmpresa}
+                    onChange={(e) => setForm({ ...form, nitEmpresa: e.target.value })}
+                    className="border rounded px-3 py-2 text-sm"
+                  />
+                  <input
+                    placeholder="Representante legal"
+                    value={form.representanteLegal}
+                    onChange={(e) => setForm({ ...form, representanteLegal: e.target.value })}
+                    className="border rounded px-3 py-2 text-sm"
+                  />
+                  <input
+                    placeholder="Teléfono de la empresa"
+                    value={form.telefonoEmpresa}
+                    onChange={(e) => setForm({ ...form, telefonoEmpresa: e.target.value })}
+                    className="border rounded px-3 py-2 text-sm"
+                  />
+                  <input
+                    placeholder="Ciudad"
+                    value={form.ciudad}
+                    onChange={(e) => setForm({ ...form, ciudad: e.target.value })}
+                    className="border rounded px-3 py-2 text-sm"
+                  />
+                  <input
+                    placeholder="Dirección de la obra"
+                    value={form.direccionObra}
+                    onChange={(e) => setForm({ ...form, direccionObra: e.target.value })}
+                    className="border rounded px-3 py-2 text-sm sm:col-span-2"
+                  />
+                </div>
 
                 {error && <p className="text-red-600 text-sm">{error}</p>}
                 <div className="flex gap-2">
