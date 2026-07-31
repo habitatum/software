@@ -19,7 +19,10 @@ export default function SeleccionarProyecto() {
   const [guardando, setGuardando] = useState(false);
 
   const [editandoId, setEditandoId] = useState(null);
-  const [formEdicion, setFormEdicion] = useState({ nombre: '', cliente: '', mostrarMarca: true, nombreEmisor: '' });
+  // "codigo" se agrega aquí para poder editarlo después de creado el proyecto
+  // (antes solo se podía asignar una vez, al crear). Sigue siendo solo-admin,
+  // igual que el resto de este bloque de edición.
+  const [formEdicion, setFormEdicion] = useState({ nombre: '', codigo: '', cliente: '', mostrarMarca: true, nombreEmisor: '' });
   const [errorEdicion, setErrorEdicion] = useState('');
   const [guardandoEdicion, setGuardandoEdicion] = useState(false);
 
@@ -73,6 +76,7 @@ export default function SeleccionarProyecto() {
     setEditandoId(p.id);
     setFormEdicion({
       nombre: p.nombre,
+      codigo: p.codigo,
       cliente: p.cliente || '',
       mostrarMarca: p.mostrar_marca_habitatum,
       nombreEmisor: p.nombre_emisor || '',
@@ -93,6 +97,10 @@ export default function SeleccionarProyecto() {
       setErrorEdicion('El nombre es obligatorio.');
       return;
     }
+    if (!formEdicion.codigo.trim() || !/^\d+$/.test(formEdicion.codigo.trim())) {
+      setErrorEdicion('El código debe ser un número (ej. 001).');
+      return;
+    }
     if (!formEdicion.mostrarMarca && !formEdicion.nombreEmisor.trim()) {
       setErrorEdicion('Escribe el nombre que debe aparecer en los documentos de este proyecto.');
       return;
@@ -103,6 +111,7 @@ export default function SeleccionarProyecto() {
       .from('proyectos')
       .update({
         nombre: formEdicion.nombre.trim(),
+        codigo: formEdicion.codigo.trim(),
         cliente: formEdicion.cliente.trim() || null,
         mostrar_marca_habitatum: formEdicion.mostrarMarca,
         nombre_emisor: formEdicion.mostrarMarca ? null : formEdicion.nombreEmisor.trim(),
@@ -110,7 +119,7 @@ export default function SeleccionarProyecto() {
       .eq('id', id);
     setGuardandoEdicion(false);
     if (err) {
-      setErrorEdicion(err.message);
+      setErrorEdicion(err.message.includes('duplicate') ? 'Ya existe un proyecto con ese código.' : err.message);
       return;
     }
     setEditandoId(null);
@@ -186,6 +195,18 @@ export default function SeleccionarProyecto() {
                         placeholder="Nombre del proyecto"
                         className="border rounded px-3 py-2 text-sm w-full"
                       />
+                      <div>
+                        <input
+                          inputMode="numeric"
+                          value={formEdicion.codigo}
+                          onChange={(e) => setFormEdicion({ ...formEdicion, codigo: e.target.value })}
+                          placeholder="Código consecutivo (ej. 001)"
+                          className="border rounded px-3 py-2 text-sm w-full"
+                        />
+                        <p className="text-[11px] text-neutral-400 mt-1">
+                          Cambiar el código no actualiza los contratos que ya se crearon con el código anterior.
+                        </p>
+                      </div>
                       <input
                         value={formEdicion.cliente}
                         onChange={(e) => setFormEdicion({ ...formEdicion, cliente: e.target.value })}
