@@ -12,25 +12,21 @@ export async function GET(request, { params }) {
 
   const { data: contrato } = await supabase
     .from('contratos')
-    .select('*, proveedores(nombre, nit), proyectos(nombre, mostrar_marca_habitatum, nombre_emisor)')
+    .select(`
+      *,
+      proveedores(nombre, nit, representante_legal, telefono),
+      proyectos(nombre, mostrar_marca_habitatum, nombre_emisor, nit_empresa, representante_legal, telefono_empresa, direccion_obra, ciudad)
+    `)
     .eq('id', id)
     .single();
 
   if (!contrato) return new Response('Contrato no encontrado', { status: 404 });
 
-  const { data: acumulados } = await supabase.from('v_acumulados_contrato').select('*').eq('contrato_id', id).single();
-  const { data: ordenes } = await supabase
-    .from('v_ordenes_compra_calculadas')
-    .select('*')
-    .eq('contrato_id', id)
-    .order('fecha');
-
   const buffer = await renderToBuffer(
     PlantillaContratoPDF({
       contrato,
-      acumulados,
-      ordenes: ordenes || [],
-      nombreObra: contrato.proyectos?.nombre,
+      proyecto: contrato.proyectos,
+      proveedor: contrato.proveedores,
       mostrarMarcaHabitatum: contrato.proyectos?.mostrar_marca_habitatum,
       nombreEmisor: contrato.proyectos?.nombre_emisor,
     })
