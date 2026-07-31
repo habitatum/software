@@ -55,7 +55,6 @@ function TablaInfo({ filas }) {
 
 export default function PlantillaContratoPDF({ contrato, proyecto, proveedor, mostrarMarcaHabitatum, nombreEmisor }) {
   const numero = numeroContrato(contrato);
-  const empresa = mostrarMarcaHabitatum === false ? (nombreEmisor || '') : 'HABITATUM';
   const tituloDoc = (TITULOS_TIPO_CONTRATO[contrato.tipo_contrato] || TITULOS_TIPO_CONTRATO.SUMINISTRO_E_INSTALACION) + numero;
   const clausulas = clausulasDelContrato(contrato);
   const items = Array.isArray(contrato.items_excel) ? contrato.items_excel : [];
@@ -84,7 +83,7 @@ export default function PlantillaContratoPDF({ contrato, proyecto, proveedor, mo
 
         <Text style={estilos.tituloSeccion}>Información del Contratante</Text>
         <TablaInfo filas={[
-          ['Nombre', empresa],
+          ['Nombre', proyecto?.cliente],
           ['NIT', proyecto?.nit_empresa],
           ['Representante legal', proyecto?.representante_legal],
           ['Teléfono', proyecto?.telefono_empresa],
@@ -156,7 +155,7 @@ export default function PlantillaContratoPDF({ contrato, proyecto, proveedor, mo
 
         <View style={estilos.firmas}>
           <View style={estilos.lineaFirma}>
-            <Text style={estilos.rayaFirma}>{empresa || 'Contratante'} (Contratante)</Text>
+            <Text style={estilos.rayaFirma}>{`${proyecto?.cliente || 'Contratante'} (Contratante)`}</Text>
           </View>
           <View style={estilos.lineaFirma}>
             <Text style={estilos.rayaFirma}>{`${proveedor?.nombre || etiquetaContraparte} (${etiquetaContraparte})`}</Text>
