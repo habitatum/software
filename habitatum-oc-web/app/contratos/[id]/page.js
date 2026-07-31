@@ -1,6 +1,6 @@
 'use client';
 import { useEffect, useState } from 'react';
-import { useParams } from 'next/navigation';
+import { useParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
 import * as XLSX from 'xlsx';
 import { useUsuarioActual } from '@/lib/useUsuarioActual';
@@ -53,6 +53,7 @@ function campoFormEdicion(contrato) {
 
 export default function DetalleContrato() {
   const { id } = useParams();
+  const router = useRouter();
   const { usuario, cargando } = useUsuarioActual();
   const { proyecto } = useProyectoActual();
   const [contrato, setContrato] = useState(null);
@@ -63,6 +64,8 @@ export default function DetalleContrato() {
   const [error, setError] = useState('');
   const [errorExcel, setErrorExcel] = useState('');
   const [guardando, setGuardando] = useState(false);
+  const [procesandoEstado, setProcesandoEstado] = useState(false);
+  const [errorEstado, setErrorEstado] = useState('');
 
   async function cargar() {
     const supabase = crearClienteSupabase();
@@ -159,8 +162,52 @@ export default function DetalleContrato() {
     cargar();
   }
 
+  // Anular / reactivar: exclusivo de admin. El contrato anulado no se borra,
+  // solo queda bloqueado (no se puede editar ni usarlo en Órdenes de Compra
+  // nuevas) hasta que un admin lo reactive.
+  async function alternarAnulado() {
+    if (!contrato) return;
+    const vaAAnular = contrato.estado !== 'ANULADO';
+    const confirmacion = vaAAnular
+      ? `¿Anular el contrato ${contrato.numero_contrato}? Quedará visible pero bloqueado: no se podrá editar ni usar en nuevas Órdenes de Compra hasta que se reactive.`
+      : `¿Reactivar el contrato ${contrato.numero_contrato}?`;
+    if (!window.confirm(confirmacion)) return;
+    setProcesandoEstado(true);
+    setErrorEstado('');
+    const supabase = crearClienteSupabase();
+    const { error: err } = await supabase
+      .from('contratos')
+      .update({ estado: vaAAnular ? 'ANULADO' : 'VIGENTE' })
+      .eq('id', id);
+    setProcesandoEstado(false);
+    if (err) { setErrorEstado(err.message); return; }
+    cargar();
+  }
+
+  // Eliminar: borrado permanente, exclusivo de admin. Se bloquea desde el
+  // cliente si el contrato ya tiene Órdenes de Compra asociadas (evita
+  // romper el historial financiero por error); en ese caso se sugiere
+  // anular en vez de eliminar.
+  async function eliminarContrato() {
+    if (!contrato) return;
+    if (ordenes.length > 0) {
+      window.alert(`Este contrato tiene ${ordenes.length} Orden(es) de Compra asociada(s). No se puede eliminar para no perder ese historial — anúlalo en su lugar.`);
+      return;
+    }
+    if (!window.confirm(`¿Eliminar PERMANENTEMENTE el contrato ${contrato.numero_contrato}? Esta acción no se puede deshacer.`)) return;
+    if (!window.confirm('Confirma de nuevo: se borrará el contrato para siempre. ¿Continuar?')) return;
+    setProcesandoEstado(true);
+    setErrorEstado('');
+    const supabase = crearClienteSupabase();
+    const { error: err } = await supabase.from('contratos').delete().eq('id', id);
+    setProcesandoEstado(false);
+    if (err) { setErrorEstado(err.message); return; }
+    router.push('/contratos');
+  }
+
   if (cargando || !usuario || !contrato) return null;
 
+  const anulado = contrato.estado === 'ANULADO';
   const clausulasActuales = clausulasDelContrato(contrato);
   const items = Array.isArray(contrato.items_excel) ? contrato.items_excel : [];
   const totalItems = items.reduce((acc, it) => acc + (Number(it.total) || 0), 0);
@@ -178,16 +225,46 @@ export default function DetalleContrato() {
       <NavBar usuario={usuario} proyecto={proyecto} />
       <main className="p-8 max-w-4xl mx-auto space-y-6">
         <div className="flex items-center justify-between">
-          <h1 className="text-2xl font-semibold">{contrato.numero_contrato}</h1>
+          <div className="flex items-center gap-3">
+            <h1 className="text-2xl font-semibold">{contrato.numero_contrato}</h1>
+            {anulado && (
+              <span className="bg-red-100 text-red-700 text-xs font-semibold px-2 py-1 rounded">ANULADO</span>
+            )}
+          </div>
           <div className="flex gap-2">
-            {usuario.rol !== 'lectura' && !editando && (
+            {usuario.rol !== 'lectura' && !editando && !anulado && (
               <button onClick={abrirEdicion} className="border px-4 py-2 rounded text-sm">Editar</button>
             )}
             <a href={`/api/contratos/${id}/pdf`} target="_blank" rel="noreferrer" className="bg-carbon text-hueso px-4 py-2 rounded text-sm">
               Descargar PDF
             </a>
+            {usuario.rol === 'admin' && !editando && (
+              <button
+                onClick={alternarAnulado}
+                disabled={procesandoEstado}
+                className={`px-4 py-2 rounded text-sm border disabled:opacity-50 ${anulado ? '' : 'border-red-300 text-red-700 hover:bg-red-50'}`}
+              >
+                {procesandoEstado ? 'Procesando...' : anulado ? 'Reactivar' : 'Anular contrato'}
+              </button>
+            )}
+            {usuario.rol === 'admin' && !editando && (
+              <button
+                onClick={eliminarContrato}
+                disabled={procesandoEstado}
+                className="px-4 py-2 rounded text-sm border border-red-300 text-red-700 hover:bg-red-50 disabled:opacity-50"
+              >
+                Eliminar
+              </button>
+            )}
           </div>
         </div>
+
+        {errorEstado && <p className="text-red-600 text-sm">{errorEstado}</p>}
+        {anulado && !editando && (
+          <p className="text-sm text-red-700 bg-red-50 border border-red-200 rounded-lg p-3">
+            Este contrato está anulado: no se puede editar ni usar para nuevas Órdenes de Compra. Un administrador puede reactivarlo con el botón de arriba.
+          </p>
+        )}
 
         {!editando ? (
           <>
@@ -380,7 +457,7 @@ export default function DetalleContrato() {
 
             {error && <p className="text-red-600 text-sm">{error}</p>}
             <div className="flex gap-2">
-              <button disabled={guardando} className="bg-carbon text-hueso px-4 py-2 rounded text-sm disabled:opacity-50">{guardando ? 'Guardando...' : 'Guardar'}</button>
+              <button disabled={guardando} className="bg-carbon text-hueso px-4 py-2 rounded text-sm disabled:opacity-50">{guardando ? 'Guardando...' : 'Guardar cambios'}</button>
               <button type="button" onClick={() => setEditando(false)} className="px-4 py-2 rounded text-sm border">Cancelar</button>
             </div>
           </form>
