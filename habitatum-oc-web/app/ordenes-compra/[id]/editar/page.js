@@ -42,7 +42,7 @@ export default function EditarOrdenCompra() {
         supabase.from('ordenes_compra').select('*').eq('id', id).single(),
         supabase.from('items_oc').select('*').eq('orden_compra_id', id).order('orden').order('id'),
         supabase.from('proveedores').select('id, nombre').order('nombre'),
-        supabase.from('contratos').select('id, numero_contrato, estado').eq('proyecto_id', proyecto.id).order('numero_contrato'),
+        supabase.from('contratos').select('id, numero_contrato, estado, valor_inicial').eq('proyecto_id', proyecto.id).order('numero_contrato'),
         supabase.from('ordenes_compra').select('id, folio, contrato_id').eq('proyecto_id', proyecto.id).eq('tipo_pago', 'ANTICIPO').neq('id', id),
         supabase.from('usuarios').select('id, nombre').eq('activo', true).order('nombre'),
         supabase.from('presupuestos').select('id').eq('proyecto_id', proyecto.id).maybeSingle(),
