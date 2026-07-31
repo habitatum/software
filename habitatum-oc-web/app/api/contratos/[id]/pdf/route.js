@@ -15,7 +15,7 @@ export async function GET(request, { params }) {
     .select(`
       *,
       proveedores(nombre, nit, representante_legal, telefono),
-      proyectos(nombre, mostrar_marca_habitatum, nombre_emisor, nit_empresa, representante_legal, telefono_empresa, direccion_obra, ciudad)
+      proyectos(nombre, cliente, mostrar_marca_habitatum, nombre_emisor, nit_empresa, representante_legal, telefono_empresa, direccion_obra, ciudad)
     `)
     .eq('id', id)
     .single();
