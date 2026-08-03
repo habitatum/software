@@ -223,6 +223,45 @@ export async function exportarControlPresupuestal({ proyecto, presupuesto, capit
     fila += 1;
   });
 
+  // ---------- Anticipos pendientes de amortizar ----------
+  // No se vinculan a un ítem del presupuesto, así que no tienen "flujo por
+  // corte": es un saldo acumulado (Total del anticipo - lo ya amortizado)
+  // congelado a la fecha del último corte incluido. Se suma aparte al VALOR
+  // TOTAL para llegar al Total Control Presupuestal real (el que coincide
+  // con el efectivo entregado al contratista).
+  const anticiposPendientes = Number(cortesAIncluir[cortesAIncluir.length - 1]?.anticipos_pendientes || 0);
+  const totalConAnticipos = valorTotal + anticiposPendientes;
+
+  hoja.mergeCells(fila, 1, fila, 5);
+  const celdaTextoAnt = hoja.getCell(fila, 1);
+  celdaTextoAnt.value = 'ANTICIPOS PENDIENTES DE AMORTIZAR (no ligados a ítem) =';
+  estilizarCelda(celdaTextoAnt, { negrita: true, relleno: GRIS_CALIDO, colorTexto: CARBON, numero: false, alineacion: 'right' });
+  [2, 3, 4, 5, 6].forEach((c) => estilizarCelda(hoja.getCell(fila, c), { negrita: true, relleno: GRIS_CALIDO, colorTexto: CARBON, numero: false }));
+  cortesAIncluir.forEach((c, j) => {
+    const col = colBloqueCorte(j);
+    [col, col + 1, col + 2].forEach((cc) => estilizarCelda(hoja.getCell(fila, cc), { negrita: true, relleno: GRIS_CALIDO, colorTexto: CARBON, numero: false }));
+  });
+  [colVrParcialTotalAcum - 2, colVrParcialTotalAcum - 1].forEach((cc) => estilizarCelda(hoja.getCell(fila, cc), { negrita: true, relleno: GRIS_CALIDO, colorTexto: CARBON, numero: false }));
+  const celdaAntAcum = hoja.getCell(fila, colVrParcialTotalAcum);
+  celdaAntAcum.value = anticiposPendientes;
+  estilizarCelda(celdaAntAcum, { negrita: true, relleno: GRIS_CALIDO, colorTexto: CARBON });
+  fila += 1;
+
+  hoja.mergeCells(fila, 1, fila, 5);
+  const celdaTextoTotal = hoja.getCell(fila, 1);
+  celdaTextoTotal.value = 'TOTAL CONTROL PRESUPUESTAL (para cobro) =';
+  estilizarCelda(celdaTextoTotal, { negrita: true, relleno: DORADO, colorTexto: HUESO, numero: false, alineacion: 'right' });
+  [2, 3, 4, 5, 6].forEach((c) => estilizarCelda(hoja.getCell(fila, c), { negrita: true, relleno: DORADO, colorTexto: HUESO, numero: false }));
+  cortesAIncluir.forEach((c, j) => {
+    const col = colBloqueCorte(j);
+    [col, col + 1, col + 2].forEach((cc) => estilizarCelda(hoja.getCell(fila, cc), { negrita: true, relleno: DORADO, colorTexto: HUESO, numero: false }));
+  });
+  [colVrParcialTotalAcum - 2, colVrParcialTotalAcum - 1].forEach((cc) => estilizarCelda(hoja.getCell(fila, cc), { negrita: true, relleno: DORADO, colorTexto: HUESO, numero: false }));
+  const celdaTotalConAnt = hoja.getCell(fila, colVrParcialTotalAcum);
+  celdaTotalConAnt.value = totalConAnticipos;
+  estilizarCelda(celdaTotalConAnt, { negrita: true, relleno: DORADO, colorTexto: HUESO });
+  fila += 1;
+
   hoja.views = [{ state: 'frozen', xSplit: 2, ySplit: filaSub }];
 
   // ---------- Hojas de detalle por corte (equivalente a EXT. N) ----------
