@@ -202,6 +202,18 @@ export default function Presupuesto() {
 
   const totalPresupuestado = capitulos.reduce((acc, c) => acc + Number(c.valor_presupuestado || 0), 0);
   const totalEjecutado = capitulos.reduce((acc, c) => acc + sumaEjecutadoCapitulo(c, ejecutados), 0);
+  const anticiposPendientesHoy = pendiente?.anticiposPendientes || 0;
+
+  // Fila por corte con el acumulado corrido de ítems ejecutados (no solo lo
+  // de ese periodo) + el saldo de anticipos pendientes congelado a esa
+  // fecha, para mostrar el Total Control Presupuestal real de cada corte.
+  let acumuladoItemsCorte = 0;
+  const filasCortes = cortes.map((c) => {
+    const valorCorte = (c.items || []).reduce((acc, it) => acc + Number(it.valor_ejecutado || 0), 0);
+    acumuladoItemsCorte += valorCorte;
+    const anticiposCorte = Number(c.anticipos_pendientes || 0);
+    return { corte: c, valorCorte, anticiposCorte, totalAcumulado: acumuladoItemsCorte + anticiposCorte };
+  });
 
   return (
     <div>
@@ -241,8 +253,23 @@ export default function Presupuesto() {
 
             <div className="bg-carbon text-hueso rounded-lg p-5 grid grid-cols-3 gap-4 text-sm">
               <FilaResumenGrande label="Presupuestado" valor={totalPresupuestado} />
-              <FilaResumenGrande label="Ejecutado" valor={totalEjecutado} />
+              <FilaResumenGrande label="Ejecutado (ítems)" valor={totalEjecutado} />
               <FilaResumenGrande label="Saldo" valor={totalPresupuestado - totalEjecutado} />
+            </div>
+
+            <div className="bg-white rounded-lg shadow-sm border p-5 grid grid-cols-2 gap-4 text-sm">
+              <div>
+                <p className="text-neutral-500 text-xs mb-1">Anticipos pendientes de amortizar (a hoy)</p>
+                <p className="text-lg font-semibold">{formatoPesos(anticiposPendientesHoy)}</p>
+                <p className="text-[11px] text-neutral-400 mt-1">
+                  Anticipos entregados que aún no se han vinculado a ítems reales del presupuesto (se reduce solo a medida que se amortizan).
+                </p>
+              </div>
+              <div>
+                <p className="text-neutral-500 text-xs mb-1">Total Control Presupuestal (para cobro)</p>
+                <p className="text-lg font-semibold text-dorado">{formatoPesos(totalEjecutado + anticiposPendientesHoy)}</p>
+                <p className="text-[11px] text-neutral-400 mt-1">Ejecutado por ítems + Anticipos pendientes de amortizar.</p>
+              </div>
             </div>
 
             <div className="bg-white rounded-lg shadow-sm border p-5 space-y-4">
@@ -270,25 +297,26 @@ export default function Presupuesto() {
                       <th className="py-1">Corte</th>
                       <th className="py-1">Periodo</th>
                       <th className="py-1 text-right">Ejecutado en el periodo</th>
+                      <th className="py-1 text-right">Anticipos pendientes</th>
+                      <th className="py-1 text-right">Total acumulado a este corte</th>
                       <th className="py-1 w-40"></th>
                     </tr>
                   </thead>
                   <tbody>
-                    {cortes.map((c) => {
-                      const valorCorte = (c.items || []).reduce((acc, it) => acc + Number(it.valor_ejecutado || 0), 0);
-                      return (
-                        <tr key={c.id} className="border-t">
-                          <td className="py-2 font-medium">Corte {c.numero}</td>
-                          <td className="py-2 text-neutral-500">{c.fecha_desde ? `${c.fecha_desde} → ${c.fecha_hasta}` : `hasta ${c.fecha_hasta}`}</td>
-                          <td className="py-2 text-right">{formatoPesos(valorCorte)}</td>
-                          <td className="py-2 text-right">
-                            <button onClick={() => exportar(c.numero)} disabled={exportando !== null} className="text-xs border rounded px-2 py-1 hover:bg-gris-calido/20">
-                              {exportando === c.numero ? 'Exportando...' : 'Exportar hasta aquí'}
-                            </button>
-                          </td>
-                        </tr>
-                      );
-                    })}
+                    {filasCortes.map(({ corte: c, valorCorte, anticiposCorte, totalAcumulado }) => (
+                      <tr key={c.id} className="border-t">
+                        <td className="py-2 font-medium">Corte {c.numero}</td>
+                        <td className="py-2 text-neutral-500">{c.fecha_desde ? `${c.fecha_desde} → ${c.fecha_hasta}` : `hasta ${c.fecha_hasta}`}</td>
+                        <td className="py-2 text-right">{formatoPesos(valorCorte)}</td>
+                        <td className="py-2 text-right text-neutral-500">{formatoPesos(anticiposCorte)}</td>
+                        <td className="py-2 text-right font-semibold">{formatoPesos(totalAcumulado)}</td>
+                        <td className="py-2 text-right">
+                          <button onClick={() => exportar(c.numero)} disabled={exportando !== null} className="text-xs border rounded px-2 py-1 hover:bg-gris-calido/20">
+                            {exportando === c.numero ? 'Exportando...' : 'Exportar hasta aquí'}
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
                   </tbody>
                 </table>
               )}
@@ -302,6 +330,8 @@ export default function Presupuesto() {
                     <p className="font-semibold text-base">
                       {formatoPesos(Object.values(pendiente.porItem).reduce((acc, v) => acc + v.valor, 0))}
                     </p>
+                    <p className="text-neutral-500 mt-2">Anticipos pendientes de amortizar (a hoy):</p>
+                    <p className="font-semibold text-base">{formatoPesos(pendiente.anticiposPendientes)}</p>
                   </div>
                   <div className="flex items-center gap-2">
                     <label className="text-xs text-neutral-500">Fecha de cierre</label>
