@@ -36,6 +36,16 @@ export default function ListadoOrdenesCompra() {
     return true;
   });
 
+  // Los totales del pie de tabla excluyen siempre las OC ANULADAS (sin
+  // importar el filtro de estado elegido): una orden anulada no debe sumar
+  // en las cifras del proyecto. Sí respetan la búsqueda por folio/proveedor.
+  const paraSumar = filtradas.filter((o) => o.estado !== 'ANULADA');
+  const totalOC = paraSumar.reduce((acc, o) => acc + (Number(o.total) || 0), 0);
+  const totalAnticipos = paraSumar
+    .filter((o) => o.tipo_pago === 'ANTICIPO')
+    .reduce((acc, o) => acc + (Number(o.total) || 0), 0);
+  const totalMenosAnticipos = totalOC - totalAnticipos;
+
   return (
     <div>
       <NavBar usuario={usuario} proyecto={proyecto} />
@@ -83,6 +93,9 @@ export default function ListadoOrdenesCompra() {
                 <tr key={o.id} className="border-t hover:bg-hueso">
                   <td className="p-3">
                     <Link href={`/ordenes-compra/${o.id}`} className="text-blue-700 hover:underline">{o.folio}</Link>
+                    {o.tipo_pago === 'ANTICIPO' && (
+                      <span className="ml-2 bg-amber-100 text-amber-700 text-[10px] font-semibold px-1.5 py-0.5 rounded align-middle">ANTICIPO</span>
+                    )}
                   </td>
                   <td className="p-3">{o.contratos?.numero_contrato ?? '—'}</td>
                   <td className="p-3">{o.proveedores?.nombre ?? '—'}</td>
@@ -100,6 +113,25 @@ export default function ListadoOrdenesCompra() {
                 <tr><td colSpan={7} className="p-6 text-center text-neutral-400">No hay órdenes que coincidan.</td></tr>
               )}
             </tbody>
+            {filtradas.length > 0 && (
+              <tfoot>
+                <tr className="border-t-2 border-carbon/20 bg-gris-calido/20 font-semibold">
+                  <td className="p-3" colSpan={4}>Total Órdenes de Compra</td>
+                  <td className="p-3 text-right">{formatoPesos(totalOC)}</td>
+                  <td className="p-3" colSpan={2}></td>
+                </tr>
+                <tr className="border-t text-neutral-600">
+                  <td className="p-3" colSpan={4}>Total Anticipos</td>
+                  <td className="p-3 text-right">{formatoPesos(totalAnticipos)}</td>
+                  <td className="p-3" colSpan={2}></td>
+                </tr>
+                <tr className="border-t font-semibold">
+                  <td className="p-3" colSpan={4}>Total Órdenes de Compra menos Anticipos</td>
+                  <td className="p-3 text-right">{formatoPesos(totalMenosAnticipos)}</td>
+                  <td className="p-3" colSpan={2}></td>
+                </tr>
+              </tfoot>
+            )}
           </table>
         </div>
       </main>
