@@ -23,11 +23,14 @@ export function mapaItemsPresupuesto(capitulos) {
 }
 
 // Trae las Órdenes de Compra vigentes del proyecto cuya fecha cae en el rango
-// (fechaDesde, fechaHasta] (fechaDesde null = sin límite inferior).
+// (fechaDesde, fechaHasta] (fechaDesde null = sin límite inferior). Se lee de
+// la vista calculada (no de la tabla base) para tener también subtotal,
+// valor_iva, valor_aiu y descuento: los necesitamos para prorratear el IVA/AIU
+// de cada orden entre sus ítems (ver valorEjecutadoItem más abajo).
 async function obtenerOCsEnRango(supabase, proyectoId, fechaDesde, fechaHasta) {
   let consulta = supabase
-    .from('ordenes_compra')
-    .select('id, folio, fecha, proveedores(nombre)')
+    .from('v_ordenes_compra_calculadas')
+    .select('id, folio, fecha, subtotal, valor_iva, valor_aiu, descuento, proveedores(nombre)')
     .eq('proyecto_id', proyectoId)
     .neq('estado', 'ANULADA')
     .lte('fecha', fechaHasta);
@@ -50,15 +53,33 @@ async function obtenerItemsDeOrdenes(supabase, ordenIds) {
   return data || [];
 }
 
+// Valor realmente ejecutado de un ítem de OC: su subtotal (cantidad × valor
+// unitario) más la parte proporcional que le corresponde del IVA + AIU menos
+// el Descuento de ESA orden completa, repartido según el peso de ese ítem
+// dentro del subtotal de la orden (la misma proporción que ya se muestra en
+// la columna "% Orden" del detalle de cada OC). Así, la suma de los ítems de
+// una OC siempre coincide exactamente con el Total de esa OC, y el Ejecutado
+// del Presupuesto cuadra con el Total de Órdenes de Compra.
+function valorEjecutadoItem(item, oc) {
+  const subtotalItem = Number(item.cantidad || 0) * Number(item.valor_unitario || 0);
+  const subtotalOC = Number(oc?.subtotal || 0);
+  if (!oc || subtotalOC <= 0) return subtotalItem;
+  const ajusteOC = Number(oc.valor_iva || 0) + Number(oc.valor_aiu || 0) - Number(oc.descuento || 0);
+  const proporcion = subtotalItem / subtotalOC;
+  return subtotalItem + proporcion * ajusteOC;
+}
+
 // Agrupa una lista de items_oc por ítem de presupuesto, sumando cantidad y
-// valor total (cantidad * valor_unitario).
-export function agruparPorItemPresupuesto(itemsOC) {
+// valor total (incluyendo la parte proporcional de IVA/AIU/Descuento de cada
+// orden — ver valorEjecutadoItem). ocPorId: mapa id de OC -> fila de
+// v_ordenes_compra_calculadas (con subtotal/valor_iva/valor_aiu/descuento).
+export function agruparPorItemPresupuesto(itemsOC, ocPorId = {}) {
   const mapa = {};
   itemsOC.forEach((it) => {
     const id = it.presupuesto_item_id;
     if (!mapa[id]) mapa[id] = { cantidad: 0, valor: 0 };
     mapa[id].cantidad += Number(it.cantidad || 0);
-    mapa[id].valor += Number(it.cantidad || 0) * Number(it.valor_unitario || 0);
+    mapa[id].valor += valorEjecutadoItem(it, ocPorId[it.orden_compra_id]);
   });
   return mapa;
 }
@@ -112,9 +133,11 @@ export async function calcularPendientePorCortar(supabase, proyectoId, ultimoCor
   const fechaDesde = ultimoCorte?.fecha_hasta || null;
   const fechaHasta = new Date().toISOString().slice(0, 10);
   const ocs = await obtenerOCsEnRango(supabase, proyectoId, fechaDesde, fechaHasta);
+  const ocPorId = {};
+  ocs.forEach((o) => { ocPorId[o.id] = o; });
   const items = await obtenerItemsDeOrdenes(supabase, ocs.map((o) => o.id));
   const anticiposPendientes = await calcularAnticiposPendientes(supabase, proyectoId, fechaHasta);
-  return { ocs, items, porItem: agruparPorItemPresupuesto(items), fechaDesde, fechaHasta, anticiposPendientes };
+  return { ocs, items, porItem: agruparPorItemPresupuesto(items, ocPorId), fechaDesde, fechaHasta, anticiposPendientes };
 }
 
 // Cierra un corte nuevo: congela en BD lo ejecutado en el periodo, el
@@ -124,11 +147,11 @@ export async function cerrarCorte(supabase, { presupuestoId, proyectoId, numero,
   const fechaDesde = ultimoCorte?.fecha_hasta || null;
 
   const ocs = await obtenerOCsEnRango(supabase, proyectoId, fechaDesde, fechaHasta);
-  const items = await obtenerItemsDeOrdenes(supabase, ocs.map((o) => o.id));
-  const porItem = agruparPorItemPresupuesto(items);
-  const anticiposPendientes = await calcularAnticiposPendientes(supabase, proyectoId, fechaHasta);
   const ocPorId = {};
   ocs.forEach((o) => { ocPorId[o.id] = o; });
+  const items = await obtenerItemsDeOrdenes(supabase, ocs.map((o) => o.id));
+  const porItem = agruparPorItemPresupuesto(items, ocPorId);
+  const anticiposPendientes = await calcularAnticiposPendientes(supabase, proyectoId, fechaHasta);
 
   const { data: corte, error: errCorte } = await supabase
     .from('presupuesto_cortes')
@@ -166,7 +189,9 @@ export async function cerrarCorte(supabase, { presupuestoId, proyectoId, numero,
       descripcion: it.descripcion,
       cantidad: Number(it.cantidad || 0),
       valor_unitario: Number(it.valor_unitario || 0),
-      valor: Number(it.cantidad || 0) * Number(it.valor_unitario || 0),
+      // Incluye la parte proporcional de IVA/AIU/Descuento de la orden (ver
+      // valorEjecutadoItem), así que puede diferir de cantidad × valor_unitario.
+      valor: valorEjecutadoItem(it, oc),
     };
   });
   if (filasCorteOCs.length > 0) {
