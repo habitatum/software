@@ -4,7 +4,7 @@ import { useParams, useRouter } from 'next/navigation';
 import { useUsuarioActual } from '@/lib/useUsuarioActual';
 import { useProyectoActual } from '@/lib/useProyectoActual';
 import { crearClienteSupabase } from '@/lib/supabaseClient';
-import { calcularOrdenCompra } from '@/lib/calculosOC';
+import { calcularOrdenCompra, validarAmortizacion } from '@/lib/calculosOC';
 import FormularioOC from '@/lib/FormularioOC';
 import NavBar from '@/components/NavBar';
 
@@ -13,6 +13,7 @@ import NavBar from '@/components/NavBar';
 const CAMPOS_EDITABLES = [
   'tipo_orden', 'contrato_id', 'fecha', 'proveedor_id', 'descripcion',
   'tipo_pago', 'referencia_anticipo_id', 'porcentaje_anticipo', 'porcentaje_amortizacion',
+  'tipo_amortizacion', 'valor_amortizacion_manual',
   'responsable', 'descuento', 'tipo_impuesto', 'porcentaje_iva', 'porcentaje_administracion',
   'porcentaje_imprevistos', 'porcentaje_utilidad', 'porcentaje_retencion', 'devolucion_retenido', 'notas',
 ];
@@ -34,21 +35,32 @@ export default function EditarOrdenCompra() {
   const [guardando, setGuardando] = useState(false);
   const [error, setError] = useState('');
 
+  // Snapshot de lo que esta MISMA orden ya tenía guardado al cargarla (antes
+  // de cualquier edición del usuario). Sirve para "liberar" su propia
+  // amortización previa al validar contra el saldo del anticipo — si no, se
+  // estaría restando dos veces lo que esta orden ya tenía amortizado.
+  const [referenciaAnticipoOriginalId, setReferenciaAnticipoOriginalId] = useState('');
+  const [valorAmortizacionGuardada, setValorAmortizacionGuardada] = useState(0);
+
   useEffect(() => {
     if (!usuario || !proyecto) return;
     async function cargar() {
       const supabase = crearClienteSupabase();
       const [{ data: ocData }, { data: itemsData }, { data: prov }, { data: cont }, { data: ant }, { data: usrs }, { data: pres }] = await Promise.all([
-        supabase.from('ordenes_compra').select('*').eq('id', id).single(),
+        // Se usa la vista calculada para traer, además de las columnas base,
+        // el valor_amortizacion ya calculado y guardado de esta misma OC.
+        supabase.from('v_ordenes_compra_calculadas').select('*').eq('id', id).single(),
         supabase.from('items_oc').select('*').eq('orden_compra_id', id).order('orden').order('id'),
         supabase.from('proveedores').select('id, nombre').order('nombre'),
         supabase.from('contratos').select('id, numero_contrato, estado, valor_inicial').eq('proyecto_id', proyecto.id).order('numero_contrato'),
-        supabase.from('ordenes_compra').select('id, folio, contrato_id').eq('proyecto_id', proyecto.id).eq('tipo_pago', 'ANTICIPO').neq('id', id),
+        supabase.from('v_ordenes_compra_calculadas').select('id, folio, contrato_id, total, saldo_anticipo_por_amortizar').eq('proyecto_id', proyecto.id).eq('tipo_pago', 'ANTICIPO').neq('id', id),
         supabase.from('usuarios').select('id, nombre').eq('activo', true).order('nombre'),
         supabase.from('presupuestos').select('id').eq('proyecto_id', proyecto.id).maybeSingle(),
       ]);
       setFolio(ocData?.folio || '');
       setOc(ocData);
+      setReferenciaAnticipoOriginalId(ocData?.referencia_anticipo_id || '');
+      setValorAmortizacionGuardada(Number(ocData?.valor_amortizacion || 0));
       setItems((itemsData && itemsData.length > 0) ? itemsData : [{ descripcion: '', unidad: '', cantidad: 1, valor_unitario: 0 }]);
       setProveedores(prov || []);
       // Se excluyen los contratos anulados del desplegable, salvo que sea el
@@ -76,6 +88,18 @@ export default function EditarOrdenCompra() {
     setError('');
     if (!oc.proveedor_id) { setError('Selecciona un proveedor.'); return; }
     if (items.length === 0 || items.every((it) => !it.descripcion)) { setError('Agrega al menos un ítem.'); return; }
+
+    if (oc.tipo_pago === 'NORMAL' && oc.referencia_anticipo_id) {
+      const anticipo = anticipos.find((a) => a.id === oc.referencia_anticipo_id);
+      const resultado = validarAmortizacion({
+        anticipo,
+        valorAmortizacion: calculo.valor_amortizacion,
+        referenciaId: oc.referencia_anticipo_id,
+        referenciaOriginalId: referenciaAnticipoOriginalId,
+        valorAmortizacionGuardada,
+      });
+      if (!resultado.ok) { setError(resultado.mensaje); return; }
+    }
 
     setGuardando(true);
     const supabase = crearClienteSupabase();
@@ -122,6 +146,8 @@ export default function EditarOrdenCompra() {
           proveedores={proveedores} contratos={contratos} anticipos={anticipos} usuarios={usuarios}
           presupuestoCapitulos={presupuestoCapitulos}
           calculo={calculo}
+          referenciaAnticipoOriginalId={referenciaAnticipoOriginalId}
+          valorAmortizacionGuardada={valorAmortizacionGuardada}
           onSubmit={guardar}
           guardando={guardando}
           error={error}
