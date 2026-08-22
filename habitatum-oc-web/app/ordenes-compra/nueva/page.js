@@ -4,7 +4,7 @@ import { useRouter } from 'next/navigation';
 import { useUsuarioActual } from '@/lib/useUsuarioActual';
 import { useProyectoActual } from '@/lib/useProyectoActual';
 import { crearClienteSupabase } from '@/lib/supabaseClient';
-import { calcularOrdenCompra } from '@/lib/calculosOC';
+import { calcularOrdenCompra, validarAmortizacion } from '@/lib/calculosOC';
 import FormularioOC from '@/lib/FormularioOC';
 import NavBar from '@/components/NavBar';
 
@@ -12,6 +12,7 @@ const OC_VACIA = {
   tipo_orden: 'COMPRA', contrato_id: '', fecha: new Date().toISOString().slice(0, 10),
   proveedor_id: '', descripcion: '', tipo_pago: 'NORMAL',
   referencia_anticipo_id: '', porcentaje_anticipo: 0, porcentaje_amortizacion: 0,
+  tipo_amortizacion: 'PORCENTAJE', valor_amortizacion_manual: 0,
   responsable: '', descuento: 0, tipo_impuesto: 'SIN_IVA',
   porcentaje_iva: 19, porcentaje_administracion: 0, porcentaje_imprevistos: 0,
   porcentaje_utilidad: 0, porcentaje_retencion: 0, devolucion_retenido: 0, notas: '',
@@ -40,7 +41,10 @@ export default function NuevaOrdenCompra() {
       const [{ data: prov }, { data: cont }, { data: ant }, { data: usrs }, { data: pres }] = await Promise.all([
         supabase.from('proveedores').select('id, nombre').order('nombre'),
         supabase.from('contratos').select('id, numero_contrato, estado, valor_inicial').eq('proyecto_id', proyecto.id).order('numero_contrato'),
-        supabase.from('ordenes_compra').select('id, folio, contrato_id').eq('proyecto_id', proyecto.id).eq('tipo_pago', 'ANTICIPO'),
+        // Se usa la vista calculada para traer también el saldo pendiente por
+        // amortizar de cada anticipo (necesario para avisar/objetar si una OC
+        // se pasa del saldo disponible).
+        supabase.from('v_ordenes_compra_calculadas').select('id, folio, contrato_id, total, saldo_anticipo_por_amortizar').eq('proyecto_id', proyecto.id).eq('tipo_pago', 'ANTICIPO'),
         supabase.from('usuarios').select('id, nombre').eq('activo', true).order('nombre'),
         supabase.from('presupuestos').select('id').eq('proyecto_id', proyecto.id).maybeSingle(),
       ]);
@@ -70,6 +74,20 @@ export default function NuevaOrdenCompra() {
     setError('');
     if (!oc.proveedor_id) { setError('Selecciona un proveedor.'); return; }
     if (items.length === 0 || items.every((it) => !it.descripcion)) { setError('Agrega al menos un ítem.'); return; }
+
+    // Es una OC nueva: no tenía ninguna amortización guardada antes, así que
+    // no hay nada que "liberar" del saldo del anticipo referenciado.
+    if (oc.tipo_pago === 'NORMAL' && oc.referencia_anticipo_id) {
+      const anticipo = anticipos.find((a) => a.id === oc.referencia_anticipo_id);
+      const resultado = validarAmortizacion({
+        anticipo,
+        valorAmortizacion: calculo.valor_amortizacion,
+        referenciaId: oc.referencia_anticipo_id,
+        referenciaOriginalId: '',
+        valorAmortizacionGuardada: 0,
+      });
+      if (!resultado.ok) { setError(resultado.mensaje); return; }
+    }
 
     setGuardando(true);
     const supabase = crearClienteSupabase();
@@ -113,6 +131,8 @@ export default function NuevaOrdenCompra() {
           proveedores={proveedores} contratos={contratos} anticipos={anticipos} usuarios={usuarios}
           presupuestoCapitulos={presupuestoCapitulos}
           calculo={calculo}
+          referenciaAnticipoOriginalId=""
+          valorAmortizacionGuardada={0}
           onSubmit={guardar}
           guardando={guardando}
           error={error}
