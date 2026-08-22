@@ -49,10 +49,15 @@ export function calcularOrdenCompra(oc, items, pagado = 0, totalAnticipoReferenc
 
   const valor_retenido = redondear(total * (Number(oc.porcentaje_retencion) || 0) / 100);
 
-  // El Anticipo es una OC más: no se amortiza a sí mismo.
+  // El Anticipo es una OC más: no se amortiza a sí mismo. Fuera de eso, la
+  // amortización puede ser un % del total (con toda la precisión decimal que
+  // se necesite, ya no se trunca a 2 decimales) o un monto fijo en pesos,
+  // según oc.tipo_amortizacion.
   const valor_amortizacion = oc.tipo_pago === 'ANTICIPO'
     ? 0
-    : redondear(total * (Number(oc.porcentaje_amortizacion) || 0) / 100);
+    : oc.tipo_amortizacion === 'VALOR_FIJO'
+      ? redondear(Number(oc.valor_amortizacion_manual || 0))
+      : redondear(total * (Number(oc.porcentaje_amortizacion) || 0) / 100);
 
   const devolucion_retenido = Number(oc.devolucion_retenido || 0);
 
@@ -71,7 +76,37 @@ export function calcularOrdenCompra(oc, items, pagado = 0, totalAnticipoReferenc
   };
 }
 
-export function redondear(n) {
+// Verifica que la amortización que se va a guardar en una OC no se pase del
+// saldo pendiente del Anticipo que referencia. `anticipo` debe venir de
+// v_ordenes_compra_calculadas (trae saldo_anticipo_por_amortizar ya
+// descontando lo amortizado por otras OC vigentes). Si esta MISMA orden ya
+// tenía guardada una amortización contra el mismo anticipo (edición), ese
+// valor se "libera" antes de comparar — si no, se estaría restando dos veces
+// lo que la orden ya tenía amortizado.
+export function validarAmortizacion({ anticipo, valorAmortizacion, referenciaId, referenciaOriginalId, valorAmortizacionGuardada }) {
+  if (!anticipo || !referenciaId) return { ok: true, disponible: null, mensaje: '' };
+
+  const EPS = 0.01; // tolerancia de centavos por redondeo
+  const seLiberaPropia = referenciaId === referenciaOriginalId;
+  const disponible = redondear(
+    Number(anticipo.saldo_anticipo_por_amortizar || 0) + (seLiberaPropia ? Number(valorAmortizacionGuardada || 0) : 0)
+  );
+
+  if (Number(valorAmortizacion || 0) > disponible + EPS) {
+    return {
+      ok: false,
+      disponible,
+      mensaje: `El anticipo ${anticipo.folio} solo tiene ${formatoPesos(disponible)} pendiente por amortizar y se está intentando amortizar ${formatoPesos(valorAmortizacion)}. Ajusta el % o el monto.`,
+    };
+  }
+  return {
+    ok: true,
+    disponible,
+    mensaje: `Disponible en ${anticipo.folio} para amortizar: ${formatoPesos(disponible)}.`,
+  };
+}
+
+function redondear(n) {
   return Math.round((Number(n) || 0) * 100) / 100;
 }
 
