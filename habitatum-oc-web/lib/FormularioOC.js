@@ -1,5 +1,5 @@
 'use client';
-import { formatoPesos, redondear } from '@/lib/calculosOC';
+import { formatoPesos, validarAmortizacion } from '@/lib/calculosOC';
 
 // Antes esto vivía como .input dentro de <style jsx global> con @apply, pero
 // styled-jsx no pasa ese bloque por el pipeline de Tailwind: la clase nunca se
@@ -11,11 +11,17 @@ const INPUT = 'border border-neutral-300 rounded-md px-3 py-2 text-sm w-full bg-
 const UNIDADES = ['Und', 'Glo', 'm2', 'm3', 'm', 'Gal', 'Kg', 'Hr', 'Día', 'Lt'];
 
 // Formulario compartido entre Nueva Orden de Compra y Editar Orden de Compra.
+// referenciaAnticipoOriginalId / valorAmortizacionGuardada: describen el
+// estado YA GUARDADO en BD de esta misma OC antes de esta edición (para
+// nueva OC son '' y 0), y sirven para no restar dos veces la propia
+// amortización de esta orden al validar contra el saldo del anticipo.
 export default function FormularioOC({
   oc, setOc, items, setItems,
   proveedores, contratos, anticipos, usuarios,
   presupuestoCapitulos = [],
   calculo,
+  referenciaAnticipoOriginalId = '',
+  valorAmortizacionGuardada = 0,
   onSubmit, guardando, error, tituloBoton,
 }) {
   function actualizarItem(i, campo, valor) {
@@ -28,44 +34,16 @@ export default function FormularioOC({
     setItems((prev) => prev.filter((_, idx) => idx !== i));
   }
 
-  const contratoSeleccionado = contratos.find((c) => c.id === oc.contrato_id);
-  const valorCalculadoAnticipo = contratoSeleccionado
-    ? redondear(Number(contratoSeleccionado.valor_inicial || 0) * (Number(oc.porcentaje_anticipo) || 0) / 100)
-    : 0;
-
-  // El valor de una OC de Anticipo se calcula solo: Valor inicial del
-  // Contrato × % de anticipo, y se usa como único ítem de la orden. Esto
-  // solo se recalcula ante un cambio explícito del usuario (Contrato, % o
-  // Tipo de pago) — nunca al cargar el formulario — para no alterar en
-  // silencio los ítems de una OC que ya existía antes de este cambio.
-  function recalcularItemAnticipo(nuevoOc) {
-    const contrato = contratos.find((c) => c.id === nuevoOc.contrato_id);
-    const porcentaje = Number(nuevoOc.porcentaje_anticipo) || 0;
-    if (!contrato || porcentaje <= 0) return;
-    const valor = redondear(Number(contrato.valor_inicial || 0) * porcentaje / 100);
-    setItems([{
-      descripcion: `Anticipo (${porcentaje}% del contrato ${contrato.numero_contrato || ''})`.trim(),
-      unidad: 'Glo',
-      cantidad: 1,
-      valor_unitario: valor,
-    }]);
-  }
-
-  function actualizarContrato(id) {
-    const nuevoOc = { ...oc, contrato_id: id };
-    setOc(nuevoOc);
-    if (nuevoOc.tipo_pago === 'ANTICIPO') recalcularItemAnticipo(nuevoOc);
-  }
-  function actualizarPorcentajeAnticipo(valor) {
-    const nuevoOc = { ...oc, porcentaje_anticipo: valor };
-    setOc(nuevoOc);
-    recalcularItemAnticipo(nuevoOc);
-  }
-  function actualizarTipoPago(valor) {
-    const nuevoOc = { ...oc, tipo_pago: valor };
-    setOc(nuevoOc);
-    if (valor === 'ANTICIPO') recalcularItemAnticipo(nuevoOc);
-  }
+  const anticipoSeleccionado = (anticipos || []).find((a) => a.id === oc.referencia_anticipo_id);
+  const avisoAmortizacion = oc.tipo_pago === 'NORMAL' && oc.referencia_anticipo_id
+    ? validarAmortizacion({
+        anticipo: anticipoSeleccionado,
+        valorAmortizacion: calculo.valor_amortizacion,
+        referenciaId: oc.referencia_anticipo_id,
+        referenciaOriginalId: referenciaAnticipoOriginalId,
+        valorAmortizacionGuardada,
+      })
+    : null;
 
   return (
     <form onSubmit={onSubmit} className="space-y-6">
@@ -80,7 +58,7 @@ export default function FormularioOC({
             </select>
           </Campo>
           <Campo label="Contrato (opcional)">
-            <select value={oc.contrato_id} onChange={(e) => actualizarContrato(e.target.value)} className={INPUT}>
+            <select value={oc.contrato_id} onChange={(e) => setOc({ ...oc, contrato_id: e.target.value })} className={INPUT}>
               <option value="">— Sin contrato —</option>
               {contratos.map((c) => (
                 <option key={c.id} value={c.id}>
@@ -258,54 +236,69 @@ export default function FormularioOC({
       <Seccion titulo="Anticipo y amortización">
         <div className="grid grid-cols-2 gap-4">
           <Campo label="Tipo de pago">
-            <select value={oc.tipo_pago} onChange={(e) => actualizarTipoPago(e.target.value)} className={INPUT}>
+            <select value={oc.tipo_pago} onChange={(e) => setOc({ ...oc, tipo_pago: e.target.value })} className={INPUT}>
               <option value="NORMAL">Normal</option>
               <option value="ANTICIPO">Anticipo</option>
             </select>
           </Campo>
           {oc.tipo_pago === 'ANTICIPO' && (
             <Campo label="% que representa del contrato">
-              <input type="number" value={oc.porcentaje_anticipo} onChange={(e) => actualizarPorcentajeAnticipo(e.target.value)} className={INPUT} />
+              <input type="number" value={oc.porcentaje_anticipo} onChange={(e) => setOc({ ...oc, porcentaje_anticipo: e.target.value })} className={INPUT} />
             </Campo>
           )}
         </div>
-
-        {oc.tipo_pago === 'ANTICIPO' && (
-          <div className="bg-neutral-50 border border-neutral-200 rounded-md px-3 py-2 text-sm text-neutral-600">
-            {contratoSeleccionado ? (
-              <>
-                <div className="flex justify-between">
-                  <span>Valor inicial del contrato</span><span>{formatoPesos(contratoSeleccionado.valor_inicial)}</span>
-                </div>
-                <div className="flex justify-between font-medium text-neutral-800">
-                  <span>Valor calculado del anticipo ({Number(oc.porcentaje_anticipo) || 0}%)</span>
-                  <span>{formatoPesos(valorCalculadoAnticipo)}</span>
-                </div>
-                <p className="text-xs text-neutral-400 mt-1">
-                  Este valor se calcula solo (Valor inicial × %) y se usa como único ítem de esta orden. Si cambias el % o el Contrato, el ítem se recalcula automáticamente.
-                </p>
-              </>
-            ) : (
-              <p>Selecciona un Contrato arriba para calcular el valor del anticipo automáticamente a partir de su Valor inicial.</p>
-            )}
-          </div>
-        )}
-
         {oc.tipo_pago === 'NORMAL' && (
-          <div className="grid grid-cols-2 gap-4">
-            <Campo label="Referencia a anticipo (opcional)">
-              <select value={oc.referencia_anticipo_id} onChange={(e) => setOc({ ...oc, referencia_anticipo_id: e.target.value })} className={INPUT}>
-                <option value="">— Ninguna —</option>
-                {anticipos.map((a) => <option key={a.id} value={a.id}>{a.folio}</option>)}
-              </select>
-            </Campo>
-            <Campo label="% Amortización">
-              <input type="number" value={oc.porcentaje_amortizacion} onChange={(e) => setOc({ ...oc, porcentaje_amortizacion: e.target.value })} className={INPUT} />
-            </Campo>
-          </div>
+          <>
+            <div className="grid grid-cols-2 gap-4">
+              <Campo label="Referencia a anticipo (opcional)">
+                <select value={oc.referencia_anticipo_id} onChange={(e) => setOc({ ...oc, referencia_anticipo_id: e.target.value })} className={INPUT}>
+                  <option value="">— Ninguna —</option>
+                  {anticipos.map((a) => <option key={a.id} value={a.id}>{a.folio}</option>)}
+                </select>
+              </Campo>
+              <Campo label="Tipo de amortización">
+                <select
+                  value={oc.tipo_amortizacion || 'PORCENTAJE'}
+                  onChange={(e) => setOc({ ...oc, tipo_amortizacion: e.target.value })}
+                  className={INPUT}
+                >
+                  <option value="PORCENTAJE">Porcentaje del total</option>
+                  <option value="VALOR_FIJO">Monto fijo</option>
+                </select>
+              </Campo>
+            </div>
+            <div className="grid grid-cols-2 gap-4">
+              {(oc.tipo_amortizacion || 'PORCENTAJE') === 'VALOR_FIJO' ? (
+                <Campo label="Monto de amortización">
+                  <input
+                    type="number" step="any"
+                    value={oc.valor_amortizacion_manual ?? 0}
+                    onChange={(e) => setOc({ ...oc, valor_amortizacion_manual: e.target.value })}
+                    className={INPUT}
+                  />
+                </Campo>
+              ) : (
+                <Campo label="% Amortización (admite decimales, ej. 33.3333)">
+                  <input
+                    type="number" step="any"
+                    value={oc.porcentaje_amortizacion}
+                    onChange={(e) => setOc({ ...oc, porcentaje_amortizacion: e.target.value })}
+                    className={INPUT}
+                  />
+                </Campo>
+              )}
+            </div>
+          </>
         )}
-        <div className="bg-neutral-50 border border-neutral-200 rounded-md px-3 py-2 mt-2 flex justify-between text-sm text-neutral-600">
-          <span>Valor amortización</span><span>{formatoPesos(calculo.valor_amortizacion)}</span>
+        <div className="bg-neutral-50 border border-neutral-200 rounded-md px-3 py-2 mt-2 space-y-1">
+          <div className="flex justify-between text-sm text-neutral-600">
+            <span>Valor amortización</span><span>{formatoPesos(calculo.valor_amortizacion)}</span>
+          </div>
+          {avisoAmortizacion && (
+            <p className={avisoAmortizacion.ok ? 'text-xs text-neutral-500' : 'text-xs text-red-600 font-medium'}>
+              {avisoAmortizacion.mensaje}
+            </p>
+          )}
         </div>
       </Seccion>
 
@@ -361,8 +354,14 @@ export default function FormularioOC({
           {Number(oc.porcentaje_retencion) > 0 && (
             <FilaResumen label={`- Retenido (${oc.porcentaje_retencion}%)`} valor={calculo.valor_retenido} negativo />
           )}
-          {Number(oc.porcentaje_amortizacion) > 0 && (
-            <FilaResumen label={`- Amortización anticipo (${oc.porcentaje_amortizacion}%)`} valor={calculo.valor_amortizacion} negativo />
+          {calculo.valor_amortizacion > 0 && (
+            <FilaResumen
+              label={(oc.tipo_amortizacion === 'VALOR_FIJO')
+                ? '- Amortización anticipo (monto fijo)'
+                : `- Amortización anticipo (${oc.porcentaje_amortizacion}%)`}
+              valor={calculo.valor_amortizacion}
+              negativo
+            />
           )}
           {Number(oc.devolucion_retenido) > 0 && (
             <FilaResumen label="+ Devolución retenido" valor={oc.devolucion_retenido} />
