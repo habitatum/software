@@ -4,12 +4,9 @@ import { useRouter } from 'next/navigation';
 import Image from 'next/image';
 import { useUsuarioActual } from '@/lib/useUsuarioActual';
 import { crearClienteSupabase } from '@/lib/supabaseClient';
-import { guardarProyectoActualId } from '@/lib/proyectoActual';
+import { guardarProyectoActualId, obtenerProyectoActualId, limpiarProyectoActual } from '@/lib/proyectoActual';
 
-const VACIO = {
-  nombre: '', codigo: '', cliente: '', mostrarMarca: true, nombreEmisor: '',
-  nitEmpresa: '', representanteLegal: '', telefonoEmpresa: '', direccionObra: '', ciudad: '',
-};
+const VACIO = { nombre: '', codigo: '', cliente: '', mostrarMarca: true, nombreEmisor: '' };
 
 export default function SeleccionarProyecto() {
   const { usuario, cargando } = useUsuarioActual();
@@ -24,12 +21,19 @@ export default function SeleccionarProyecto() {
   const [editandoId, setEditandoId] = useState(null);
   // "codigo" se agrega aquí para poder editarlo después de creado el proyecto
   // (antes solo se podía asignar una vez, al crear). Sigue siendo solo-admin,
-  // igual que el resto de este bloque de edición. Los campos nit/representante/
-  // teléfono/dirección/ciudad son los datos del Contratante que se usan al
-  // generar el PDF legal de un Contrato de este proyecto.
-  const [formEdicion, setFormEdicion] = useState({ ...VACIO });
+  // igual que el resto de este bloque de edición.
+  const [formEdicion, setFormEdicion] = useState({ nombre: '', codigo: '', cliente: '', mostrarMarca: true, nombreEmisor: '' });
   const [errorEdicion, setErrorEdicion] = useState('');
   const [guardandoEdicion, setGuardandoEdicion] = useState(false);
+
+  // Eliminar proyecto (solo Admin): doble verificación antes de borrar de
+  // verdad — hay que escribir el código exacto del proyecto y luego confirmar
+  // en un segundo diálogo. El borrado es irreversible: en cascada se lleva
+  // Contratos, Órdenes de Compra, ítems, pagos, Presupuesto, Cortes y Bitácora.
+  const [eliminandoId, setEliminandoId] = useState(null);
+  const [confirmacionCodigo, setConfirmacionCodigo] = useState('');
+  const [errorEliminar, setErrorEliminar] = useState('');
+  const [borrando, setBorrando] = useState(false);
 
   const [gruposPendientes, setGruposPendientes] = useState([]);
   const [vinculando, setVinculando] = useState(null); // chat_id que se está vinculando
@@ -85,11 +89,6 @@ export default function SeleccionarProyecto() {
       cliente: p.cliente || '',
       mostrarMarca: p.mostrar_marca_habitatum,
       nombreEmisor: p.nombre_emisor || '',
-      nitEmpresa: p.nit_empresa || '',
-      representanteLegal: p.representante_legal || '',
-      telefonoEmpresa: p.telefono_empresa || '',
-      direccionObra: p.direccion_obra || '',
-      ciudad: p.ciudad || '',
     });
     setErrorEdicion('');
   }
@@ -125,11 +124,6 @@ export default function SeleccionarProyecto() {
         cliente: formEdicion.cliente.trim() || null,
         mostrar_marca_habitatum: formEdicion.mostrarMarca,
         nombre_emisor: formEdicion.mostrarMarca ? null : formEdicion.nombreEmisor.trim(),
-        nit_empresa: formEdicion.nitEmpresa.trim() || null,
-        representante_legal: formEdicion.representanteLegal.trim() || null,
-        telefono_empresa: formEdicion.telefonoEmpresa.trim() || null,
-        direccion_obra: formEdicion.direccionObra.trim() || null,
-        ciudad: formEdicion.ciudad.trim() || null,
       })
       .eq('id', id);
     setGuardandoEdicion(false);
@@ -138,6 +132,54 @@ export default function SeleccionarProyecto() {
       return;
     }
     setEditandoId(null);
+    cargar();
+  }
+
+  function abrirEliminar(p, e) {
+    e.stopPropagation();
+    setEliminandoId(p.id);
+    setConfirmacionCodigo('');
+    setErrorEliminar('');
+  }
+
+  function cancelarEliminar(e) {
+    e.stopPropagation();
+    setEliminandoId(null);
+    setConfirmacionCodigo('');
+    setErrorEliminar('');
+  }
+
+  // Doble verificación: (1) el código escrito debe coincidir exactamente con
+  // el del proyecto, (2) un último window.confirm con la advertencia completa
+  // de todo lo que se borra en cascada. Solo entonces se ejecuta el delete.
+  async function confirmarEliminar(p, e) {
+    e.stopPropagation();
+    setErrorEliminar('');
+    if (confirmacionCodigo.trim() !== p.codigo) {
+      setErrorEliminar('El código no coincide. Escríbelo exactamente igual para confirmar.');
+      return;
+    }
+    if (!window.confirm(
+      `Esta acción es IRREVERSIBLE.\n\nSe eliminará para siempre el proyecto "${p.nombre}" y TODO lo que contiene: Contratos, Órdenes de Compra, ítems, pagos, Presupuesto, Cortes de Control Presupuestal y Bitácora.\n\n¿Confirmas que quieres eliminarlo definitivamente?`
+    )) {
+      return;
+    }
+    setBorrando(true);
+    const supabase = crearClienteSupabase();
+    const { error: err } = await supabase.from('proyectos').delete().eq('id', p.id);
+    setBorrando(false);
+    if (err) {
+      setErrorEliminar(
+        err.code === '23503'
+          ? 'No se pudo eliminar: todavía hay datos vinculados que no se pudieron borrar automáticamente.'
+          : err.message
+      );
+      return;
+    }
+    if (obtenerProyectoActualId() === p.id) {
+      limpiarProyectoActual();
+    }
+    setEliminandoId(null);
     cargar();
   }
 
@@ -168,11 +210,6 @@ export default function SeleccionarProyecto() {
         cliente: form.cliente.trim() || null,
         mostrar_marca_habitatum: form.mostrarMarca,
         nombre_emisor: form.mostrarMarca ? null : form.nombreEmisor.trim(),
-        nit_empresa: form.nitEmpresa.trim() || null,
-        representante_legal: form.representanteLegal.trim() || null,
-        telefono_empresa: form.telefonoEmpresa.trim() || null,
-        direccion_obra: form.direccionObra.trim() || null,
-        ciudad: form.ciudad.trim() || null,
       })
       .select()
       .single();
@@ -201,11 +238,12 @@ export default function SeleccionarProyecto() {
           <div className="grid sm:grid-cols-2 gap-4 mb-8">
             {proyectos.map((p) => {
               const enEdicion = editandoId === p.id;
+              const enEliminacion = eliminandoId === p.id;
               return (
                 <div
                   key={p.id}
-                  onClick={() => { if (!enEdicion) elegir(p.id); }}
-                  className={`bg-hueso rounded-lg p-5 text-left border border-transparent transition-colors ${enEdicion ? '' : 'hover:border-dorado cursor-pointer'}`}
+                  onClick={() => { if (!enEdicion && !enEliminacion) elegir(p.id); }}
+                  className={`bg-hueso rounded-lg p-5 text-left border transition-colors ${enEliminacion ? 'border-red-300' : 'border-transparent'} ${enEdicion || enEliminacion ? '' : 'hover:border-dorado cursor-pointer'}`}
                 >
                   {enEdicion ? (
                     <div className="space-y-2" onClick={(e) => e.stopPropagation()}>
@@ -249,37 +287,6 @@ export default function SeleccionarProyecto() {
                           className="border rounded px-3 py-2 text-sm w-full"
                         />
                       )}
-                      <p className="text-[11px] text-neutral-400 pt-1">Datos del Cliente (Contratante real en el PDF de Contratos — el nombre de arriba, "Cliente", es el que aparece como Contratante):</p>
-                      <input
-                        value={formEdicion.nitEmpresa}
-                        onChange={(e) => setFormEdicion({ ...formEdicion, nitEmpresa: e.target.value })}
-                        placeholder="NIT / Cédula del cliente"
-                        className="border rounded px-3 py-2 text-sm w-full"
-                      />
-                      <input
-                        value={formEdicion.representanteLegal}
-                        onChange={(e) => setFormEdicion({ ...formEdicion, representanteLegal: e.target.value })}
-                        placeholder="Representante legal del cliente (si aplica)"
-                        className="border rounded px-3 py-2 text-sm w-full"
-                      />
-                      <input
-                        value={formEdicion.telefonoEmpresa}
-                        onChange={(e) => setFormEdicion({ ...formEdicion, telefonoEmpresa: e.target.value })}
-                        placeholder="Teléfono del cliente"
-                        className="border rounded px-3 py-2 text-sm w-full"
-                      />
-                      <input
-                        value={formEdicion.direccionObra}
-                        onChange={(e) => setFormEdicion({ ...formEdicion, direccionObra: e.target.value })}
-                        placeholder="Dirección de la obra"
-                        className="border rounded px-3 py-2 text-sm w-full"
-                      />
-                      <input
-                        value={formEdicion.ciudad}
-                        onChange={(e) => setFormEdicion({ ...formEdicion, ciudad: e.target.value })}
-                        placeholder="Ciudad"
-                        className="border rounded px-3 py-2 text-sm w-full"
-                      />
                       {errorEdicion && <p className="text-red-600 text-xs">{errorEdicion}</p>}
                       <div className="flex gap-2">
                         <button
@@ -294,17 +301,56 @@ export default function SeleccionarProyecto() {
                         </button>
                       </div>
                     </div>
+                  ) : enEliminacion ? (
+                    <div className="space-y-2" onClick={(e) => e.stopPropagation()}>
+                      <p className="text-sm font-semibold text-red-700">Eliminar &quot;{p.nombre}&quot; definitivamente</p>
+                      <p className="text-xs text-neutral-600">
+                        Esto borra para siempre este proyecto y TODO lo que contiene: Contratos, Órdenes de
+                        Compra, ítems, pagos, Presupuesto, Cortes de Control Presupuestal y Bitácora. No se
+                        puede deshacer.
+                      </p>
+                      <p className="text-xs text-neutral-600">
+                        Para confirmar, escribe el código del proyecto (<strong>{p.codigo}</strong>):
+                      </p>
+                      <input
+                        value={confirmacionCodigo}
+                        onChange={(e) => setConfirmacionCodigo(e.target.value)}
+                        placeholder={`Escribe ${p.codigo}`}
+                        className="border border-red-300 rounded px-3 py-2 text-sm w-full"
+                      />
+                      {errorEliminar && <p className="text-red-600 text-xs">{errorEliminar}</p>}
+                      <div className="flex gap-2">
+                        <button
+                          onClick={(e) => confirmarEliminar(p, e)}
+                          disabled={borrando}
+                          className="bg-red-600 text-white px-3 py-1.5 rounded text-xs disabled:opacity-50"
+                        >
+                          {borrando ? 'Eliminando...' : 'Eliminar definitivamente'}
+                        </button>
+                        <button onClick={cancelarEliminar} className="px-3 py-1.5 rounded text-xs border">
+                          Cancelar
+                        </button>
+                      </div>
+                    </div>
                   ) : (
                     <>
                       <div className="flex items-start justify-between gap-2">
                         <p className="font-semibold text-lg">{p.nombre}</p>
                         {usuario.rol === 'admin' && (
-                          <button
-                            onClick={(e) => abrirEdicion(p, e)}
-                            className="text-xs text-neutral-500 hover:text-dorado shrink-0"
-                          >
-                            Editar
-                          </button>
+                          <div className="flex gap-2 shrink-0">
+                            <button
+                              onClick={(e) => abrirEdicion(p, e)}
+                              className="text-xs text-neutral-500 hover:text-dorado"
+                            >
+                              Editar
+                            </button>
+                            <button
+                              onClick={(e) => abrirEliminar(p, e)}
+                              className="text-xs text-neutral-500 hover:text-red-600"
+                            >
+                              Eliminar
+                            </button>
+                          </div>
                         )}
                       </div>
                       <p className="text-xs text-neutral-500 mt-1">Código: {p.codigo}</p>
@@ -411,42 +457,6 @@ export default function SeleccionarProyecto() {
                     className="border rounded px-3 py-2 text-sm w-full"
                   />
                 )}
-
-                <p className="text-xs text-neutral-500 pt-2">
-                  Datos del Cliente (opcionales aquí, se pueden completar después con "Editar") — el Cliente es siempre el Contratante real en el PDF de un Contrato de este proyecto:
-                </p>
-                <div className="grid sm:grid-cols-2 gap-3">
-                  <input
-                    placeholder="NIT / Cédula del cliente"
-                    value={form.nitEmpresa}
-                    onChange={(e) => setForm({ ...form, nitEmpresa: e.target.value })}
-                    className="border rounded px-3 py-2 text-sm"
-                  />
-                  <input
-                    placeholder="Representante legal del cliente (si aplica)"
-                    value={form.representanteLegal}
-                    onChange={(e) => setForm({ ...form, representanteLegal: e.target.value })}
-                    className="border rounded px-3 py-2 text-sm"
-                  />
-                  <input
-                    placeholder="Teléfono del cliente"
-                    value={form.telefonoEmpresa}
-                    onChange={(e) => setForm({ ...form, telefonoEmpresa: e.target.value })}
-                    className="border rounded px-3 py-2 text-sm"
-                  />
-                  <input
-                    placeholder="Ciudad"
-                    value={form.ciudad}
-                    onChange={(e) => setForm({ ...form, ciudad: e.target.value })}
-                    className="border rounded px-3 py-2 text-sm"
-                  />
-                  <input
-                    placeholder="Dirección de la obra"
-                    value={form.direccionObra}
-                    onChange={(e) => setForm({ ...form, direccionObra: e.target.value })}
-                    className="border rounded px-3 py-2 text-sm sm:col-span-2"
-                  />
-                </div>
 
                 {error && <p className="text-red-600 text-sm">{error}</p>}
                 <div className="flex gap-2">
