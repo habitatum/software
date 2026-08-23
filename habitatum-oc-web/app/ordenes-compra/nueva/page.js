@@ -33,7 +33,7 @@ export default function NuevaOrdenCompra() {
   const router = useRouter();
 
   const [oc, setOc] = useState(OC_VACIA);
-  const [items, setItems] = useState([{ descripcion: '', unidad: '', cantidad: 1, valor_unitario: 0 }]);
+  const [items, setItems] = useState([{ descripcion: '', unidad: '', cantidad: 1, valor_unitario: 0, sin_iva: false }]);
   const [proveedores, setProveedores] = useState([]);
   const [contratos, setContratos] = useState([]);
   const [anticipos, setAnticipos] = useState([]);
@@ -126,6 +126,7 @@ export default function NuevaOrdenCompra() {
         ...it,
         cantidad: numeroSeguro(it.cantidad),
         valor_unitario: numeroSeguro(it.valor_unitario),
+        sin_iva: !!it.sin_iva,
         orden: idx,
         orden_compra_id: nuevaOC.id,
       }));
