@@ -185,7 +185,10 @@ export default function DetalleOrdenCompra() {
                   const porcentaje = oc.subtotal > 0 ? (subtotalItem / oc.subtotal) * 100 : 0;
                   return (
                     <tr key={it.id} className={`${i % 2 === 1 ? 'bg-neutral-50/60' : ''} border-b border-neutral-100 last:border-b-0 hover:bg-hueso/60`}>
-                      <td className="py-2 px-3">{it.descripcion}</td>
+                      <td className="py-2 px-3">
+                        {it.descripcion}
+                        {it.sin_iva && <span className="ml-1.5 text-xs text-neutral-400">(Sin IVA)</span>}
+                      </td>
                       <td className="py-2 px-3">{it.unidad || '—'}</td>
                       <td className="py-2 px-3 text-right">{it.cantidad}</td>
                       <td className="py-2 px-3 text-right">{formatoPesos(it.valor_unitario)}</td>
@@ -210,11 +213,11 @@ export default function DetalleOrdenCompra() {
             <FilaResumen label="Subtotal" valor={oc.subtotal} />
             {Number(oc.descuento) > 0 && <FilaResumen label="- Descuento" valor={oc.descuento} negativo />}
             {oc.tipo_impuesto === 'CON_IVA' && (
-              <FilaResumen label={` + IVA (${oc.porcentaje_iva || 0}%)`} valor={oc.valor_iva} />
+              <FilaResumen label={`+ IVA (${oc.porcentaje_iva || 0}%)`} valor={oc.valor_iva} />
             )}
             {oc.tipo_impuesto === 'CON_AIU' && (
               <>
-                <FilaResumen label={` + AIU (${oc.porcentaje_aiu || 0}%)`} valor={oc.valor_aiu} />
+                <FilaResumen label={`+ AIU (${oc.porcentaje_aiu || 0}%)`} valor={oc.valor_aiu} />
                 {Number(oc.porcentaje_administracion) > 0 && (
                   <FilaResumen label={` · Administración (${oc.porcentaje_administracion}%)`} valor={oc.valor_administracion} sutil />
                 )}
