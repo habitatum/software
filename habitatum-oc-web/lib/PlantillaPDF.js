@@ -92,7 +92,7 @@ export default function PlantillaOrdenCompraPDF({ oc, items, acumulados, anticip
             const porcentaje = oc.subtotal > 0 ? (subtotalItem / oc.subtotal) * 100 : 0;
             return (
               <View key={i} style={estilos.tablaFila}>
-                <Text style={estilos.colDesc}>{it.descripcion}</Text>
+                <Text style={estilos.colDesc}>{it.descripcion}{it.sin_iva ? ' (Sin IVA)' : ''}</Text>
                 <Text style={estilos.colUnidad}>{it.unidad || '—'}</Text>
                 <Text style={estilos.colCant}>{it.cantidad}</Text>
                 <Text style={estilos.colPrecio}>{formatoPesos(it.valor_unitario)}</Text>
