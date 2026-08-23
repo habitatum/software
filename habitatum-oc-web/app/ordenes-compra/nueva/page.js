@@ -4,9 +4,18 @@ import { useRouter } from 'next/navigation';
 import { useUsuarioActual } from '@/lib/useUsuarioActual';
 import { useProyectoActual } from '@/lib/useProyectoActual';
 import { crearClienteSupabase } from '@/lib/supabaseClient';
-import { calcularOrdenCompra, validarAmortizacion } from '@/lib/calculosOC';
+import { calcularOrdenCompra, validarAmortizacion, numeroSeguro } from '@/lib/calculosOC';
 import FormularioOC from '@/lib/FormularioOC';
 import NavBar from '@/components/NavBar';
+
+// Campos numéricos de ordenes_compra: se sanean con numeroSeguro justo antes
+// de guardar, porque un input vacío ("") pasa tal cual al estado y Postgres
+// rechaza guardar texto vacío en una columna numeric.
+const CAMPOS_NUMERICOS_OC = [
+  'porcentaje_anticipo', 'porcentaje_amortizacion', 'valor_amortizacion_manual',
+  'descuento', 'porcentaje_iva', 'porcentaje_administracion', 'porcentaje_imprevistos',
+  'porcentaje_utilidad', 'porcentaje_retencion', 'devolucion_retenido',
+];
 
 const OC_VACIA = {
   tipo_orden: 'COMPRA', contrato_id: '', fecha: new Date().toISOString().slice(0, 10),
@@ -92,10 +101,15 @@ export default function NuevaOrdenCompra() {
     setGuardando(true);
     const supabase = crearClienteSupabase();
 
+    // Se sanea la copia a insertar: cualquier campo numérico vacío o
+    // inválido se guarda como 0 en vez de mandar "" a Postgres.
+    const ocSaneada = { ...oc };
+    for (const campo of CAMPOS_NUMERICOS_OC) ocSaneada[campo] = numeroSeguro(oc[campo]);
+
     const { data: nuevaOC, error: errOC } = await supabase
       .from('ordenes_compra')
       .insert({
-        ...oc,
+        ...ocSaneada,
         proyecto_id: proyecto.id,
         contrato_id: oc.contrato_id || null,
         referencia_anticipo_id: oc.referencia_anticipo_id || null,
@@ -108,7 +122,13 @@ export default function NuevaOrdenCompra() {
 
     const filasItems = items
       .filter((it) => it.descripcion)
-      .map((it, idx) => ({ ...it, orden: idx, orden_compra_id: nuevaOC.id }));
+      .map((it, idx) => ({
+        ...it,
+        cantidad: numeroSeguro(it.cantidad),
+        valor_unitario: numeroSeguro(it.valor_unitario),
+        orden: idx,
+        orden_compra_id: nuevaOC.id,
+      }));
 
     const { error: errItems } = await supabase.from('items_oc').insert(filasItems);
     if (errItems) { setError(errItems.message); setGuardando(false); return; }
