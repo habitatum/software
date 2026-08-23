@@ -10,6 +10,13 @@ const INPUT = 'border border-neutral-300 rounded-md px-3 py-2 text-sm w-full bg-
 // Unidades de medida disponibles para los ítems de una Orden de Compra.
 const UNIDADES = ['Und', 'Glo', 'm2', 'm3', 'm', 'Gal', 'Kg', 'Hr', 'Día', 'Lt'];
 
+// Ítem por defecto disponible en cualquier proyecto (no depende del catálogo
+// de presupuesto de cada obra): muchas ferreterías no le cobran IVA al
+// transporte, así que se marca sin_iva = true para que su valor no cuente en
+// la base sobre la que se calcula el IVA, aunque sí siga sumando al Subtotal
+// y al Total de la orden (ver calculosOC.js -> calcularSubtotalGravable).
+const ITEM_TRANSPORTE_SIN_IVA = { descripcion: 'Transporte sin IVA', unidad: 'Glo', cantidad: 1, valor_unitario: 0, sin_iva: true };
+
 // Formulario compartido entre Nueva Orden de Compra y Editar Orden de Compra.
 // referenciaAnticipoOriginalId / valorAmortizacionGuardada: describen el
 // estado YA GUARDADO en BD de esta misma OC antes de esta edición (para
@@ -28,7 +35,10 @@ export default function FormularioOC({
     setItems((prev) => prev.map((it, idx) => (idx === i ? { ...it, [campo]: valor } : it)));
   }
   function agregarItem() {
-    setItems((prev) => [...prev, { descripcion: '', unidad: '', cantidad: 1, valor_unitario: 0 }]);
+    setItems((prev) => [...prev, { descripcion: '', unidad: '', cantidad: 1, valor_unitario: 0, sin_iva: false }]);
+  }
+  function agregarItemTransporte() {
+    setItems((prev) => [...prev, { ...ITEM_TRANSPORTE_SIN_IVA }]);
   }
   function quitarItem(i) {
     setItems((prev) => prev.filter((_, idx) => idx !== i));
@@ -93,12 +103,13 @@ export default function FormularioOC({
         <div className="overflow-x-auto rounded-md border border-neutral-200">
           <table className="w-full text-sm border-collapse table-fixed">
             <colgroup>
-              <col style={{ width: '32%' }} />
-              <col style={{ width: '8%' }} />
+              <col style={{ width: '27%' }} />
               <col style={{ width: '7%' }} />
-              <col style={{ width: '12%' }} />
-              <col style={{ width: '12%' }} />
-              <col style={{ width: '7%' }} />
+              <col style={{ width: '6%' }} />
+              <col style={{ width: '11%' }} />
+              <col style={{ width: '11%' }} />
+              <col style={{ width: '6%' }} />
+              <col style={{ width: '6%' }} />
               <col style={{ width: '18%' }} />
               <col style={{ width: '4%' }} />
             </colgroup>
@@ -110,7 +121,8 @@ export default function FormularioOC({
                 <th className="py-2 px-3 font-medium border-b border-neutral-200 text-right">Precio unitario</th>
                 <th className="py-2 px-3 font-medium border-b border-neutral-200 text-right">Subtotal</th>
                 <th className="py-2 px-3 font-medium border-b border-neutral-200 text-right">% Orden</th>
-                <th className="py-2 px-3 font-medium border-b border-neutral-200">Ítem de Presupuesto</th>
+                <th className="py-2 px-2 font-medium border-b border-neutral-200 text-center" title="Excluye este ítem del cálculo de IVA (ej. Transporte)">Sin IVA</th>
+                <th className="py-2 px-3 font-medium border-b border-neutral-200">Ýtem de Presupuesto</th>
                 <th className="py-2 px-2 border-b border-neutral-200"></th>
               </tr>
             </thead>
@@ -152,6 +164,11 @@ export default function FormularioOC({
                     <td className="py-2 px-3 text-right text-neutral-500 whitespace-nowrap">
                       {porcentaje.toFixed(1)}%
                     </td>
+                    <td className="py-2 px-2 text-center">
+                      <input type="checkbox" checked={!!it.sin_iva}
+                        onChange={(e) => actualizarItem(i, 'sin_iva', e.target.checked)}
+                        title="Excluir este ítem del cálculo de IVA (ej. Transporte)" />
+                    </td>
                     <td className="py-2 px-3">
                       <select value={it.presupuesto_item_id || ''}
                         onChange={(e) => actualizarItem(i, 'presupuesto_item_id', e.target.value || null)}
@@ -176,10 +193,16 @@ export default function FormularioOC({
             </tbody>
           </table>
         </div>
-        <button type="button" onClick={agregarItem}
-          className="text-sm text-blue-700 border border-blue-200 rounded px-3 py-1.5 mt-3 hover:bg-blue-50">
-          + Agregar ítem
-        </button>
+        <div className="flex flex-wrap gap-2 mt-3">
+          <button type="button" onClick={agregarItem}
+            className="text-sm text-blue-700 border border-blue-200 rounded px-3 py-1.5 hover:bg-blue-50">
+            + Agregar ítem
+          </button>
+          <button type="button" onClick={agregarItemTransporte}
+            className="text-sm text-blue-700 border border-blue-200 rounded px-3 py-1.5 hover:bg-blue-50">
+            + Agregar Transporte sin IVA
+          </button>
+        </div>
         <div className="bg-neutral-50 border border-neutral-200 rounded-md px-3 py-2 mt-3 flex justify-between text-sm font-semibold">
           <span>Subtotal ítems</span>
           <span>{formatoPesos(calculo.subtotal)}</span>
@@ -227,6 +250,11 @@ export default function FormularioOC({
               <div className="flex justify-between"><span>Valor Utilidad</span><span>{formatoPesos(calculo.valor_utilidad)}</span></div>
               <div className="flex justify-between"><span>Valor AIU total</span><span>{formatoPesos(calculo.valor_aiu)}</span></div>
             </>
+          )}
+          {oc.tipo_impuesto === 'CON_IVA' && calculo.subtotal_gravable !== calculo.subtotal && (
+            <div className="flex justify-between text-xs">
+              <span>Subtotal gravado con IVA (excluye ítems Sin IVA)</span><span>{formatoPesos(calculo.subtotal_gravable)}</span>
+            </div>
           )}
           <div className="flex justify-between"><span>Valor IVA</span><span>{formatoPesos(calculo.valor_iva)}</span></div>
         </div>
@@ -337,13 +365,13 @@ export default function FormularioOC({
             <>
               <FilaResumen label={`+ AIU (${calculo.porcentaje_aiu}%)`} valor={calculo.valor_aiu} />
               {Number(oc.porcentaje_administracion) > 0 && (
-                <FilaResumen label={`   · Administración (${oc.porcentaje_administracion}%)`} valor={calculo.valor_administracion} sutil />
+                <FilaResumen label={` · Administración (${oc.porcentaje_administracion}%)`} valor={calculo.valor_administracion} sutil />
               )}
               {Number(oc.porcentaje_imprevistos) > 0 && (
-                <FilaResumen label={`   · Imprevistos (${oc.porcentaje_imprevistos}%)`} valor={calculo.valor_imprevistos} sutil />
+                <FilaResumen label={` · Imprevistos (${oc.porcentaje_imprevistos}%)`} valor={calculo.valor_imprevistos} sutil />
               )}
               {Number(oc.porcentaje_utilidad) > 0 && (
-                <FilaResumen label={`   · Utilidad (${oc.porcentaje_utilidad}%)`} valor={calculo.valor_utilidad} sutil />
+                <FilaResumen label={` · Utilidad (${oc.porcentaje_utilidad}%)`} valor={calculo.valor_utilidad} sutil />
               )}
               {Number(oc.porcentaje_utilidad) > 0 && (
                 <FilaResumen label={`+ IVA sobre la Utilidad (${oc.porcentaje_iva || 0}%)`} valor={calculo.valor_iva} />
