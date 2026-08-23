@@ -10,11 +10,23 @@ export function calcularSubtotal(items) {
   return items.reduce((acc, it) => acc + (Number(it.cantidad) || 0) * (Number(it.valor_unitario) || 0), 0);
 }
 
-export function calcularImpuestos(oc, subtotal) {
+// Subtotal de los ítems que SÍ deben cobrar IVA: excluye los ítems marcados
+// sin_iva (ej. "Transporte sin IVA", que muchas ferreterías no gravan). Estos
+// ítems siguen sumando normalmente al Subtotal y al Total de la orden, solo
+// se excluyen de la base sobre la que se calcula el IVA.
+export function calcularSubtotalGravable(items) {
+  return items.reduce(
+    (acc, it) => acc + (it.sin_iva ? 0 : (Number(it.cantidad) || 0) * (Number(it.valor_unitario) || 0)),
+    0
+  );
+}
+
+export function calcularImpuestos(oc, subtotal, subtotalGravable = subtotal) {
   let valor_iva = 0, valor_administracion = 0, valor_imprevistos = 0, valor_utilidad = 0, valor_aiu = 0;
 
   if (oc.tipo_impuesto === 'CON_IVA') {
-    valor_iva = redondear(subtotal * (oc.porcentaje_iva || 0) / 100);
+    // El IVA se cobra solo sobre la parte gravable (excluye ítems sin_iva).
+    valor_iva = redondear(subtotalGravable * (oc.porcentaje_iva || 0) / 100);
   } else if (oc.tipo_impuesto === 'CON_AIU') {
     valor_administracion = redondear(subtotal * (oc.porcentaje_administracion || 0) / 100);
     valor_imprevistos = redondear(subtotal * (oc.porcentaje_imprevistos || 0) / 100);
@@ -35,14 +47,15 @@ export function calcularImpuestos(oc, subtotal) {
 /**
  * Calcula todos los valores derivados de una Orden de Compra.
  * @param {object} oc - datos base de la orden (porcentajes, descuento, tipo_impuesto, etc.)
- * @param {array} items - ítems de la orden [{cantidad, valor_unitario}]
+ * @param {array} items - ítems de la orden [{cantidad, valor_unitario, sin_iva}]
  * @param {number} pagado - suma de pagos ya registrados (de la tabla `pagos`)
  * @param {number} totalAnticipoReferenciado - Total de la OC de anticipo que esta orden amortiza (si aplica)
  */
 export function calcularOrdenCompra(oc, items, pagado = 0, totalAnticipoReferenciado = 0) {
   const subtotal = calcularSubtotal(items);
+  const subtotal_gravable = calcularSubtotalGravable(items);
   const { valor_iva, valor_administracion, valor_imprevistos, valor_utilidad, valor_aiu, porcentaje_aiu } =
-    calcularImpuestos(oc, subtotal);
+    calcularImpuestos(oc, subtotal, subtotal_gravable);
 
   const descuento = Number(oc.descuento || 0);
   const total = redondear(subtotal - descuento + valor_iva + valor_aiu);
@@ -70,7 +83,7 @@ export function calcularOrdenCompra(oc, items, pagado = 0, totalAnticipoReferenc
     : null;
 
   return {
-    subtotal, valor_iva, valor_administracion, valor_imprevistos, valor_utilidad,
+    subtotal, subtotal_gravable, valor_iva, valor_administracion, valor_imprevistos, valor_utilidad,
     valor_aiu, porcentaje_aiu, total, valor_retenido, valor_amortizacion,
     neto_a_pagar, pagado, saldo, saldo_anticipo_por_amortizar,
   };
