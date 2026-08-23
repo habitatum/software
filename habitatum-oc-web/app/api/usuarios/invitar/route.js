@@ -10,6 +10,30 @@ const supabaseAdmin = createClient(
 );
 
 export async function POST(request) {
+  // ---------- Verificar que quien llama es un admin autenticado ----------
+  // Sin esto, cualquiera que conozca la URL podría crear una cuenta de
+  // administrador sin loguearse. Mismo patrón que resetear-password/route.js.
+  const authHeader = request.headers.get('authorization') || '';
+  const token = authHeader.replace('Bearer ', '');
+  if (!token) {
+    return NextResponse.json({ error: 'No autenticado' }, { status: 401 });
+  }
+
+  const { data: { user }, error: errUsuario } = await supabaseAdmin.auth.getUser(token);
+  if (errUsuario || !user) {
+    return NextResponse.json({ error: 'No autenticado' }, { status: 401 });
+  }
+
+  const { data: perfilSolicitante } = await supabaseAdmin
+    .from('usuarios')
+    .select('rol')
+    .eq('id', user.id)
+    .single();
+
+  if (perfilSolicitante?.rol !== 'admin') {
+    return NextResponse.json({ error: 'Solo un administrador puede crear usuarios' }, { status: 403 });
+  }
+
   const { modo, email, usuario, nombre, rol } = await request.json();
 
   if (!nombre || !rol) {
