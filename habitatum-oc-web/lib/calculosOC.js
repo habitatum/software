@@ -110,6 +110,17 @@ function redondear(n) {
   return Math.round((Number(n) || 0) * 100) / 100;
 }
 
+// Convierte a número seguro cualquier valor que venga de un input de texto.
+// Si el campo se deja vacío ("") o con algo no numérico, un input type="number"
+// entrega ese "" tal cual en el estado de React, y si eso se manda directo a
+// Supabase/Postgres para una columna numeric, la base de datos lo rechaza con
+// "invalid input syntax for type numeric". Se usa justo antes de guardar
+// (insert/update) para que un campo vacío se guarde como 0 en vez de romper.
+export function numeroSeguro(valor, porDefecto = 0) {
+  const n = Number(valor);
+  return Number.isFinite(n) ? n : porDefecto;
+}
+
 export function formatoPesos(valor) {
   return new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', maximumFractionDigits: 0 })
     .format(Number(valor) || 0);
