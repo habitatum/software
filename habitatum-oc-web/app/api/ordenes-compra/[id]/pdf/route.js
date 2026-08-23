@@ -25,9 +25,21 @@ export async function GET(request, { params }) {
   const { data: items } = await supabase.from('items_oc').select('*').eq('orden_compra_id', id).order('orden').order('id');
 
   let acumulados = null;
+  let anticipoPendienteContrato = 0;
   if (oc.contrato_id) {
     const { data: acum } = await supabase.from('v_acumulados_contrato').select('*').eq('contrato_id', oc.contrato_id).single();
     acumulados = acum;
+    // Suma el saldo pendiente por amortizar de todos los Anticipos (vigentes)
+    // que pertenecen a este mismo contrato, igual que en la vista de detalle.
+    const { data: anticiposContrato } = await supabase
+      .from('v_ordenes_compra_calculadas')
+      .select('saldo_anticipo_por_amortizar')
+      .eq('contrato_id', oc.contrato_id)
+      .eq('tipo_pago', 'ANTICIPO')
+      .neq('estado', 'ANULADA');
+    anticipoPendienteContrato = (anticiposContrato || []).reduce(
+      (acc, a) => acc + Number(a.saldo_anticipo_por_amortizar || 0), 0
+    );
   }
 
   const buffer = await renderToBuffer(
@@ -35,6 +47,7 @@ export async function GET(request, { params }) {
       oc,
       items: items || [],
       acumulados,
+      anticipoPendienteContrato,
       nombreObra: oc.proyectos?.nombre,
       mostrarMarcaHabitatum: oc.proyectos?.mostrar_marca_habitatum,
       nombreEmisor: oc.proyectos?.nombre_emisor,
