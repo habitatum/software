@@ -43,7 +43,7 @@ function FilaCuadro({ label, valor, destacado, grande, sutil, negativo }) {
   );
 }
 
-export default function PlantillaOrdenCompraPDF({ oc, items, acumulados, nombreObra, mostrarMarcaHabitatum, nombreEmisor }) {
+export default function PlantillaOrdenCompraPDF({ oc, items, acumulados, anticipoPendienteContrato, nombreObra, mostrarMarcaHabitatum, nombreEmisor }) {
   const recuadro = { titulo: 'TOTAL A PAGAR', valor: oc.neto_a_pagar };
   const colores = COLORES_RECUADRO.amber;
 
@@ -116,13 +116,13 @@ export default function PlantillaOrdenCompraPDF({ oc, items, acumulados, nombreO
             <>
               <FilaCuadro label={`+ AIU (${oc.porcentaje_aiu || 0}%)`} valor={oc.valor_aiu} />
               {Number(oc.porcentaje_administracion) > 0 && (
-                <FilaCuadro label={`   · Administración (${oc.porcentaje_administracion}%)`} valor={oc.valor_administracion} sutil />
+                <FilaCuadro label={` · Administración (${oc.porcentaje_administracion}%)`} valor={oc.valor_administracion} sutil />
               )}
               {Number(oc.porcentaje_imprevistos) > 0 && (
-                <FilaCuadro label={`   · Imprevistos (${oc.porcentaje_imprevistos}%)`} valor={oc.valor_imprevistos} sutil />
+                <FilaCuadro label={` · Imprevistos (${oc.porcentaje_imprevistos}%)`} valor={oc.valor_imprevistos} sutil />
               )}
               {Number(oc.porcentaje_utilidad) > 0 && (
-                <FilaCuadro label={`   · Utilidad (${oc.porcentaje_utilidad}%)`} valor={oc.valor_utilidad} sutil />
+                <FilaCuadro label={` · Utilidad (${oc.porcentaje_utilidad}%)`} valor={oc.valor_utilidad} sutil />
               )}
               {Number(oc.porcentaje_utilidad) > 0 && (
                 <FilaCuadro label={`+ IVA sobre la Utilidad (${oc.porcentaje_iva || 0}%)`} valor={oc.valor_iva} />
@@ -146,7 +146,11 @@ export default function PlantillaOrdenCompraPDF({ oc, items, acumulados, nombreO
         </View>
 
         {oc.contrato_id && (
-          <CuadroAcumuladosPDF acumulados={acumulados} numeroContrato={oc.contratos?.numero_contrato} />
+          <CuadroAcumuladosPDF
+            acumulados={acumulados}
+            numeroContrato={oc.contratos?.numero_contrato}
+            anticipoPendienteContrato={anticipoPendienteContrato}
+          />
         )}
 
         {oc.notas && (
