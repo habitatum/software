@@ -4,7 +4,7 @@ import { useParams, useRouter } from 'next/navigation';
 import { useUsuarioActual } from '@/lib/useUsuarioActual';
 import { useProyectoActual } from '@/lib/useProyectoActual';
 import { crearClienteSupabase } from '@/lib/supabaseClient';
-import { calcularOrdenCompra, validarAmortizacion } from '@/lib/calculosOC';
+import { calcularOrdenCompra, validarAmortizacion, numeroSeguro } from '@/lib/calculosOC';
 import FormularioOC from '@/lib/FormularioOC';
 import NavBar from '@/components/NavBar';
 
@@ -16,6 +16,15 @@ const CAMPOS_EDITABLES = [
   'tipo_amortizacion', 'valor_amortizacion_manual',
   'responsable', 'descuento', 'tipo_impuesto', 'porcentaje_iva', 'porcentaje_administracion',
   'porcentaje_imprevistos', 'porcentaje_utilidad', 'porcentaje_retencion', 'devolucion_retenido', 'notas',
+];
+
+// Subconjunto de CAMPOS_EDITABLES que son numéricos: se sanean con
+// numeroSeguro justo antes de guardar, porque un input vacío ("") pasa tal
+// cual al estado y Postgres rechaza guardar texto vacío en una columna numeric.
+const CAMPOS_NUMERICOS_OC = [
+  'porcentaje_anticipo', 'porcentaje_amortizacion', 'valor_amortizacion_manual',
+  'descuento', 'porcentaje_iva', 'porcentaje_administracion', 'porcentaje_imprevistos',
+  'porcentaje_utilidad', 'porcentaje_retencion', 'devolucion_retenido',
 ];
 
 export default function EditarOrdenCompra() {
@@ -108,6 +117,9 @@ export default function EditarOrdenCompra() {
     for (const campo of CAMPOS_EDITABLES) cambios[campo] = oc[campo];
     cambios.contrato_id = cambios.contrato_id || null;
     cambios.referencia_anticipo_id = cambios.referencia_anticipo_id || null;
+    // Se sanea: cualquier campo numérico vacío o inválido se guarda como 0
+    // en vez de mandar "" a Postgres.
+    for (const campo of CAMPOS_NUMERICOS_OC) cambios[campo] = numeroSeguro(oc[campo]);
 
     const { error: errOC } = await supabase.from('ordenes_compra').update(cambios).eq('id', id);
     if (errOC) { setError(errOC.message); setGuardando(false); return; }
@@ -119,7 +131,8 @@ export default function EditarOrdenCompra() {
     const filasItems = items
       .filter((it) => it.descripcion)
       .map((it, idx) => ({
-        descripcion: it.descripcion, unidad: it.unidad, cantidad: it.cantidad, valor_unitario: it.valor_unitario,
+        descripcion: it.descripcion, unidad: it.unidad,
+        cantidad: numeroSeguro(it.cantidad), valor_unitario: numeroSeguro(it.valor_unitario),
         presupuesto_item_id: it.presupuesto_item_id || null,
         orden: idx,
         orden_compra_id: id,
