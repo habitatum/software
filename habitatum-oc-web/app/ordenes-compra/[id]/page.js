@@ -16,6 +16,7 @@ export default function DetalleOrdenCompra() {
   const [oc, setOc] = useState(null);
   const [items, setItems] = useState([]);
   const [acumulados, setAcumulados] = useState(null);
+  const [anticipoPendienteContrato, setAnticipoPendienteContrato] = useState(0);
   const [auditoria, setAuditoria] = useState(null);
   const [anulando, setAnulando] = useState(false);
   const [eliminando, setEliminando] = useState(false);
@@ -35,8 +36,22 @@ export default function DetalleOrdenCompra() {
     if (ocData?.contrato_id) {
       const { data: acum } = await supabase.from('v_acumulados_contrato').select('*').eq('contrato_id', ocData.contrato_id).single();
       setAcumulados(acum);
+      // Suma el saldo pendiente por amortizar de todos los Anticipos (vigentes)
+      // que pertenecen a este mismo contrato, para mostrar cuánto anticipo
+      // del contrato sigue sin cruzarse contra futuras Órdenes de Compra.
+      const { data: anticiposContrato } = await supabase
+        .from('v_ordenes_compra_calculadas')
+        .select('saldo_anticipo_por_amortizar')
+        .eq('contrato_id', ocData.contrato_id)
+        .eq('tipo_pago', 'ANTICIPO')
+        .neq('estado', 'ANULADA');
+      const totalPendiente = (anticiposContrato || []).reduce(
+        (acc, a) => acc + Number(a.saldo_anticipo_por_amortizar || 0), 0
+      );
+      setAnticipoPendienteContrato(totalPendiente);
     } else {
       setAcumulados(null);
+      setAnticipoPendienteContrato(0);
     }
   }
 
@@ -201,13 +216,13 @@ export default function DetalleOrdenCompra() {
               <>
                 <FilaResumen label={` + AIU (${oc.porcentaje_aiu || 0}%)`} valor={oc.valor_aiu} />
                 {Number(oc.porcentaje_administracion) > 0 && (
-                  <FilaResumen label={`   · Administración (${oc.porcentaje_administracion}%)`} valor={oc.valor_administracion} sutil />
+                  <FilaResumen label={` · Administración (${oc.porcentaje_administracion}%)`} valor={oc.valor_administracion} sutil />
                 )}
                 {Number(oc.porcentaje_imprevistos) > 0 && (
-                  <FilaResumen label={`   · Imprevistos (${oc.porcentaje_imprevistos}%)`} valor={oc.valor_imprevistos} sutil />
+                  <FilaResumen label={` · Imprevistos (${oc.porcentaje_imprevistos}%)`} valor={oc.valor_imprevistos} sutil />
                 )}
                 {Number(oc.porcentaje_utilidad) > 0 && (
-                  <FilaResumen label={`   · Utilidad (${oc.porcentaje_utilidad}%)`} valor={oc.valor_utilidad} sutil />
+                  <FilaResumen label={` · Utilidad (${oc.porcentaje_utilidad}%)`} valor={oc.valor_utilidad} sutil />
                 )}
                 {Number(oc.porcentaje_utilidad) > 0 && (
                   <FilaResumen label={`+ IVA sobre la Utilidad (${oc.porcentaje_iva || 0}%)`} valor={oc.valor_iva} />
@@ -239,7 +254,8 @@ export default function DetalleOrdenCompra() {
             <div className="flex justify-between"><span>Total acumulado (excluye anticipos)</span><span>{formatoPesos(acumulados.total_acumulado)}</span></div>
             <div className="flex justify-between"><span>Retenido acumulado</span><span>{formatoPesos(acumulados.retenido_acumulado)}</span></div>
             <div className="flex justify-between"><span>Amortizado acumulado</span><span>{formatoPesos(acumulados.amortizado_acumulado)}</span></div>
-            <div className="flex justify-between font-semibold border-t pt-2 mt-2"><span>Devolución acumulada</span><span>{formatoPesos(acumulados.devolucion_acumulada)}</span></div>
+            <div className="flex justify-between"><span>Anticipo pendiente por amortizar</span><span>{formatoPesos(anticipoPendienteContrato)}</span></div>
+            <div className="flex justify-between"><span>Devolución acumulada</span><span>{formatoPesos(acumulados.devolucion_acumulada)}</span></div>
           </div>
         )}
       </main>
