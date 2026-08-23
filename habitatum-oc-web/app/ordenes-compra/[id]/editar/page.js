@@ -70,7 +70,7 @@ export default function EditarOrdenCompra() {
       setOc(ocData);
       setReferenciaAnticipoOriginalId(ocData?.referencia_anticipo_id || '');
       setValorAmortizacionGuardada(Number(ocData?.valor_amortizacion || 0));
-      setItems((itemsData && itemsData.length > 0) ? itemsData : [{ descripcion: '', unidad: '', cantidad: 1, valor_unitario: 0 }]);
+      setItems((itemsData && itemsData.length > 0) ? itemsData : [{ descripcion: '', unidad: '', cantidad: 1, valor_unitario: 0, sin_iva: false }]);
       setProveedores(prov || []);
       // Se excluyen los contratos anulados del desplegable, salvo que sea el
       // contrato que esta misma OC ya tenía asignado (para no romper la
@@ -133,6 +133,8 @@ export default function EditarOrdenCompra() {
       .map((it, idx) => ({
         descripcion: it.descripcion, unidad: it.unidad,
         cantidad: numeroSeguro(it.cantidad), valor_unitario: numeroSeguro(it.valor_unitario),
+        // Excluye este ítem del cálculo de IVA (ej. "Transporte sin IVA").
+        sin_iva: !!it.sin_iva,
         presupuesto_item_id: it.presupuesto_item_id || null,
         orden: idx,
         orden_compra_id: id,
