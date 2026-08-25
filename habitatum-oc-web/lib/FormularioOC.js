@@ -1,5 +1,5 @@
 'use client';
-import { formatoPesos, validarAmortizacion } from '@/lib/calculosOC';
+import { formatoPesos } from '@/lib/calculosOC';
 
 // Antes esto vivía como .input dentro de <style jsx global> con @apply, pero
 // styled-jsx no pasa ese bloque por el pipeline de Tailwind: la clase nunca se
@@ -10,50 +10,23 @@ const INPUT = 'border border-neutral-300 rounded-md px-3 py-2 text-sm w-full bg-
 // Unidades de medida disponibles para los ítems de una Orden de Compra.
 const UNIDADES = ['Und', 'Glo', 'm2', 'm3', 'm', 'Gal', 'Kg', 'Hr', 'Día', 'Lt'];
 
-// Ítem por defecto disponible en cualquier proyecto (no depende del catálogo
-// de presupuesto de cada obra): muchas ferreterías no le cobran IVA al
-// transporte, así que se marca sin_iva = true para que su valor no cuente en
-// la base sobre la que se calcula el IVA, aunque sí siga sumando al Subtotal
-// y al Total de la orden (ver calculosOC.js -> calcularSubtotalGravable).
-const ITEM_TRANSPORTE_SIN_IVA = { descripcion: 'Transporte sin IVA', unidad: 'Glo', cantidad: 1, valor_unitario: 0, sin_iva: true };
-
 // Formulario compartido entre Nueva Orden de Compra y Editar Orden de Compra.
-// referenciaAnticipoOriginalId / valorAmortizacionGuardada: describen el
-// estado YA GUARDADO en BD de esta misma OC antes de esta edición (para
-// nueva OC son '' y 0), y sirven para no restar dos veces la propia
-// amortización de esta orden al validar contra el saldo del anticipo.
 export default function FormularioOC({
   oc, setOc, items, setItems,
   proveedores, contratos, anticipos, usuarios,
   presupuestoCapitulos = [],
   calculo,
-  referenciaAnticipoOriginalId = '',
-  valorAmortizacionGuardada = 0,
   onSubmit, guardando, error, tituloBoton,
 }) {
   function actualizarItem(i, campo, valor) {
     setItems((prev) => prev.map((it, idx) => (idx === i ? { ...it, [campo]: valor } : it)));
   }
   function agregarItem() {
-    setItems((prev) => [...prev, { descripcion: '', unidad: '', cantidad: 1, valor_unitario: 0, sin_iva: false }]);
-  }
-  function agregarItemTransporte() {
-    setItems((prev) => [...prev, { ...ITEM_TRANSPORTE_SIN_IVA }]);
+    setItems((prev) => [...prev, { descripcion: '', unidad: '', cantidad: 1, valor_unitario: 0 }]);
   }
   function quitarItem(i) {
     setItems((prev) => prev.filter((_, idx) => idx !== i));
   }
-
-  const anticipoSeleccionado = (anticipos || []).find((a) => a.id === oc.referencia_anticipo_id);
-  const avisoAmortizacion = oc.tipo_pago === 'NORMAL' && oc.referencia_anticipo_id
-    ? validarAmortizacion({
-        anticipo: anticipoSeleccionado,
-        valorAmortizacion: calculo.valor_amortizacion,
-        referenciaId: oc.referencia_anticipo_id,
-        referenciaOriginalId: referenciaAnticipoOriginalId,
-        valorAmortizacionGuardada,
-      })
-    : null;
 
   return (
     <form onSubmit={onSubmit} className="space-y-6">
@@ -101,16 +74,15 @@ export default function FormularioOC({
       {/* Ítems */}
       <Seccion titulo="Ítems">
         <div className="overflow-x-auto rounded-md border border-neutral-200">
-          <table className="w-full text-sm border-collapse table-fixed">
+          <table className="w-full min-w-[980px] text-sm border-collapse table-fixed">
             <colgroup>
-              <col style={{ width: '27%' }} />
+              <col style={{ width: '22%' }} />
+              <col style={{ width: '10%' }} />
               <col style={{ width: '7%' }} />
+              <col style={{ width: '16%' }} />
+              <col style={{ width: '12%' }} />
               <col style={{ width: '6%' }} />
-              <col style={{ width: '11%' }} />
-              <col style={{ width: '11%' }} />
-              <col style={{ width: '6%' }} />
-              <col style={{ width: '6%' }} />
-              <col style={{ width: '18%' }} />
+              <col style={{ width: '23%' }} />
               <col style={{ width: '4%' }} />
             </colgroup>
             <thead>
@@ -121,8 +93,7 @@ export default function FormularioOC({
                 <th className="py-2 px-3 font-medium border-b border-neutral-200 text-right">Precio unitario</th>
                 <th className="py-2 px-3 font-medium border-b border-neutral-200 text-right">Subtotal</th>
                 <th className="py-2 px-3 font-medium border-b border-neutral-200 text-right">% Orden</th>
-                <th className="py-2 px-2 font-medium border-b border-neutral-200 text-center" title="Excluye este ítem del cálculo de IVA (ej. Transporte)">Sin IVA</th>
-                <th className="py-2 px-3 font-medium border-b border-neutral-200">Ýtem de Presupuesto</th>
+                <th className="py-2 px-3 font-medium border-b border-neutral-200">Ítem de Presupuesto</th>
                 <th className="py-2 px-2 border-b border-neutral-200"></th>
               </tr>
             </thead>
@@ -164,11 +135,6 @@ export default function FormularioOC({
                     <td className="py-2 px-3 text-right text-neutral-500 whitespace-nowrap">
                       {porcentaje.toFixed(1)}%
                     </td>
-                    <td className="py-2 px-2 text-center">
-                      <input type="checkbox" checked={!!it.sin_iva}
-                        onChange={(e) => actualizarItem(i, 'sin_iva', e.target.checked)}
-                        title="Excluir este ítem del cálculo de IVA (ej. Transporte)" />
-                    </td>
                     <td className="py-2 px-3">
                       <select value={it.presupuesto_item_id || ''}
                         onChange={(e) => actualizarItem(i, 'presupuesto_item_id', e.target.value || null)}
@@ -193,16 +159,10 @@ export default function FormularioOC({
             </tbody>
           </table>
         </div>
-        <div className="flex flex-wrap gap-2 mt-3">
-          <button type="button" onClick={agregarItem}
-            className="text-sm text-blue-700 border border-blue-200 rounded px-3 py-1.5 hover:bg-blue-50">
-            + Agregar ítem
-          </button>
-          <button type="button" onClick={agregarItemTransporte}
-            className="text-sm text-blue-700 border border-blue-200 rounded px-3 py-1.5 hover:bg-blue-50">
-            + Agregar Transporte sin IVA
-          </button>
-        </div>
+        <button type="button" onClick={agregarItem}
+          className="text-sm text-blue-700 border border-blue-200 rounded px-3 py-1.5 mt-3 hover:bg-blue-50">
+          + Agregar ítem
+        </button>
         <div className="bg-neutral-50 border border-neutral-200 rounded-md px-3 py-2 mt-3 flex justify-between text-sm font-semibold">
           <span>Subtotal ítems</span>
           <span>{formatoPesos(calculo.subtotal)}</span>
@@ -251,11 +211,6 @@ export default function FormularioOC({
               <div className="flex justify-between"><span>Valor AIU total</span><span>{formatoPesos(calculo.valor_aiu)}</span></div>
             </>
           )}
-          {oc.tipo_impuesto === 'CON_IVA' && calculo.subtotal_gravable !== calculo.subtotal && (
-            <div className="flex justify-between text-xs">
-              <span>Subtotal gravado con IVA (excluye ítems Sin IVA)</span><span>{formatoPesos(calculo.subtotal_gravable)}</span>
-            </div>
-          )}
           <div className="flex justify-between"><span>Valor IVA</span><span>{formatoPesos(calculo.valor_iva)}</span></div>
         </div>
       </Seccion>
@@ -276,57 +231,20 @@ export default function FormularioOC({
           )}
         </div>
         {oc.tipo_pago === 'NORMAL' && (
-          <>
-            <div className="grid grid-cols-2 gap-4">
-              <Campo label="Referencia a anticipo (opcional)">
-                <select value={oc.referencia_anticipo_id} onChange={(e) => setOc({ ...oc, referencia_anticipo_id: e.target.value })} className={INPUT}>
-                  <option value="">— Ninguna —</option>
-                  {anticipos.map((a) => <option key={a.id} value={a.id}>{a.folio}</option>)}
-                </select>
-              </Campo>
-              <Campo label="Tipo de amortización">
-                <select
-                  value={oc.tipo_amortizacion || 'PORCENTAJE'}
-                  onChange={(e) => setOc({ ...oc, tipo_amortizacion: e.target.value })}
-                  className={INPUT}
-                >
-                  <option value="PORCENTAJE">Porcentaje del total</option>
-                  <option value="VALOR_FIJO">Monto fijo</option>
-                </select>
-              </Campo>
-            </div>
-            <div className="grid grid-cols-2 gap-4">
-              {(oc.tipo_amortizacion || 'PORCENTAJE') === 'VALOR_FIJO' ? (
-                <Campo label="Monto de amortización">
-                  <input
-                    type="number" step="any"
-                    value={oc.valor_amortizacion_manual ?? 0}
-                    onChange={(e) => setOc({ ...oc, valor_amortizacion_manual: e.target.value })}
-                    className={INPUT}
-                  />
-                </Campo>
-              ) : (
-                <Campo label="% Amortización (admite decimales, ej. 33.3333)">
-                  <input
-                    type="number" step="any"
-                    value={oc.porcentaje_amortizacion}
-                    onChange={(e) => setOc({ ...oc, porcentaje_amortizacion: e.target.value })}
-                    className={INPUT}
-                  />
-                </Campo>
-              )}
-            </div>
-          </>
-        )}
-        <div className="bg-neutral-50 border border-neutral-200 rounded-md px-3 py-2 mt-2 space-y-1">
-          <div className="flex justify-between text-sm text-neutral-600">
-            <span>Valor amortización</span><span>{formatoPesos(calculo.valor_amortizacion)}</span>
+          <div className="grid grid-cols-2 gap-4">
+            <Campo label="Referencia a anticipo (opcional)">
+              <select value={oc.referencia_anticipo_id} onChange={(e) => setOc({ ...oc, referencia_anticipo_id: e.target.value })} className={INPUT}>
+                <option value="">— Ninguna —</option>
+                {anticipos.map((a) => <option key={a.id} value={a.id}>{a.folio}</option>)}
+              </select>
+            </Campo>
+            <Campo label="% Amortización">
+              <input type="number" value={oc.porcentaje_amortizacion} onChange={(e) => setOc({ ...oc, porcentaje_amortizacion: e.target.value })} className={INPUT} />
+            </Campo>
           </div>
-          {avisoAmortizacion && (
-            <p className={avisoAmortizacion.ok ? 'text-xs text-neutral-500' : 'text-xs text-red-600 font-medium'}>
-              {avisoAmortizacion.mensaje}
-            </p>
-          )}
+        )}
+        <div className="bg-neutral-50 border border-neutral-200 rounded-md px-3 py-2 mt-2 flex justify-between text-sm text-neutral-600">
+          <span>Valor amortización</span><span>{formatoPesos(calculo.valor_amortizacion)}</span>
         </div>
       </Seccion>
 
@@ -365,13 +283,13 @@ export default function FormularioOC({
             <>
               <FilaResumen label={`+ AIU (${calculo.porcentaje_aiu}%)`} valor={calculo.valor_aiu} />
               {Number(oc.porcentaje_administracion) > 0 && (
-                <FilaResumen label={` · Administración (${oc.porcentaje_administracion}%)`} valor={calculo.valor_administracion} sutil />
+                <FilaResumen label={`   · Administración (${oc.porcentaje_administracion}%)`} valor={calculo.valor_administracion} sutil />
               )}
               {Number(oc.porcentaje_imprevistos) > 0 && (
-                <FilaResumen label={` · Imprevistos (${oc.porcentaje_imprevistos}%)`} valor={calculo.valor_imprevistos} sutil />
+                <FilaResumen label={`   · Imprevistos (${oc.porcentaje_imprevistos}%)`} valor={calculo.valor_imprevistos} sutil />
               )}
               {Number(oc.porcentaje_utilidad) > 0 && (
-                <FilaResumen label={` · Utilidad (${oc.porcentaje_utilidad}%)`} valor={calculo.valor_utilidad} sutil />
+                <FilaResumen label={`   · Utilidad (${oc.porcentaje_utilidad}%)`} valor={calculo.valor_utilidad} sutil />
               )}
               {Number(oc.porcentaje_utilidad) > 0 && (
                 <FilaResumen label={`+ IVA sobre la Utilidad (${oc.porcentaje_iva || 0}%)`} valor={calculo.valor_iva} />
@@ -382,14 +300,8 @@ export default function FormularioOC({
           {Number(oc.porcentaje_retencion) > 0 && (
             <FilaResumen label={`- Retenido (${oc.porcentaje_retencion}%)`} valor={calculo.valor_retenido} negativo />
           )}
-          {calculo.valor_amortizacion > 0 && (
-            <FilaResumen
-              label={(oc.tipo_amortizacion === 'VALOR_FIJO')
-                ? '- Amortización anticipo (monto fijo)'
-                : `- Amortización anticipo (${oc.porcentaje_amortizacion}%)`}
-              valor={calculo.valor_amortizacion}
-              negativo
-            />
+          {Number(oc.porcentaje_amortizacion) > 0 && (
+            <FilaResumen label={`- Amortización anticipo (${oc.porcentaje_amortizacion}%)`} valor={calculo.valor_amortizacion} negativo />
           )}
           {Number(oc.devolucion_retenido) > 0 && (
             <FilaResumen label="+ Devolución retenido" valor={oc.devolucion_retenido} />
