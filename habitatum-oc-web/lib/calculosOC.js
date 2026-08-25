@@ -52,8 +52,20 @@ export function calcularImpuestos(oc, subtotal, subtotalGravable = subtotal) {
  * @param {number} totalAnticipoReferenciado - Total de la OC de anticipo que esta orden amortiza (si aplica)
  */
 export function calcularOrdenCompra(oc, items, pagado = 0, totalAnticipoReferenciado = 0) {
-  const subtotal = calcularSubtotal(items);
-  const subtotal_gravable = calcularSubtotalGravable(items);
+  const subtotalItems = calcularSubtotal(items);
+  const subtotalGravableItems = calcularSubtotalGravable(items);
+
+  // En una orden tipo ANTICIPO, los ítems representan el valor total del
+  // contrato/obra sobre el que se calcula el anticipo. El "% que representa
+  // del contrato" define qué fracción de ese valor se desembolsa en ESTA
+  // orden: impuestos y total se calculan sobre esa fracción, no sobre el
+  // valor completo de los ítems. Si no se pone % (o es 0), no cambia nada:
+  // el subtotal sigue siendo la suma directa de los ítems, como siempre.
+  const esAnticipoConPorcentaje = oc.tipo_pago === 'ANTICIPO' && Number(oc.porcentaje_anticipo) > 0;
+  const factorAnticipo = esAnticipoConPorcentaje ? Number(oc.porcentaje_anticipo) / 100 : 1;
+  const subtotal = redondear(subtotalItems * factorAnticipo);
+  const subtotal_gravable = redondear(subtotalGravableItems * factorAnticipo);
+
   const { valor_iva, valor_administracion, valor_imprevistos, valor_utilidad, valor_aiu, porcentaje_aiu } =
     calcularImpuestos(oc, subtotal, subtotal_gravable);
 
@@ -83,7 +95,7 @@ export function calcularOrdenCompra(oc, items, pagado = 0, totalAnticipoReferenc
     : null;
 
   return {
-    subtotal, subtotal_gravable, valor_iva, valor_administracion, valor_imprevistos, valor_utilidad,
+    subtotalItems, subtotal, subtotal_gravable, valor_iva, valor_administracion, valor_imprevistos, valor_utilidad,
     valor_aiu, porcentaje_aiu, total, valor_retenido, valor_amortizacion,
     neto_a_pagar, pagado, saldo, saldo_anticipo_por_amortizar,
   };
