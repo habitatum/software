@@ -93,6 +93,8 @@ export default function DetalleOrdenCompra() {
 
   if (cargando || !usuario || !oc) return null;
 
+  const esAnticipo = oc.tipo_pago === 'ANTICIPO';
+
   return (
     <div>
       <NavBar usuario={usuario} proyecto={proyecto} />
@@ -171,7 +173,7 @@ export default function DetalleOrdenCompra() {
               <thead>
                 <tr className="text-left text-xs text-neutral-500 bg-gris-calido/30">
                   <th className="py-2 px-3 font-medium border-b border-neutral-200">Descripción</th>
-                  <th className="py-2 px-3 font-medium border-b border-neutral-200 w-20">Unizdaw</th>
+                  <th className="py-2 px-3 font-medium border-b border-neutral-200 w-20">Unidad</th>
                   <th className="py-2 px-3 font-medium border-b border-neutral-200 w-24 text-right">Cantidad</th>
                   <th className="py-2 px-3 font-medium border-b border-neutral-200 w-32 text-right">Precio unitario</th>
                   <th className="py-2 px-3 font-medium border-b border-neutral-200 w-32 text-right">Subtotal</th>
@@ -210,18 +212,23 @@ export default function DetalleOrdenCompra() {
         <div className="bg-carbon text-hueso rounded-lg p-5">
           <h2 className="font-medium mb-3 text-gris-calido">Esta Orden</h2>
           <div className="text-sm space-y-1.5">
-            {oc.tipo_pago === 'ANTICIPO' && Number(oc.porcentaje_anticipo) > 0 && (
+            {esAnticipo && Number(oc.porcentaje_anticipo) > 0 && (
               <FilaResumen label="Valor ítems (base del anticipo)" valor={oc.subtotal_items} sutil />
             )}
             <FilaResumen
-              label={oc.tipo_pago === 'ANTICIPO' && Number(oc.porcentaje_anticipo) > 0 ? `Anticipo (${oc.porcentaje_anticipo}% de los ítems)` : 'Subtotal'}
+              label={esAnticipo && Number(oc.porcentaje_anticipo) > 0 ? `Anticipo (${oc.porcentaje_anticipo}% de los ítems)` : 'Subtotal'}
               valor={oc.subtotal}
             />
             {Number(oc.descuento) > 0 && <FilaResumen label="- Descuento" valor={oc.descuento} negativo />}
-            {oc.tipo_impuesto === 'CON_IVA' && (
+            {esAnticipo && (
+              <p className="text-xs text-gris-calido/80 -mt-0.5">
+                Los impuestos (IVA / AIU) no aplican a un Anticipo: se cobran en la orden Normal que lo amortiza.
+              </p>
+            )}
+            {!esAnticipo && oc.tipo_impuesto === 'CON_IVA' && (
               <FilaResumen label={`+ IVA (${oc.porcentaje_iva || 0}%)`} valor={oc.valor_iva} />
             )}
-            {oc.tipo_impuesto === 'CON_AIU' && (
+            {!esAnticipo && oc.tipo_impuesto === 'CON_AIU' && (
               <>
                 <FilaResumen label={`+ AIU (${oc.porcentaje_aiu || 0}%)`} valor={oc.valor_aiu} />
                 {Number(oc.porcentaje_administracion) > 0 && (
@@ -249,7 +256,7 @@ export default function DetalleOrdenCompra() {
               <FilaResumen label="+ Devolución retenido" valor={oc.devolucion_retenido} />
             )}
             <FilaResumen label="A PAGAR" valor={oc.neto_a_pagar} destacado grande />
-            {oc.tipo_pago === 'ANTICIPO' && (
+            {esAnticipo && (
               <FilaResumen label="Saldo del anticipo por amortizar" valor={oc.saldo_anticipo_por_amortizar} destacado />
             )}
           </div>
