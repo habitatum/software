@@ -84,7 +84,7 @@ export default function PlantillaOrdenCompraPDF({ oc, items, acumulados, anticip
           <Text style={estilos.tituloSeccion}>Ítems</Text>
           <View style={estilos.tablaEncabezado}>
             <Text style={estilos.colDesc}>Descripción</Text>
-            <Text style={estilos.colUnidad}>Unidsd</Text>
+            <Text style={estilos.colUnidad}>Unidad</Text>
             <Text style={estilos.colCant}>Cant.</Text>
             <Text style={estilos.colPrecio}>Precio unit.</Text>
             <Text style={[estilos.colVal, { textAlign: 'right' }]}>Subtotal</Text>
