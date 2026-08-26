@@ -171,7 +171,7 @@ export default function DetalleOrdenCompra() {
               <thead>
                 <tr className="text-left text-xs text-neutral-500 bg-gris-calido/30">
                   <th className="py-2 px-3 font-medium border-b border-neutral-200">Descripción</th>
-                  <th className="py-2 px-3 font-medium border-b border-neutral-200 w-20">Unidad</th>
+                  <th className="py-2 px-3 font-medium border-b border-neutral-200 w-20">Unizdaw</th>
                   <th className="py-2 px-3 font-medium border-b border-neutral-200 w-24 text-right">Cantidad</th>
                   <th className="py-2 px-3 font-medium border-b border-neutral-200 w-32 text-right">Precio unitario</th>
                   <th className="py-2 px-3 font-medium border-b border-neutral-200 w-32 text-right">Subtotal</th>
@@ -182,7 +182,7 @@ export default function DetalleOrdenCompra() {
               <tbody>
                 {items.map((it, i) => {
                   const subtotalItem = it.cantidad * it.valor_unitario;
-                  const porcentaje = oc.subtotal > 0 ? (subtotalItem / oc.subtotal) * 100 : 0;
+                  const porcentaje = oc.subtotal_items > 0 ? (subtotalItem / oc.subtotal_items) * 100 : 0;
                   return (
                     <tr key={it.id} className={`${i % 2 === 1 ? 'bg-neutral-50/60' : ''} border-b border-neutral-100 last:border-b-0 hover:bg-hueso/60`}>
                       <td className="py-2 px-3">
@@ -210,7 +210,13 @@ export default function DetalleOrdenCompra() {
         <div className="bg-carbon text-hueso rounded-lg p-5">
           <h2 className="font-medium mb-3 text-gris-calido">Esta Orden</h2>
           <div className="text-sm space-y-1.5">
-            <FilaResumen label="Subtotal" valor={oc.subtotal} />
+            {oc.tipo_pago === 'ANTICIPO' && Number(oc.porcentaje_anticipo) > 0 && (
+              <FilaResumen label="Valor ítems (base del anticipo)" valor={oc.subtotal_items} sutil />
+            )}
+            <FilaResumen
+              label={oc.tipo_pago === 'ANTICIPO' && Number(oc.porcentaje_anticipo) > 0 ? `Anticipo (${oc.porcentaje_anticipo}% de los ítems)` : 'Subtotal'}
+              valor={oc.subtotal}
+            />
             {Number(oc.descuento) > 0 && <FilaResumen label="- Descuento" valor={oc.descuento} negativo />}
             {oc.tipo_impuesto === 'CON_IVA' && (
               <FilaResumen label={`+ IVA (${oc.porcentaje_iva || 0}%)`} valor={oc.valor_iva} />
