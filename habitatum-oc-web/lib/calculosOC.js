@@ -61,13 +61,21 @@ export function calcularOrdenCompra(oc, items, pagado = 0, totalAnticipoReferenc
   // orden: impuestos y total se calculan sobre esa fracción, no sobre el
   // valor completo de los ítems. Si no se pone % (o es 0), no cambia nada:
   // el subtotal sigue siendo la suma directa de los ítems, como siempre.
-  const esAnticipoConPorcentaje = oc.tipo_pago === 'ANTICIPO' && Number(oc.porcentaje_anticipo) > 0;
+  const esAnticipo = oc.tipo_pago === 'ANTICIPO';
+  const esAnticipoConPorcentaje = esAnticipo && Number(oc.porcentaje_anticipo) > 0;
   const factorAnticipo = esAnticipoConPorcentaje ? Number(oc.porcentaje_anticipo) / 100 : 1;
   const subtotal = redondear(subtotalItems * factorAnticipo);
   const subtotal_gravable = redondear(subtotalGravableItems * factorAnticipo);
 
+  // Un Anticipo es un desembolso a cuenta del contrato: el IVA/AIU no le
+  // aplica a él directamente, se cobra en la(s) orden(es) Normal que
+  // amortizan ese anticipo (cada una con sus propios impuestos sobre lo que
+  // factura). Por eso, si esta orden es un Anticipo, el IVA/AIU nunca se
+  // suma a su Total, sin importar qué tipo de impuesto tenga configurado.
   const { valor_iva, valor_administracion, valor_imprevistos, valor_utilidad, valor_aiu, porcentaje_aiu } =
-    calcularImpuestos(oc, subtotal, subtotal_gravable);
+    esAnticipo
+      ? { valor_iva: 0, valor_administracion: 0, valor_imprevistos: 0, valor_utilidad: 0, valor_aiu: 0, porcentaje_aiu: 0 }
+      : calcularImpuestos(oc, subtotal, subtotal_gravable);
 
   const descuento = Number(oc.descuento || 0);
   const total = redondear(subtotal - descuento + valor_iva + valor_aiu);
