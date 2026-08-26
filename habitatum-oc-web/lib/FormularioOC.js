@@ -18,6 +18,8 @@ export default function FormularioOC({
   calculo,
   onSubmit, guardando, error, tituloBoton,
 }) {
+  const esAnticipo = oc.tipo_pago === 'ANTICIPO';
+
   function actualizarItem(i, campo, valor) {
     setItems((prev) => prev.map((it, idx) => (idx === i ? { ...it, [campo]: valor } : it)));
   }
@@ -167,58 +169,68 @@ export default function FormularioOC({
           <span>Subtotal ítems</span>
           <span>{formatoPesos(calculo.subtotalItems)}</span>
         </div>
-        {oc.tipo_pago === 'ANTICIPO' && Number(oc.porcentaje_anticipo) > 0 && (
+        {esAnticipo && Number(oc.porcentaje_anticipo) > 0 && (
           <p className="text-xs text-neutral-500 mt-1">
             Esta orden es un anticipo del {oc.porcentaje_anticipo}% sobre el valor de los ítems: se paga {formatoPesos(calculo.subtotal)} de {formatoPesos(calculo.subtotalItems)}.
           </p>
         )}
       </Seccion>
 
-      {/* Impuestos */}
-      <Seccion titulo="Impuestos">
-        <Campo label="Tipo de impuesto">
-          <select value={oc.tipo_impuesto} onChange={(e) => setOc({ ...oc, tipo_impuesto: e.target.value })} className={INPUT}>
-            <option value="SIN_IVA">Sin IVA</option>
-            <option value="CON_IVA">Con IVA</option>
-            <option value="CON_AIU">Con AIU</option>
-          </select>
-        </Campo>
-
-        {oc.tipo_impuesto === 'CON_IVA' && (
-          <Campo label="% IVA">
-            <input type="number" value={oc.porcentaje_iva} onChange={(e) => setOc({ ...oc, porcentaje_iva: e.target.value })} className={INPUT} />
+      {/* Impuestos: no aplican a una Orden de Anticipo. El IVA/AIU se cobra
+          en la(s) orden(es) Normal que amortizan ese anticipo, cada una con
+          sus propios impuestos sobre lo que factura. */}
+      {esAnticipo ? (
+        <Seccion titulo="Impuestos">
+          <p className="text-sm text-neutral-500">
+            Los impuestos (IVA / AIU) no aplican a las Órdenes de Anticipo: se calculan y se suman en la orden Normal que amortiza este anticipo.
+          </p>
+        </Seccion>
+      ) : (
+        <Seccion titulo="Impuestos">
+          <Campo label="Tipo de impuesto">
+            <select value={oc.tipo_impuesto} onChange={(e) => setOc({ ...oc, tipo_impuesto: e.target.value })} className={INPUT}>
+              <option value="SIN_IVA">Sin IVA</option>
+              <option value="CON_IVA">Con IVA</option>
+              <option value="CON_AIU">Con AIU</option>
+            </select>
           </Campo>
-        )}
 
-        {oc.tipo_impuesto === 'CON_AIU' && (
-          <div className="grid grid-cols-3 gap-4">
-            <Campo label="% Administración">
-              <input type="number" value={oc.porcentaje_administracion} onChange={(e) => setOc({ ...oc, porcentaje_administracion: e.target.value })} className={INPUT} />
-            </Campo>
-            <Campo label="% Imprevistos">
-              <input type="number" value={oc.porcentaje_imprevistos} onChange={(e) => setOc({ ...oc, porcentaje_imprevistos: e.target.value })} className={INPUT} />
-            </Campo>
-            <Campo label="% Utilidad">
-              <input type="number" value={oc.porcentaje_utilidad} onChange={(e) => setOc({ ...oc, porcentaje_utilidad: e.target.value })} className={INPUT} />
-            </Campo>
-            <Campo label="% IVA (solo sobre Utilidad)">
+          {oc.tipo_impuesto === 'CON_IVA' && (
+            <Campo label="% IVA">
               <input type="number" value={oc.porcentaje_iva} onChange={(e) => setOc({ ...oc, porcentaje_iva: e.target.value })} className={INPUT} />
             </Campo>
-          </div>
-        )}
-
-        <div className="bg-neutral-50 border border-neutral-200 rounded-md px-3 py-2 mt-2 text-sm text-neutral-600 space-y-1">
-          {oc.tipo_impuesto === 'CON_AIU' && (
-            <>
-              <div className="flex justify-between"><span>Valor Administración</span><span>{formatoPesos(calculo.valor_administracion)}</span></div>
-              <div className="flex justify-between"><span>Valor Imprevistos</span><span>{formatoPesos(calculo.valor_imprevistos)}</span></div>
-              <div className="flex justify-between"><span>Valor Utilidad</span><span>{formatoPesos(calculo.valor_utilidad)}</span></div>
-              <div className="flex justify-between"><span>Valor AIU total</span><span>{formatoPesos(calculo.valor_aiu)}</span></div>
-            </>
           )}
-          <div className="flex justify-between"><span>Valor IVA</span><span>{formatoPesos(calculo.valor_iva)}</span></div>
-        </div>
-      </Seccion>
+
+          {oc.tipo_impuesto === 'CON_AIU' && (
+            <div className="grid grid-cols-3 gap-4">
+              <Campo label="% Administración">
+                <input type="number" value={oc.porcentaje_administracion} onChange={(e) => setOc({ ...oc, porcentaje_administracion: e.target.value })} className={INPUT} />
+              </Campo>
+              <Campo label="% Imprevistos">
+                <input type="number" value={oc.porcentaje_imprevistos} onChange={(e) => setOc({ ...oc, porcentaje_imprevistos: e.target.value })} className={INPUT} />
+              </Campo>
+              <Campo label="% Utilidad">
+                <input type="number" value={oc.porcentaje_utilidad} onChange={(e) => setOc({ ...oc, porcentaje_utilidad: e.target.value })} className={INPUT} />
+              </Campo>
+              <Campo label="% IVA (solo sobre Utilidad)">
+                <input type="number" value={oc.porcentaje_iva} onChange={(e) => setOc({ ...oc, porcentaje_iva: e.target.value })} className={INPUT} />
+              </Campo>
+            </div>
+          )}
+
+          <div className="bg-neutral-50 border border-neutral-200 rounded-md px-3 py-2 mt-2 text-sm text-neutral-600 space-y-1">
+            {oc.tipo_impuesto === 'CON_AIU' && (
+              <>
+                <div className="flex justify-between"><span>Valor Administración</span><span>{formatoPesos(calculo.valor_administracion)}</span></div>
+                <div className="flex justify-between"><span>Valor Imprevistos</span><span>{formatoPesos(calculo.valor_imprevistos)}</span></div>
+                <div className="flex justify-between"><span>Valor Utilidad</span><span>{formatoPesos(calculo.valor_utilidad)}</span></div>
+                <div className="flex justify-between"><span>Valor AIU total</span><span>{formatoPesos(calculo.valor_aiu)}</span></div>
+              </>
+            )}
+            <div className="flex justify-between"><span>Valor IVA</span><span>{formatoPesos(calculo.valor_iva)}</span></div>
+          </div>
+        </Seccion>
+      )}
 
       {/* Anticipo / Amortización */}
       <Seccion titulo="Anticipo y amortización">
@@ -229,7 +241,7 @@ export default function FormularioOC({
               <option value="ANTICIPO">Anticipo</option>
             </select>
           </Campo>
-          {oc.tipo_pago === 'ANTICIPO' && (
+          {esAnticipo && (
             <Campo label="% que representa del contrato">
               <input type="number" value={oc.porcentaje_anticipo} onChange={(e) => setOc({ ...oc, porcentaje_anticipo: e.target.value })} className={INPUT} />
             </Campo>
@@ -279,18 +291,18 @@ export default function FormularioOC({
       <div className="bg-carbon text-hueso rounded-lg p-5">
         <h2 className="font-medium mb-3 text-gris-calido">Esta Orden</h2>
         <div className="text-sm space-y-1.5">
-          {oc.tipo_pago === 'ANTICIPO' && Number(oc.porcentaje_anticipo) > 0 && (
+          {esAnticipo && Number(oc.porcentaje_anticipo) > 0 && (
             <FilaResumen label="Valor ítems (base del anticipo)" valor={calculo.subtotalItems} sutil />
           )}
           <FilaResumen
-            label={oc.tipo_pago === 'ANTICIPO' && Number(oc.porcentaje_anticipo) > 0 ? `Anticipo (${oc.porcentaje_anticipo}% de los ítems)` : 'Subtotal'}
+            label={esAnticipo && Number(oc.porcentaje_anticipo) > 0 ? `Anticipo (${oc.porcentaje_anticipo}% de los ítems)` : 'Subtotal'}
             valor={calculo.subtotal}
           />
           {Number(oc.descuento) > 0 && <FilaResumen label="- Descuento" valor={oc.descuento} negativo />}
-          {oc.tipo_impuesto === 'CON_IVA' && (
+          {!esAnticipo && oc.tipo_impuesto === 'CON_IVA' && (
             <FilaResumen label={`+ IVA (${oc.porcentaje_iva || 0}%)`} valor={calculo.valor_iva} />
           )}
-          {oc.tipo_impuesto === 'CON_AIU' && (
+          {!esAnticipo && oc.tipo_impuesto === 'CON_AIU' && (
             <>
               <FilaResumen label={`+ AIU (${calculo.porcentaje_aiu}%)`} valor={calculo.valor_aiu} />
               {Number(oc.porcentaje_administracion) > 0 && (
