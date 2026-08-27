@@ -40,11 +40,11 @@ export default function ListadoOrdenesCompra() {
   // importar el filtro de estado elegido): una orden anulada no debe sumar
   // en las cifras del proyecto. Sí respetan la búsqueda por folio/proveedor.
   const paraSumar = filtradas.filter((o) => o.estado !== 'ANULADA');
-  const totalOC = paraSumar.reduce((acc, o) => acc + (Number(o.total) || 0), 0);
-  const totalAnticipos = paraSumar
-    .filter((o) => o.tipo_pago === 'ANTICIPO')
-    .reduce((acc, o) => acc + (Number(o.total) || 0), 0);
-  const totalMenosAnticipos = totalOC - totalAnticipos;
+  const totalNetoAPagar = paraSumar.reduce((acc, o) => acc + (Number(o.neto_a_pagar) || 0), 0);
+  const totalRetenciones = paraSumar.reduce(
+    (acc, o) => acc + ((Number(o.valor_retenido) || 0) - (Number(o.devolucion_retenido) || 0)),
+    0
+  );
 
   return (
     <div>
@@ -115,22 +115,17 @@ export default function ListadoOrdenesCompra() {
             </tbody>
             {filtradas.length > 0 && (
               <tfoot>
-                <tr className="border-t-2 border-carbon/20 bg-gris-calido/20 font-semibold">
-                  <td className="p-3" colSpan={4}>Total Órdenes de Compra</td>
-                  <td className="p-3 text-right">{formatoPesos(totalOC)}</td>
-                  <td className="p-3" colSpan={2}></td>
-                </tr>
-                <tr className="border-t text-neutral-600">
-                  <td className="p-3" colSpan={4}>Total Anticipos</td>
-                  <td className="p-3 text-right">{formatoPesos(totalAnticipos)}</td>
-                  <td className="p-3" colSpan={2}></td>
-                </tr>
-                <tr className="border-t font-semibold">
-                  <td className="p-3" colSpan={4}>Total Órdenes de Compra menos Anticipos</td>
-                  <td className="p-3 text-right">{formatoPesos(totalMenosAnticipos)}</td>
-                  <td className="p-3" colSpan={2}></td>
-                </tr>
-              </tfoot>
+          <tr className="border-t-2 border-carbon/20 bg-gris-calido/20 font-semibold">
+            <td className="p-3" colSpan={4}>Total Neto a Pagar</td>
+            <td className="p-3 text-right">{formatoPesos(totalNetoAPagar)}</td>
+            <td className="p-3" colSpan={2}></td>
+          </tr>
+          <tr className="border-t font-semibold">
+            <td className="p-3" colSpan={4}>Total Retenciones</td>
+            <td className="p-3 text-right">{formatoPesos(totalRetenciones)}</td>
+            <td className="p-3" colSpan={2}></td>
+          </tr>
+        </tfoot>
             )}
           </table>
         </div>
