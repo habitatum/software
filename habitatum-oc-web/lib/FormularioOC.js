@@ -243,7 +243,7 @@ export default function FormularioOC({
           </Campo>
           {esAnticipo && (
             <Campo label="% que representa del contrato">
-              <input type="number" value={oc.porcentaje_anticipo} onChange={(e) => setOc({ ...oc, porcentaje_anticipo: e.target.value })} className={INPUT} />
+              <input type="number" step="0.0001" value={oc.porcentaje_anticipo} onChange={(e) => setOc({ ...oc, porcentaje_anticipo: e.target.value })} className={INPUT} />
             </Campo>
           )}
         </div>
