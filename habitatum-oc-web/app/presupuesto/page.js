@@ -23,7 +23,6 @@ export default function Presupuesto() {
 
   const [cortes, setCortes] = useState([]);
   const [pendiente, setPendiente] = useState(null);
-  const [totalRetenciones, setTotalRetenciones] = useState(0);
   const [cerrando, setCerrando] = useState(false);
   const [exportando, setExportando] = useState(null);
   const [fechaCierre, setFechaCierre] = useState(new Date().toISOString().slice(0, 10));
@@ -66,21 +65,11 @@ export default function Presupuesto() {
       const ultimoCorte = cortesNormalizados[cortesNormalizados.length - 1] || null;
       const pend = await calcularPendientePorCortar(supabase, proyecto.id, ultimoCorte);
       setPendiente(pend);
-
-      const { data: ocsRetencion } = await supabase
-        .from('v_ordenes_compra_calculadas')
-        .select('estado, valor_retenido, devolucion_retenido')
-        .eq('proyecto_id', proyecto.id);
-      const retenciones = (ocsRetencion || [])
-        .filter((o) => o.estado !== 'ANULADA')
-        .reduce((acc, o) => acc + ((Number(o.valor_retenido) || 0) - (Number(o.devolucion_retenido) || 0)), 0);
-      setTotalRetenciones(retenciones);
     } else {
       setCapitulos([]);
       setEjecutados({});
       setCortes([]);
       setPendiente(null);
-      setTotalRetenciones(0);
     }
     setCargandoDatos(false);
   }
@@ -117,7 +106,7 @@ export default function Presupuesto() {
     setError('');
     try {
       const cortesPreparados = prepararCortesParaExportar(cortes, capitulos);
-      await exportarControlPresupuestal({ proyecto, presupuesto, capitulos, cortes: cortesPreparados, hastaNumero, totalRetenciones });
+      await exportarControlPresupuestal({ proyecto, presupuesto, capitulos, cortes: cortesPreparados, hastaNumero });
     } catch (err) {
       setError(err.message || 'No se pudo exportar el control presupuestal.');
     } finally {
@@ -278,8 +267,8 @@ export default function Presupuesto() {
               </div>
               <div>
                 <p className="text-neutral-500 text-xs mb-1">Total Control Presupuestal (para cobro)</p>
-                <p className="text-lg font-semibold text-dorado">{formatoPesos(totalEjecutado + anticiposPendientesHoy - totalRetenciones)}</p>
-                <p className="text-[11px] text-neutral-400 mt-1">Ejecutado por ítems + Anticipos pendientes de amortizar − Retenciones acumuladas.</p>
+                <p className="text-lg font-semibold text-dorado">{formatoPesos(totalEjecutado + anticiposPendientesHoy)}</p>
+                <p className="text-[11px] text-neutral-400 mt-1">Ejecutado por ítems (ya neto de retención) + Anticipos pendientes de amortizar.</p>
               </div>
             </div>
 
