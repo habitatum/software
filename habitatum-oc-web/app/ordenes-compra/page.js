@@ -45,6 +45,9 @@ export default function ListadoOrdenesCompra() {
     (acc, o) => acc + ((Number(o.valor_retenido) || 0) - (Number(o.devolucion_retenido) || 0)),
     0
   );
+  const totalAnticipoPendiente = paraSumar
+    .filter((o) => o.tipo_pago === 'ANTICIPO')
+    .reduce((acc, o) => acc + (Number(o.saldo_anticipo_por_amortizar) || 0), 0);
 
   return (
     <div>
@@ -123,6 +126,11 @@ export default function ListadoOrdenesCompra() {
           <tr className="border-t font-semibold">
             <td className="p-3" colSpan={4}>Total Retenciones</td>
             <td className="p-3 text-right">{formatoPesos(totalRetenciones)}</td>
+            <td className="p-3" colSpan={2}></td>
+          </tr>
+          <tr className="border-t font-semibold">
+            <td className="p-3" colSpan={4}>Total Anticipos pendientes por amortizar</td>
+            <td className="p-3 text-right">{formatoPesos(totalAnticipoPendiente)}</td>
             <td className="p-3" colSpan={2}></td>
           </tr>
         </tfoot>
