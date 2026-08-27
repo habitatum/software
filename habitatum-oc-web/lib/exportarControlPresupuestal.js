@@ -27,7 +27,7 @@ function estilizarCelda(celda, { negrita = false, relleno, colorTexto, alineacio
 // total de cada corte y del acumulado, no solo del presupuesto). Incluye
 // además una hoja de detalle por corte con las Órdenes de Compra que lo
 // componen.
-export async function exportarControlPresupuestal({ proyecto, presupuesto, capitulos, cortes, hastaNumero, totalRetenciones = 0 }) {
+export async function exportarControlPresupuestal({ proyecto, presupuesto, capitulos, cortes, hastaNumero }) {
   const cortesAIncluir = cortes.filter((c) => c.numero <= hastaNumero).sort((a, b) => a.numero - b.numero);
   const numCortes = cortesAIncluir.length;
 
@@ -230,7 +230,7 @@ export async function exportarControlPresupuestal({ proyecto, presupuesto, capit
   // TOTAL para llegar al Total Control Presupuestal real (el que coincide
   // con el efectivo entregado al contratista).
   const anticiposPendientes = Number(cortesAIncluir[cortesAIncluir.length - 1]?.anticipos_pendientes || 0);
-  const totalConAnticipos = valorTotal + anticiposPendientes - totalRetenciones;
+  const totalConAnticipos = valorTotal + anticiposPendientes;
 
   hoja.mergeCells(fila, 1, fila, 5);
   const celdaTextoAnt = hoja.getCell(fila, 1);
