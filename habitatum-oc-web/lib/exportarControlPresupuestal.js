@@ -27,7 +27,12 @@ function estilizarCelda(celda, { negrita = false, relleno, colorTexto, alineacio
 // total de cada corte y del acumulado, no solo del presupuesto). Incluye
 // además una hoja de detalle por corte con las Órdenes de Compra que lo
 // componen.
-export async function exportarControlPresupuestal({ proyecto, presupuesto, capitulos, cortes, hastaNumero }) {
+//
+// esPreview: cuando es true, el último "corte" incluido (numero === hastaNumero)
+// en realidad es un corte virtual (ver construirCorteVirtual en calcularCorte.js)
+// que todavía no se ha cerrado en la base de datos — solo cambia las
+// etiquetas del Excel para dejarlo claro (no afecta los cálculos).
+export async function exportarControlPresupuestal({ proyecto, presupuesto, capitulos, cortes, hastaNumero, esPreview = false }) {
   const cortesAIncluir = cortes.filter((c) => c.numero <= hastaNumero).sort((a, b) => a.numero - b.numero);
   const numCortes = cortesAIncluir.length;
 
@@ -74,7 +79,9 @@ export async function exportarControlPresupuestal({ proyecto, presupuesto, capit
   hoja.mergeCells(2, 1, 2, totalColumnas);
   const subtituloCelda = hoja.getCell(2, 1);
   const fechaCorteFinal = cortesAIncluir[cortesAIncluir.length - 1]?.fecha_hasta;
-  subtituloCelda.value = `Corte ${hastaNumero} — al ${fechaCorteFinal || ''}`;
+  subtituloCelda.value = esPreview
+    ? `Vista previa al ${fechaCorteFinal || ''} — corte aún sin cerrar`
+    : `Corte ${hastaNumero} — al ${fechaCorteFinal || ''}`;
   subtituloCelda.font = { italic: true, size: 10, color: { argb: CARBON } };
   subtituloCelda.alignment = { horizontal: 'center' };
 
@@ -92,7 +99,7 @@ export async function exportarControlPresupuestal({ proyecto, presupuesto, capit
     const inicio = colBloqueCorte(j);
     hoja.mergeCells(filaGrupo, inicio, filaGrupo, inicio + 2);
     const celdaGrupo = hoja.getCell(filaGrupo, inicio);
-    celdaGrupo.value = `CONTROL PRESUPUESTAL ${c.numero}`;
+    celdaGrupo.value = esPreview && c.numero === hastaNumero ? 'A HOY (SIN CERRAR)' : `CONTROL PRESUPUESTAL ${c.numero}`;
     estilizarCelda(celdaGrupo, { negrita: true, relleno: CARBON, colorTexto: HUESO, numero: false, alineacion: 'center' });
     ['CANTIDAD', 'VR UNITARIO', 'VR PARCIAL'].forEach((titulo, k) => {
       const celda = hoja.getCell(filaSub, inicio + k);
@@ -126,7 +133,7 @@ export async function exportarControlPresupuestal({ proyecto, presupuesto, capit
 
     hoja.mergeCells(fila, 1, fila, 2);
     const celdaCap = hoja.getCell(fila, 1);
-    celdaCap.value = `${cap.codigo}  ${cap.nombre}`;
+    celdaCap.value = `${cap.codigo} ${cap.nombre}`;
     estilizarCelda(celdaCap, { negrita: true, relleno: GRIS_CALIDO, colorTexto: CARBON, numero: false, alineacion: 'left' });
     [3, 4, 5, 6].forEach((c) => estilizarCelda(hoja.getCell(fila, c), { negrita: true, relleno: GRIS_CALIDO, colorTexto: CARBON, numero: false }));
     hoja.getCell(fila, 6).value = Number(cap.valor_presupuestado || 0);
@@ -266,7 +273,8 @@ export async function exportarControlPresupuestal({ proyecto, presupuesto, capit
 
   // ---------- Hojas de detalle por corte (equivalente a EXT. N) ----------
   cortesAIncluir.forEach((c) => {
-    const hojaDet = workbook.addWorksheet(`Corte ${c.numero} - Detalle`.slice(0, 31));
+    const nombreHoja = esPreview && c.numero === hastaNumero ? 'A hoy - Detalle' : `Corte ${c.numero} - Detalle`;
+    const hojaDet = workbook.addWorksheet(nombreHoja.slice(0, 31));
     hojaDet.columns = [
       { header: 'Folio OC', key: 'folio', width: 16 },
       { header: 'Fecha', key: 'fecha', width: 12 },
@@ -302,7 +310,7 @@ export async function exportarControlPresupuestal({ proyecto, presupuesto, capit
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
   a.href = url;
-  a.download = `Control Presupuestal - ${proyecto?.nombre || 'Proyecto'} - Corte ${hastaNumero}.xlsx`;
+  a.download = `Control Presupuestal - ${proyecto?.nombre || 'Proyecto'} - ${esPreview ? 'Vista previa' : `Corte ${hastaNumero}`}.xlsx`;
   document.body.appendChild(a);
   a.click();
   a.remove();
