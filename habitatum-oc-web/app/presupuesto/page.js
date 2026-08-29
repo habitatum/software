@@ -5,7 +5,7 @@ import { useProyectoActual } from '@/lib/useProyectoActual';
 import { crearClienteSupabase } from '@/lib/supabaseClient';
 import { formatoPesos } from '@/lib/calculosOC';
 import { parsearPresupuesto } from '@/lib/parsePresupuesto';
-import { calcularPendientePorCortar, cerrarCorte, mapaItemsPresupuesto } from '@/lib/calcularCorte';
+import { calcularPendientePorCortar, cerrarCorte, mapaItemsPresupuesto, construirCorteVirtual } from '@/lib/calcularCorte';
 import { exportarControlPresupuestal, prepararCortesParaExportar } from '@/lib/exportarControlPresupuestal';
 import NavBar from '@/components/NavBar';
 
@@ -26,6 +26,12 @@ export default function Presupuesto() {
   const [cerrando, setCerrando] = useState(false);
   const [exportando, setExportando] = useState(null);
   const [fechaCierre, setFechaCierre] = useState(new Date().toISOString().slice(0, 10));
+
+  // Modal de "inspeccionar ítem": qué costos de Órdenes de Compra están
+  // cargados en un ítem del presupuesto.
+  const [modalItem, setModalItem] = useState(null);
+  const [detalleItem, setDetalleItem] = useState(null);
+  const [cargandoDetalle, setCargandoDetalle] = useState(false);
 
   async function cargar() {
     setCargandoDatos(true);
@@ -77,7 +83,7 @@ export default function Presupuesto() {
   useEffect(() => { if (usuario && proyecto) cargar(); }, [usuario, proyecto]); // eslint-disable-line
 
   async function confirmarCierreCorte() {
-    if (!window.confirm(`¿Cerrar el Corte ${cortes.length + 1} con fecha de corte ${fechaCierre}? Una vez cerrado no se puede modificar.`)) return;
+    if (!window.confirm(`¿Cerrar el Corte ${cortes.length + 1} con fecha de corte ${fechaCierre}? Una ver cerrado no se puede modificar.`)) return;
     setCerrando(true);
     setError('');
     try {
@@ -114,8 +120,64 @@ export default function Presupuesto() {
     }
   }
 
+  // Descarga el Excel de Control Presupuestal con exactamente el mismo
+  // formato de un corte, pero usando lo ejecutado "a hoy" (lo mismo que se
+  // muestra en el bloque "Ejecutado sin cortar...") sin cerrar/congelar
+  // ningún corte nuevo en la base de datos.
+  async function exportarSinCorte() {
+    setExportando('preview');
+    setError('');
+    try {
+      const numeroVirtual = cortes.length + 1;
+      const corteVirtual = construirCorteVirtual(pendiente, mapaItemsPresupuesto(capitulos), numeroVirtual);
+      const cortesPreparados = prepararCortesParaExportar([...cortes, corteVirtual], capitulos);
+      await exportarControlPresupuestal({
+        proyecto,
+        presupuesto,
+        capitulos,
+        cortes: cortesPreparados,
+        hastaNumero: numeroVirtual,
+        esPreview: true,
+      });
+    } catch (err) {
+      setError(err.message || 'No se pudo exportar la vista previa del control presupuestal.');
+    } finally {
+      setExportando(null);
+    }
+  }
+
   function toggleCapitulo(id) {
     setExpandidos((prev) => ({ ...prev, [id]: !prev[id] }));
+  }
+
+  // Trae, para un ítem puntual del presupuesto, el detalle de qué líneas de
+  // qué Órdenes de Compra están cargadas contra él (para el botón "Ver").
+  async function inspeccionarItem(it) {
+    setModalItem(it);
+    setDetalleItem(null);
+    setCargandoDetalle(true);
+    try {
+      const supabase = crearClienteSupabase();
+      const { data, error: errDetalle } = await supabase
+        .from('items_oc')
+        .select('id, descripcion, cantidad, valor_unitario, orden_compra_id, ordenes_compra(folio, fecha, estado, proveedores(nombre))')
+        .eq('presupuesto_item_id', it.id)
+        .order('id');
+      if (errDetalle) throw errDetalle;
+      const filas = (data || []).filter((d) => d.ordenes_compra?.estado !== 'ANULADA');
+      filas.sort((a, b) => (a.ordenes_compra?.fecha || '').localeCompare(b.ordenes_compra?.fecha || ''));
+      setDetalleItem(filas);
+    } catch (err) {
+      setError(err.message || 'No se pudo cargar el detalle del ítem.');
+      setModalItem(null);
+    } finally {
+      setCargandoDetalle(false);
+    }
+  }
+
+  function cerrarModalItem() {
+    setModalItem(null);
+    setDetalleItem(null);
   }
 
   async function subirArchivo(e) {
@@ -333,7 +395,14 @@ export default function Presupuesto() {
                     <p className="text-neutral-500 mt-2">Anticipos pendientes de amortizar (a hoy):</p>
                     <p className="font-semibold text-base">{formatoPesos(pendiente.anticiposPendientes)}</p>
                   </div>
-                  <div className="flex items-center gap-2">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <button
+                      onClick={exportarSinCorte}
+                      disabled={exportando !== null}
+                      className="text-sm border rounded px-3 py-1.5 hover:bg-gris-calido/20 disabled:opacity-50"
+                    >
+                      {exportando === 'preview' ? 'Exportando...' : 'Descargar Control Pptal sin hacer corte'}
+                    </button>
                     <label className="text-xs text-neutral-500">Fecha de cierre</label>
                     <input type="date" value={fechaCierre} onChange={(e) => setFechaCierre(e.target.value)} className="border rounded px-2 py-1 text-sm" />
                     <button
@@ -359,6 +428,7 @@ export default function Presupuesto() {
                     <th className="p-3 text-right">Saldo</th>
                     <th className="p-3 text-right w-20">% Usado</th>
                     <th className="p-3 w-32">Estado</th>
+                    <th className="p-3 w-16"></th>
                   </tr>
                 </thead>
                 <tbody>
@@ -379,6 +449,7 @@ export default function Presupuesto() {
                           <td className="p-3 text-right">{formatoPesos(saldoCap)}</td>
                           <td className="p-3 text-right">{pctCap.toFixed(0)}%</td>
                           <td className="p-3"><Estado estado={estado} /></td>
+                          <td className="p-3"></td>
                         </tr>
                         {abierto && cap.presupuesto_items.map((it) => {
                           const ej = ejecutados[it.id] || 0;
@@ -392,6 +463,15 @@ export default function Presupuesto() {
                               <td className="p-3 text-right">{formatoPesos(pres - ej)}</td>
                               <td className="p-3 text-right">{pres > 0 ? ((ej / pres) * 100).toFixed(0) : 0}%</td>
                               <td className="p-3"></td>
+                              <td className="p-3 text-right">
+                                <button
+                                  onClick={() => inspeccionarItem(it)}
+                                  className="text-xs border rounded px-2 py-1 hover:bg-gris-calido/20"
+                                  title="Ver costos de Órdenes de Compra cargados en este ítem"
+                                >
+                                  🔍 Ver
+                                </button>
+                              </td>
                             </tr>
                           );
                         })}
@@ -404,6 +484,62 @@ export default function Presupuesto() {
           </>
         )}
       </main>
+
+      {modalItem && (
+        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4" onClick={cerrarModalItem}>
+          <div className="bg-white rounded-lg shadow-lg max-w-3xl w-full max-h-[80vh] overflow-auto" onClick={(e) => e.stopPropagation()}>
+            <div className="bg-carbon text-hueso px-5 py-3 flex items-center justify-between rounded-t-lg sticky top-0">
+              <div>
+                <p className="font-semibold">{modalItem.codigo} — {modalItem.descripcion}</p>
+                <p className="text-xs text-gris-calido">Costos de Órdenes de Compra cargados en este ítem</p>
+              </div>
+              <button onClick={cerrarModalItem} className="text-hueso hover:text-dorado text-lg leading-none px-2">✕</button>
+            </div>
+            <div className="p-5">
+              {cargandoDetalle ? (
+                <p className="text-sm text-neutral-500">Cargando...</p>
+              ) : !detalleItem || detalleItem.length === 0 ? (
+                <p className="text-sm text-neutral-500">Todavía no hay ningún costo de Orden de Compra cargado en este ítem.</p>
+              ) : (
+                <>
+                  <table className="w-full text-sm">
+                    <thead className="text-left text-neutral-500 border-b">
+                      <tr>
+                        <th className="py-2 pr-2">Folio OC</th>
+                        <th className="py-2 pr-2">Proveedor</th>
+                        <th className="py-2 pr-2">Fecha</th>
+                        <th className="py-2 pr-2">Descripción</th>
+                        <th className="py-2 pr-2 text-right">Cantidad</th>
+                        <th className="py-2 pr-2 text-right">Vr Unitario</th>
+                        <th className="py-2 text-right">Subtotal</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {detalleItem.map((d) => (
+                        <tr key={d.id} className="border-b last:border-0">
+                          <td className="py-2 pr-2 font-medium">{d.ordenes_compra?.folio}</td>
+                          <td className="py-2 pr-2">{d.ordenes_compra?.proveedores?.nombre || '—'}</td>
+                          <td className="py-2 pr-2 text-neutral-500">{d.ordenes_compra?.fecha}</td>
+                          <td className="py-2 pr-2">{d.descripcion}</td>
+                          <td className="py-2 pr-2 text-right">{d.cantidad}</td>
+                          <td className="py-2 pr-2 text-right">{formatoPesos(d.valor_unitario)}</td>
+                          <td className="py-2 text-right">{formatoPesos(Number(d.cantidad || 0) * Number(d.valor_unitario || 0))}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                  <p className="text-xs text-neutral-400 mt-3">
+                    Subtotal antes de prorratear IVA/AIU/Descuento/Retención de cada orden. El valor &quot;Ejecutado&quot; del ítem puede diferir levemente porque incluye esa parte proporcional.
+                  </p>
+                  <p className="text-right font-semibold mt-2">
+                    Total: {formatoPesos(detalleItem.reduce((acc, d) => acc + Number(d.cantidad || 0) * Number(d.valor_unitario || 0), 0))}
+                  </p>
+                </>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
