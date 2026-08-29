@@ -78,14 +78,14 @@ export default function FormularioOC({
         <div className="overflow-x-auto rounded-md border border-neutral-200">
           <table className="w-full min-w-[980px] text-sm border-collapse table-fixed">
             <colgroup>
-              <col style={{ width: '22%' }} />
-              <col style={{ width: '10%' }} />
-              <col style={{ width: '7%' }} />
-              <col style={{ width: '16%' }} />
-              <col style={{ width: '12%' }} />
+              <col style={{ width: '28.6%' }} />
+              <col style={{ width: '13%' }} />
               <col style={{ width: '6%' }} />
-              <col style={{ width: '23%' }} />
-              <col style={{ width: '4%' }} />
+              <col style={{ width: '13.7%' }} />
+              <col style={{ width: '10.3%' }} />
+              <col style={{ width: '5.2%' }} />
+              <col style={{ width: '19.8%' }} />
+              <col style={{ width: '3.4%' }} />
             </colgroup>
             <thead>
               <tr className="text-left text-xs text-neutral-500 bg-gris-calido/30">
@@ -254,9 +254,39 @@ export default function FormularioOC({
                 <option value="">— Ninguna —</option>
                 {anticipos.map((a) => <option key={a.id} value={a.id}>{a.folio}</option>)}
               </select>
+              {oc.referencia_anticipo_id && (() => {
+                const anticipoRef = anticipos.find((a) => String(a.id) === String(oc.referencia_anticipo_id));
+                return anticipoRef ? (
+                  <p className="text-xs text-neutral-500 mt-1">
+                    Saldo pendiente por amortizar de {anticipoRef.folio}: {formatoPesos(Number(anticipoRef.saldo_anticipo_por_amortizar) || 0)}
+                  </p>
+                ) : null;
+              })()}
             </Campo>
-            <Campo label="% Amortización">
-              <input type="number" value={oc.porcentaje_amortizacion} onChange={(e) => setOc({ ...oc, porcentaje_amortizacion: e.target.value })} className={INPUT} />
+            <Campo label="Amortización de este anticipo">
+              <div className="flex gap-4 mb-1.5 text-xs text-neutral-600">
+                <label className="flex items-center gap-1 cursor-pointer">
+                  <input
+                    type="radio"
+                    checked={oc.tipo_amortizacion !== 'VALOR_FIJO'}
+                    onChange={() => setOc({ ...oc, tipo_amortizacion: 'PORCENTAJE' })}
+                  />
+                  % del total
+                </label>
+                <label className="flex items-center gap-1 cursor-pointer">
+                  <input
+                    type="radio"
+                    checked={oc.tipo_amortizacion === 'VALOR_FIJO'}
+                    onChange={() => setOc({ ...oc, tipo_amortizacion: 'VALOR_FIJO' })}
+                  />
+                  Monto fijo
+                </label>
+              </div>
+              {oc.tipo_amortizacion === 'VALOR_FIJO' ? (
+                <input type="number" value={oc.valor_amortizacion_manual} onChange={(e) => setOc({ ...oc, valor_amortizacion_manual: e.target.value })} className={INPUT} />
+              ) : (
+                <input type="number" step="0.0001" value={oc.porcentaje_amortizacion} onChange={(e) => setOc({ ...oc, porcentaje_amortizacion: e.target.value })} className={INPUT} />
+              )}
             </Campo>
           </div>
         )}
