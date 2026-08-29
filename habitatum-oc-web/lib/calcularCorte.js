@@ -201,3 +201,46 @@ export async function cerrarCorte(supabase, { presupuestoId, proyectoId, numero,
 
   return { ...corte, items: filasCorteItems, ocs: filasCorteOCs };
 }
+
+// Construye el mismo "shape" que produce cerrarCorte (items + ocs), pero a
+// partir de datos ya calculados en memoria (el resultado de
+// calcularPendientePorCortar) y SIN escribir nada en la base de datos. Sirve
+// para poder exportar el Control Presupuestal "a hoy" — con el mismo formato
+// del Excel de un corte — sin necesidad de cerrar oficialmente el corte.
+export function construirCorteVirtual(pendiente, mapaItems, numero) {
+  const ocPorId = {};
+  (pendiente.ocs || []).forEach((o) => { ocPorId[o.id] = o; });
+
+  const items = Object.entries(pendiente.porItem || {}).map(([presupuesto_item_id, v]) => ({
+    presupuesto_item_id,
+    cantidad_ejecutada: v.cantidad,
+    valor_ejecutado: v.valor,
+  }));
+
+  const ocs = (pendiente.items || []).map((it) => {
+    const oc = ocPorId[it.orden_compra_id];
+    const infoItem = mapaItems[it.presupuesto_item_id] || {};
+    return {
+      orden_compra_id: it.orden_compra_id,
+      folio: oc?.folio || null,
+      fecha: oc?.fecha || null,
+      proveedor: oc?.proveedores?.nombre || null,
+      capitulo_codigo: infoItem.capituloCodigo || null,
+      item_codigo: infoItem.codigo || null,
+      item_descripcion: infoItem.descripcion || null,
+      descripcion: it.descripcion,
+      cantidad: Number(it.cantidad || 0),
+      valor_unitario: Number(it.valor_unitario || 0),
+      valor: valorEjecutadoItem(it, oc),
+    };
+  });
+
+  return {
+    numero,
+    fecha_desde: pendiente.fechaDesde,
+    fecha_hasta: pendiente.fechaHasta,
+    anticipos_pendientes: pendiente.anticiposPendientes,
+    items,
+    ocs,
+  };
+}
