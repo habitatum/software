@@ -39,6 +39,7 @@ export default function NuevaOrdenCompra() {
   const [anticipos, setAnticipos] = useState([]);
   const [usuarios, setUsuarios] = useState([]);
   const [presupuestoCapitulos, setPresupuestoCapitulos] = useState([]);
+  const [ejecutadosPresupuesto, setEjecutadosPresupuesto] = useState({});
   const [guardando, setGuardando] = useState(false);
   const [error, setError] = useState('');
 
@@ -67,10 +68,14 @@ export default function NuevaOrdenCompra() {
       if (pres) {
         const { data: caps } = await supabase
           .from('presupuesto_capitulos')
-          .select('id, codigo, nombre, presupuesto_items(id, codigo, descripcion)')
+          .select('id, codigo, nombre, presupuesto_items(id, codigo, descripcion, valor_parcial)')
           .eq('presupuesto_id', pres.id)
           .order('orden');
         setPresupuestoCapitulos(caps || []);
+        const { data: ejec } = await supabase.from('v_presupuesto_ejecutado').select('*');
+        const mapaEjec = {};
+        (ejec || []).forEach((e) => { mapaEjec[e.presupuesto_item_id] = Number(e.ejecutado) || 0; });
+        setEjecutadosPresupuesto(mapaEjec);
       }
     }
     cargarCatalogos();
@@ -120,19 +125,51 @@ export default function NuevaOrdenCompra() {
 
     if (errOC) { setError(errOC.message); setGuardando(false); return; }
 
-    const filasItems = items
-      .filter((it) => it.descripcion)
-      .map((it, idx) => ({
-        ...it,
+    // Cada ítem puede estar imputado a varios ítems del presupuesto (por
+    // porcentaje); "asignaciones" no es una columna de items_oc, así que se
+    // excluye del insert y se guarda aparte en items_oc_presupuesto.
+    const itemsConDescripcion = items.filter((it) => it.descripcion);
+    for (const it of itemsConDescripcion) {
+      const suma = (it.asignaciones || []).reduce((acc, a) => acc + Number(a.porcentaje || 0), 0);
+      if ((it.asignaciones || []).length > 1 && Math.abs(suma - 100) > 0.01) {
+        setError(`El ítem "${it.descripcion}" tiene una imputación al presupuesto que no suma 100% (suma actual: ${suma.toFixed(1)}%).`);
+        setGuardando(false);
+        return;
+      }
+    }
+
+    const filasItems = itemsConDescripcion.map((it, idx) => {
+      const { asignaciones, ...resto } = it;
+      return {
+        ...resto,
         cantidad: numeroSeguro(it.cantidad),
         valor_unitario: numeroSeguro(it.valor_unitario),
         sin_iva: !!it.sin_iva,
         orden: idx,
         orden_compra_id: nuevaOC.id,
-      }));
+      };
+    });
 
-    const { error: errItems } = await supabase.from('items_oc').insert(filasItems);
+    const { data: itemsInsertados, error: errItems } = await supabase.from('items_oc').insert(filasItems).select('id');
     if (errItems) { setError(errItems.message); setGuardando(false); return; }
+
+    const filasAsignaciones = [];
+    itemsConDescripcion.forEach((it, idx) => {
+      const itemOcId = itemsInsertados?.[idx]?.id;
+      if (!itemOcId) return;
+      (it.asignaciones || []).forEach((a) => {
+        if (!a.presupuesto_item_id) return;
+        filasAsignaciones.push({
+          item_oc_id: itemOcId,
+          presupuesto_item_id: a.presupuesto_item_id,
+          porcentaje: numeroSeguro(a.porcentaje) || 100,
+        });
+      });
+    });
+    if (filasAsignaciones.length > 0) {
+      const { error: errAsig } = await supabase.from('items_oc_presupuesto').insert(filasAsignaciones);
+      if (errAsig) { setError(errAsig.message); setGuardando(false); return; }
+    }
 
     router.push(`/ordenes-compra/${nuevaOC.id}`);
   }
@@ -151,6 +188,7 @@ export default function NuevaOrdenCompra() {
           items={items} setItems={setItems}
           proveedores={proveedores} contratos={contratos} anticipos={anticipos} usuarios={usuarios}
           presupuestoCapitulos={presupuestoCapitulos}
+          ejecutadosPresupuesto={ejecutadosPresupuesto}
           calculo={calculo}
           referenciaAnticipoOriginalId=""
           valorAmortizacionGuardada={0}
