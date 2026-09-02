@@ -233,11 +233,20 @@ export async function exportarControlPresupuestal({ proyecto, presupuesto, capit
   // ---------- Anticipos pendientes de amortizar ----------
   // No se vinculan a un ítem del presupuesto, así que no tienen "flujo por
   // corte": es un saldo acumulado (Total del anticipo - lo ya amortizado)
-  // congelado a la fecha del último corte incluido. Se suma aparte al VALOR
-  // TOTAL para llegar al Total Control Presupuestal real (el que coincide
-  // con el efectivo entregado al contratista).
+  // congelado a la fecha del último corte incluido. Se suma aparte al TOTAL
+  // EJECUTADO (no al presupuesto contratado) para llegar al Total Control
+  // Presupuestal real (el que coincide con el efectivo entregado al
+  // contratista, y también la base correcta para cobrar la Administración).
   const anticiposPendientes = Number(cortesAIncluir[cortesAIncluir.length - 1]?.anticipos_pendientes || 0);
-  const totalConAnticipos = valorTotal + anticiposPendientes;
+  // OJO: antes esto se calculaba como `valorTotal + anticiposPendientes`,
+  // donde valorTotal es el PRESUPUESTO CONTRATADO completo (suma de
+  // valor_presupuestado de todos los capítulos). Eso sobrestima el total
+  // para cobro mientras la obra no esté 100% ejecutada. El total correcto
+  // es lo YA EJECUTADO a la fecha (sumaDirectoAcum + sumaIndirectoAcum) más
+  // los anticipos pendientes de amortizar — el mismo criterio que ya usa
+  // la pantalla de Presupuesto en la app.
+  const totalEjecutadoAcum = sumaDirectoAcum + sumaIndirectoAcum;
+  const totalConAnticipos = totalEjecutadoAcum + anticiposPendientes;
 
   hoja.mergeCells(fila, 1, fila, 5);
   const celdaTextoAnt = hoja.getCell(fila, 1);
@@ -268,6 +277,31 @@ export async function exportarControlPresupuestal({ proyecto, presupuesto, capit
   celdaTotalConAnt.value = totalConAnticipos;
   estilizarCelda(celdaTotalConAnt, { negrita: true, relleno: DORADO, colorTexto: HUESO });
   fila += 1;
+
+  // ---------- Administración (solo si el proyecto tiene % configurado) ----------
+  // Base = Total Control Presupuestal (para cobro), es decir lo ya
+  // ejecutado + anticipos pendientes de amortizar (neto, no doble-cuenta
+  // cuando después se amortice). Así la Administración cobrada crece con
+  // el avance real de la obra y con los anticipos entregados.
+  const pctAdmin = Number(proyecto?.porcentaje_administracion || 0);
+  if (pctAdmin > 0) {
+    const valorAdministracion = totalConAnticipos * (pctAdmin / 100);
+
+    hoja.mergeCells(fila, 1, fila, 5);
+    const celdaTextoAdmin = hoja.getCell(fila, 1);
+    celdaTextoAdmin.value = `ADMINISTRACIÓN (${pctAdmin}%) =`;
+    estilizarCelda(celdaTextoAdmin, { negrita: true, relleno: CARBON, colorTexto: HUESO, numero: false, alineacion: 'right' });
+    [2, 3, 4, 5, 6].forEach((c) => estilizarCelda(hoja.getCell(fila, c), { negrita: true, relleno: CARBON, colorTexto: HUESO, numero: false }));
+    cortesAIncluir.forEach((c, j) => {
+      const col = colBloqueCorte(j);
+      [col, col + 1, col + 2].forEach((cc) => estilizarCelda(hoja.getCell(fila, cc), { negrita: true, relleno: CARBON, colorTexto: HUESO, numero: false }));
+    });
+    [colVrParcialTotalAcum - 2, colVrParcialTotalAcum - 1].forEach((cc) => estilizarCelda(hoja.getCell(fila, cc), { negrita: true, relleno: CARBON, colorTexto: HUESO, numero: false }));
+    const celdaAdmin = hoja.getCell(fila, colVrParcialTotalAcum);
+    celdaAdmin.value = valorAdministracion;
+    estilizarCelda(celdaAdmin, { negrita: true, relleno: CARBON, colorTexto: HUESO });
+    fila += 1;
+  }
 
   hoja.views = [{ state: 'frozen', xSplit: 2, ySplit: filaSub }];
 
