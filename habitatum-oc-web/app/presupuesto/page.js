@@ -265,6 +265,16 @@ export default function Presupuesto() {
   const totalPresupuestado = capitulos.reduce((acc, c) => acc + Number(c.valor_presupuestado || 0), 0);
   const totalEjecutado = capitulos.reduce((acc, c) => acc + sumaEjecutadoCapitulo(c, ejecutados), 0);
   const anticiposPendientesHoy = pendiente?.anticiposPendientes || 0;
+  const totalControlPresupuestal = totalEjecutado + anticiposPendientesHoy;
+  // % de administración: campo independiente y editable por proyecto
+  // (Proyectos > Editar), NO derivado de ningún ítem del presupuesto
+  // cargado. Se aplica sobre el Total Control Presupuestal (ejecutado +
+  // anticipos pendientes de amortizar), el mismo total "para cobro" de
+  // arriba, para que la Administración cobrada crezca con el avance real
+  // de la obra y con los anticipos entregados, sin doble-contar cuando
+  // luego se amorticen.
+  const pctAdmin = Number(proyecto?.porcentaje_administracion || 0);
+  const valorAdministracion = totalControlPresupuestal * (pctAdmin / 100);
 
   // Fila por corte con el acumulado corrido de ítems ejecutados (no solo lo
   // de ese periodo) + el saldo de anticipos pendientes congelado a esa
@@ -319,7 +329,7 @@ export default function Presupuesto() {
               <FilaResumenGrande label="Saldo" valor={totalPresupuestado - totalEjecutado} />
             </div>
 
-            <div className="bg-white rounded-lg shadow-sm border p-5 grid grid-cols-2 gap-4 text-sm">
+            <div className={`bg-white rounded-lg shadow-sm border p-5 grid grid-cols-2 ${pctAdmin > 0 ? 'md:grid-cols-3' : ''} gap-4 text-sm`}>
               <div>
                 <p className="text-neutral-500 text-xs mb-1">Anticipos pendientes de amortizar (a hoy)</p>
                 <p className="text-lg font-semibold">{formatoPesos(anticiposPendientesHoy)}</p>
@@ -329,9 +339,18 @@ export default function Presupuesto() {
               </div>
               <div>
                 <p className="text-neutral-500 text-xs mb-1">Total Control Presupuestal (para cobro)</p>
-                <p className="text-lg font-semibold text-dorado">{formatoPesos(totalEjecutado + anticiposPendientesHoy)}</p>
+                <p className="text-lg font-semibold text-dorado">{formatoPesos(totalControlPresupuestal)}</p>
                 <p className="text-[11px] text-neutral-400 mt-1">Ejecutado por ítems (ya neto de retención) + Anticipos pendientes de amortizar.</p>
               </div>
+              {pctAdmin > 0 && (
+                <div>
+                  <p className="text-neutral-500 text-xs mb-1">Administración ({pctAdmin}%)</p>
+                  <p className="text-lg font-semibold text-carbon">{formatoPesos(valorAdministracion)}</p>
+                  <p className="text-[11px] text-neutral-400 mt-1">
+                    % configurado en Proyectos &gt; Editar, calculado sobre el Total Control Presupuestal (ejecutado + anticipos pendientes).
+                  </p>
+                </div>
+              )}
             </div>
 
             <div className="bg-white rounded-lg shadow-sm border p-5 space-y-4">
