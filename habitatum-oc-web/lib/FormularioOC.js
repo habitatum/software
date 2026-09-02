@@ -1,4 +1,5 @@
 'use client';
+import { useState } from 'react';
 import { formatoPesos } from '@/lib/calculosOC';
 
 // Antes esto vivía como .input dentro de <style jsx global> con @apply, pero
@@ -15,16 +16,18 @@ export default function FormularioOC({
   oc, setOc, items, setItems,
   proveedores, contratos, anticipos, usuarios,
   presupuestoCapitulos = [],
+  ejecutadosPresupuesto = {},
   calculo,
   onSubmit, guardando, error, tituloBoton,
 }) {
   const esAnticipo = oc.tipo_pago === 'ANTICIPO';
+  const [modalImputacionIndex, setModalImputacionIndex] = useState(null);
 
   function actualizarItem(i, campo, valor) {
     setItems((prev) => prev.map((it, idx) => (idx === i ? { ...it, [campo]: valor } : it)));
   }
   function agregarItem() {
-    setItems((prev) => [...prev, { descripcion: '', unidad: '', cantidad: 1, valor_unitario: 0 }]);
+    setItems((prev) => [...prev, { descripcion: '', unidad: '', cantidad: 1, valor_unitario: 0, asignaciones: [] }]);
   }
   function quitarItem(i) {
     setItems((prev) => prev.filter((_, idx) => idx !== i));
@@ -138,18 +141,10 @@ export default function FormularioOC({
                       {porcentaje.toFixed(1)}%
                     </td>
                     <td className="py-2 px-3">
-                      <select value={it.presupuesto_item_id || ''}
-                        onChange={(e) => actualizarItem(i, 'presupuesto_item_id', e.target.value || null)}
-                        className={INPUT}>
-                        <option value="">— Sin vincular —</option>
-                        {presupuestoCapitulos.map((cap) => (
-                          <optgroup key={cap.id} label={`${cap.codigo} · ${cap.nombre}`}>
-                            {(cap.presupuesto_items || []).map((pi) => (
-                              <option key={pi.id} value={pi.id}>{pi.codigo} · {pi.descripcion}</option>
-                            ))}
-                          </optgroup>
-                        ))}
-                      </select>
+                      <button type="button" onClick={() => setModalImputacionIndex(i)}
+                        className="text-xs border rounded px-2 py-1.5 w-full text-left hover:bg-gris-calido/20 truncate">
+                        {resumenImputacion(it.asignaciones)}
+                      </button>
                     </td>
                     <td className="py-2 px-2 text-center">
                       <button type="button" onClick={() => quitarItem(i)}
@@ -368,7 +363,131 @@ export default function FormularioOC({
       <button type="submit" disabled={guardando} className="bg-carbon text-hueso px-6 py-3 rounded font-medium disabled:opacity-50">
         {guardando ? 'Guardando...' : tituloBoton}
       </button>
+      {modalImputacionIndex !== null && items[modalImputacionIndex] && (
+        <ModalImputacion
+          item={items[modalImputacionIndex]}
+          presupuestoCapitulos={presupuestoCapitulos}
+          ejecutadosPresupuesto={ejecutadosPresupuesto}
+          onChange={(nuevas) => actualizarItem(modalImputacionIndex, 'asignaciones', nuevas)}
+          onClose={() => setModalImputacionIndex(null)}
+        />
+      )}
     </form>
+  );
+}
+
+function resumenImputacion(asignaciones) {
+  const validas = (asignaciones || []).filter((a) => a.presupuesto_item_id);
+  if (validas.length === 0) return '— Sin vincular —';
+  if (validas.length === 1) return '1 ítem · 100%';
+  return `${validas.length} ítems del presupuesto`;
+}
+
+function ModalImputacion({ item, presupuestoCapitulos, ejecutadosPresupuesto, onChange, onClose }) {
+  const asignaciones = item.asignaciones || [];
+  const valorItem = Number(item.cantidad || 0) * Number(item.valor_unitario || 0);
+  const sumaPct = asignaciones.reduce((acc, a) => acc + Number(a.porcentaje || 0), 0);
+  const necesitaPct = asignaciones.length > 1;
+  const sumaOk = asignaciones.length === 0 || (necesitaPct ? Math.abs(sumaPct - 100) < 0.01 : true);
+
+  const mapaItems = {};
+  presupuestoCapitulos.forEach((cap) => {
+    (cap.presupuesto_items || []).forEach((pi) => { mapaItems[pi.id] = { ...pi, capituloCodigo: cap.codigo }; });
+  });
+
+  function actualizarFila(j, campo, valor) {
+    const nuevas = asignaciones.map((a, idx) => (idx === j ? { ...a, [campo]: valor } : a));
+    onChange(nuevas);
+  }
+  function agregarFila() {
+    let nuevas;
+    if (asignaciones.length === 0) {
+      nuevas = [{ presupuesto_item_id: '', porcentaje: 100 }];
+    } else if (asignaciones.length === 1) {
+      // Al pasar de 1 a 2 ítems, reparte 50/50 para que la suma siga en 100%.
+      nuevas = [
+        { ...asignaciones[0], porcentaje: 50 },
+        { presupuesto_item_id: '', porcentaje: 50 },
+      ];
+    } else {
+      nuevas = [...asignaciones, { presupuesto_item_id: '', porcentaje: 0 }];
+    }
+    onChange(nuevas);
+  }
+  function quitarFila(j) {
+    const nuevas = asignaciones.filter((_, idx) => idx !== j);
+    // Si queda una sola fila, se asume 100% automáticamente.
+    onChange(nuevas.length === 1 ? [{ ...nuevas[0], porcentaje: 100 }] : nuevas);
+  }
+
+  return (
+    <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4" onClick={onClose}>
+      <div className="bg-white rounded-lg shadow-lg max-w-2xl w-full max-h-[80vh] overflow-auto" onClick={(e) => e.stopPropagation()}>
+        <div className="bg-carbon text-hueso px-5 py-3 flex items-center justify-between rounded-t-lg sticky top-0">
+          <div>
+            <p className="font-semibold">Imputar al presupuesto</p>
+            <p className="text-xs text-gris-calido">{item.descripcion || '(sin descripción)'} — {formatoPesos(valorItem)}</p>
+          </div>
+          <button type="button" onClick={onClose} className="text-hueso hover:text-dorado text-lg leading-none px-2">✕</button>
+        </div>
+        <div className="p-5 space-y-3">
+          {asignaciones.length === 0 && (
+            <p className="text-sm text-neutral-500">Este ítem no está vinculado a ningún ítem del presupuesto.</p>
+          )}
+          {asignaciones.map((a, j) => {
+            const info = mapaItems[a.presupuesto_item_id];
+            const presupuestado = info ? Number(info.valor_parcial || 0) : 0;
+            const ejecutado = a.presupuesto_item_id ? Number(ejecutadosPresupuesto[a.presupuesto_item_id] || 0) : 0;
+            const saldo = presupuestado - ejecutado;
+            return (
+              <div key={j} className="border rounded p-3 space-y-2">
+                <div className="flex items-center gap-2">
+                  <select value={a.presupuesto_item_id || ''}
+                    onChange={(e) => actualizarFila(j, 'presupuesto_item_id', e.target.value || '')}
+                    className="border border-neutral-300 rounded-md px-3 py-2 text-sm flex-1 bg-white">
+                    <option value="">— Elegir ítem del presupuesto —</option>
+                    {presupuestoCapitulos.map((cap) => (
+                      <optgroup key={cap.id} label={`${cap.codigo} · ${cap.nombre}`}>
+                        {(cap.presupuesto_items || []).map((pi) => (
+                          <option key={pi.id} value={pi.id}>{pi.codigo} · {pi.descripcion}</option>
+                        ))}
+                      </optgroup>
+                    ))}
+                  </select>
+                  {necesitaPct && (
+                    <input type="number" min="0" max="100" step="0.01" value={a.porcentaje}
+                      onChange={(e) => actualizarFila(j, 'porcentaje', e.target.value)}
+                      className="border border-neutral-300 rounded-md px-2 py-2 text-sm w-24 text-right" />
+                  )}
+                  {necesitaPct && <span className="text-sm text-neutral-500">%</span>}
+                  <button type="button" onClick={() => quitarFila(j)}
+                    className="text-red-600 text-sm border border-red-200 rounded w-7 h-7 leading-none hover:bg-red-50">✕</button>
+                </div>
+                {a.presupuesto_item_id && (
+                  <div className="grid grid-cols-3 gap-2 text-xs text-neutral-500 bg-neutral-50 rounded p-2">
+                    <div>Presupuestado<br /><span className="font-medium text-neutral-700">{formatoPesos(presupuestado)}</span></div>
+                    <div>Ejecutado<br /><span className="font-medium text-neutral-700">{formatoPesos(ejecutado)}</span></div>
+                    <div>Saldo<br /><span className={`font-medium ${saldo < 0 ? 'text-red-600' : 'text-neutral-700'}`}>{formatoPesos(saldo)}</span></div>
+                  </div>
+                )}
+              </div>
+            );
+          })}
+          <button type="button" onClick={agregarFila}
+            className="text-sm border rounded px-3 py-1.5 hover:bg-gris-calido/20">
+            + Agregar ítem del presupuesto
+          </button>
+          {necesitaPct && (
+            <p className={`text-sm ${sumaOk ? 'text-green-600' : 'text-red-600'}`}>
+              Suma de porcentajes: {sumaPct.toFixed(1)}% {sumaOk ? '✓' : '— debe sumar 100% para poder guardar'}
+            </p>
+          )}
+        </div>
+        <div className="px-5 py-3 border-t flex justify-end">
+          <button type="button" onClick={onClose} className="bg-carbon text-hueso px-4 py-2 rounded text-sm">Cerrar</button>
+        </div>
+      </div>
+    </div>
   );
 }
 
