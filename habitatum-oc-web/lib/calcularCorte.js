@@ -44,13 +44,38 @@ async function obtenerOCsEnRango(supabase, proyectoId, fechaDesde, fechaHasta) {
 // Órdenes de Compra.
 async function obtenerItemsDeOrdenes(supabase, ordenIds) {
   if (ordenIds.length === 0) return [];
-  const { data, error } = await supabase
+  const { data: itemsOC, error: errItemsOC } = await supabase
     .from('items_oc')
-    .select('id, orden_compra_id, descripcion, cantidad, valor_unitario, presupuesto_item_id')
-    .in('orden_compra_id', ordenIds)
-    .not('presupuesto_item_id', 'is', null);
-  if (error) throw error;
-  return data || [];
+    .select('id, orden_compra_id, descripcion, cantidad, valor_unitario')
+    .in('orden_compra_id', ordenIds);
+  if (errItemsOC) throw errItemsOC;
+  const idsItems = (itemsOC || []).map((it) => it.id);
+  if (idsItems.length === 0) return [];
+  // Desde la migración 028, un ítem de OC puede estar imputado a VARIOS
+  // ítems del presupuesto (por porcentaje), en items_oc_presupuesto. Se
+  // arma una fila "virtual" por cada asignación, con la cantidad ya
+  // prorrateada por su porcentaje — así valorEjecutadoItem() y el resto de
+  // este archivo no necesitan cambiar: siguen viendo una fila por ítem de
+  // presupuesto, igual que antes (cuando la relación era 1 a 1 al 100%).
+  const { data: asignaciones, error: errAsig } = await supabase
+    .from('items_oc_presupuesto')
+    .select('item_oc_id, presupuesto_item_id, porcentaje')
+    .in('item_oc_id', idsItems);
+  if (errAsig) throw errAsig;
+  const itemPorId = {};
+  itemsOC.forEach((it) => { itemPorId[it.id] = it; });
+  return (asignaciones || []).map((a) => {
+    const it = itemPorId[a.item_oc_id] || {};
+    const pct = Number(a.porcentaje || 0) / 100;
+    return {
+      id: it.id,
+      orden_compra_id: it.orden_compra_id,
+      descripcion: it.descripcion,
+      cantidad: Number(it.cantidad || 0) * pct,
+      valor_unitario: Number(it.valor_unitario || 0),
+      presupuesto_item_id: a.presupuesto_item_id,
+    };
+  });
 }
 
 // Valor realmente ejecutado de un ítem de OC: su subtotal (cantidad × valor
