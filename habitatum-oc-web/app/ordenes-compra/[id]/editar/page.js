@@ -41,6 +41,7 @@ export default function EditarOrdenCompra() {
   const [anticipos, setAnticipos] = useState([]);
   const [usuarios, setUsuarios] = useState([]);
   const [presupuestoCapitulos, setPresupuestoCapitulos] = useState([]);
+  const [ejecutadosPresupuesto, setEjecutadosPresupuesto] = useState({});
   const [guardando, setGuardando] = useState(false);
   const [error, setError] = useState('');
 
@@ -70,7 +71,17 @@ export default function EditarOrdenCompra() {
       setOc(ocData);
       setReferenciaAnticipoOriginalId(ocData?.referencia_anticipo_id || '');
       setValorAmortizacionGuardada(Number(ocData?.valor_amortizacion || 0));
-      setItems((itemsData && itemsData.length > 0) ? itemsData : [{ descripcion: '', unidad: '', cantidad: 1, valor_unitario: 0, sin_iva: false }]);
+      const idsItemsData = (itemsData || []).map((it) => it.id);
+      const { data: asigData } = idsItemsData.length > 0
+        ? await supabase.from('items_oc_presupuesto').select('item_oc_id, presupuesto_item_id, porcentaje').in('item_oc_id', idsItemsData)
+        : { data: [] };
+      const asigPorItem = {};
+      (asigData || []).forEach((a) => {
+        if (!asigPorItem[a.item_oc_id]) asigPorItem[a.item_oc_id] = [];
+        asigPorItem[a.item_oc_id].push({ presupuesto_item_id: a.presupuesto_item_id, porcentaje: Number(a.porcentaje) });
+      });
+      const itemsConAsignaciones = (itemsData || []).map((it) => ({ ...it, asignaciones: asigPorItem[it.id] || [] }));
+      setItems(itemsConAsignaciones.length > 0 ? itemsConAsignaciones : [{ descripcion: '', unidad: '', cantidad: 1, valor_unitario: 0, sin_iva: false, asignaciones: [] }]);
       setProveedores(prov || []);
       // Se excluyen los contratos anulados del desplegable, salvo que sea el
       // contrato que esta misma OC ya tenía asignado (para no romper la
@@ -81,10 +92,14 @@ export default function EditarOrdenCompra() {
       if (pres) {
         const { data: caps } = await supabase
           .from('presupuesto_capitulos')
-          .select('id, codigo, nombre, presupuesto_items(id, codigo, descripcion)')
+          .select('id, codigo, nombre, presupuesto_items(id, codigo, descripcion, valor_parcial)')
           .eq('presupuesto_id', pres.id)
           .order('orden');
         setPresupuestoCapitulos(caps || []);
+        const { data: ejec } = await supabase.from('v_presupuesto_ejecutado').select('*');
+        const mapaEjec = {};
+        (ejec || []).forEach((e) => { mapaEjec[e.presupuesto_item_id] = Number(e.ejecutado) || 0; });
+        setEjecutadosPresupuesto(mapaEjec);
       }
     }
     cargar();
@@ -128,20 +143,53 @@ export default function EditarOrdenCompra() {
     const { error: errDelete } = await supabase.from('items_oc').delete().eq('orden_compra_id', id);
     if (errDelete) { setError(errDelete.message); setGuardando(false); return; }
 
-    const filasItems = items
-      .filter((it) => it.descripcion)
-      .map((it, idx) => ({
-        descripcion: it.descripcion, unidad: it.unidad,
-        cantidad: numeroSeguro(it.cantidad), valor_unitario: numeroSeguro(it.valor_unitario),
-        // Excluye este ítem del cálculo de IVA (ej. "Transporte sin IVA").
-        sin_iva: !!it.sin_iva,
-        presupuesto_item_id: it.presupuesto_item_id || null,
-        orden: idx,
-        orden_compra_id: id,
-      }));
+    // Cada ítem puede estar imputado a varios ítems del presupuesto (por
+    // porcentaje). Se valida ANTES de borrar nada.
+    const itemsConDescripcion = items.filter((it) => it.descripcion);
+    for (const it of itemsConDescripcion) {
+      const suma = (it.asignaciones || []).reduce((acc, a) => acc + Number(a.porcentaje || 0), 0);
+      if ((it.asignaciones || []).length > 1 && Math.abs(suma - 100) > 0.01) {
+        setError(`El ítem "${it.descripcion}" tiene una imputación al presupuesto que no suma 100% (suma actual: ${suma.toFixed(1)}%).`);
+        setGuardando(false);
+        return;
+      }
+    }
 
-    const { error: errItems } = await supabase.from('items_oc').insert(filasItems);
+    const filasItems = itemsConDescripcion.map((it, idx) => ({
+      descripcion: it.descripcion, unidad: it.unidad,
+      cantidad: numeroSeguro(it.cantidad), valor_unitario: numeroSeguro(it.valor_unitario),
+      // Excluye este ítem del cálculo de IVA (ej. "Transporte sin IVA").
+      sin_iva: !!it.sin_iva,
+      orden: idx,
+      orden_compra_id: id,
+    }));
+
+    // Reemplaza los ítems: se borran los anteriores (esto también borra en
+    // cascada sus imputaciones al presupuesto en items_oc_presupuesto) y se
+    // insertan los actuales.
+    const { error: errDelete } = await supabase.from('items_oc').delete().eq('orden_compra_id', id);
+    if (errDelete) { setError(errDelete.message); setGuardando(false); return; }
+
+    const { data: itemsInsertados, error: errItems } = await supabase.from('items_oc').insert(filasItems).select('id');
     if (errItems) { setError(errItems.message); setGuardando(false); return; }
+
+    const filasAsignaciones = [];
+    itemsConDescripcion.forEach((it, idx) => {
+      const itemOcId = itemsInsertados?.[idx]?.id;
+      if (!itemOcId) return;
+      (it.asignaciones || []).forEach((a) => {
+        if (!a.presupuesto_item_id) return;
+        filasAsignaciones.push({
+          item_oc_id: itemOcId,
+          presupuesto_item_id: a.presupuesto_item_id,
+          porcentaje: numeroSeguro(a.porcentaje) || 100,
+        });
+      });
+    });
+    if (filasAsignaciones.length > 0) {
+      const { error: errAsig } = await supabase.from('items_oc_presupuesto').insert(filasAsignaciones);
+      if (errAsig) { setError(errAsig.message); setGuardando(false); return; }
+    }
 
     router.push(`/ordenes-compra/${id}`);
   }
@@ -160,6 +208,7 @@ export default function EditarOrdenCompra() {
           items={items} setItems={setItems}
           proveedores={proveedores} contratos={contratos} anticipos={anticipos} usuarios={usuarios}
           presupuestoCapitulos={presupuestoCapitulos}
+          ejecutadosPresupuesto={ejecutadosPresupuesto}
           calculo={calculo}
           referenciaAnticipoOriginalId={referenciaAnticipoOriginalId}
           valorAmortizacionGuardada={valorAmortizacionGuardada}
