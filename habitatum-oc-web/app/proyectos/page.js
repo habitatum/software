@@ -6,7 +6,7 @@ import { useUsuarioActual } from '@/lib/useUsuarioActual';
 import { crearClienteSupabase } from '@/lib/supabaseClient';
 import { guardarProyectoActualId, obtenerProyectoActualId, limpiarProyectoActual } from '@/lib/proyectoActual';
 
-const VACIO = { nombre: '', codigo: '', cliente: '', mostrarMarca: true, nombreEmisor: '' };
+const VACIO = { nombre: '', codigo: '', cliente: '', mostrarMarca: true, nombreEmisor: '', porcentajeAdministracion: '' };
 
 export default function SeleccionarProyecto() {
   const { usuario, cargando } = useUsuarioActual();
@@ -22,7 +22,7 @@ export default function SeleccionarProyecto() {
   // "codigo" se agrega aquí para poder editarlo después de creado el proyecto
   // (antes solo se podía asignar una vez, al crear). Sigue siendo solo-admin,
   // igual que el resto de este bloque de edición.
-  const [formEdicion, setFormEdicion] = useState({ nombre: '', codigo: '', cliente: '', mostrarMarca: true, nombreEmisor: '' });
+  const [formEdicion, setFormEdicion] = useState({ nombre: '', codigo: '', cliente: '', mostrarMarca: true, nombreEmisor: '', porcentajeAdministracion: '' });
   const [errorEdicion, setErrorEdicion] = useState('');
   const [guardandoEdicion, setGuardandoEdicion] = useState(false);
 
@@ -89,6 +89,7 @@ export default function SeleccionarProyecto() {
       cliente: p.cliente || '',
       mostrarMarca: p.mostrar_marca_habitatum,
       nombreEmisor: p.nombre_emisor || '',
+      porcentajeAdministracion: p.porcentaje_administracion ?? '',
     });
     setErrorEdicion('');
   }
@@ -124,6 +125,7 @@ export default function SeleccionarProyecto() {
         cliente: formEdicion.cliente.trim() || null,
         mostrar_marca_habitatum: formEdicion.mostrarMarca,
         nombre_emisor: formEdicion.mostrarMarca ? null : formEdicion.nombreEmisor.trim(),
+        porcentaje_administracion: formEdicion.porcentajeAdministracion === '' ? null : Number(formEdicion.porcentajeAdministracion),
       })
       .eq('id', id);
     setGuardandoEdicion(false);
@@ -210,6 +212,7 @@ export default function SeleccionarProyecto() {
         cliente: form.cliente.trim() || null,
         mostrar_marca_habitatum: form.mostrarMarca,
         nombre_emisor: form.mostrarMarca ? null : form.nombreEmisor.trim(),
+        porcentaje_administracion: form.porcentajeAdministracion === '' ? null : Number(form.porcentajeAdministracion),
       })
       .select()
       .single();
@@ -271,6 +274,19 @@ export default function SeleccionarProyecto() {
                         placeholder="Cliente (opcional)"
                         className="border rounded px-3 py-2 text-sm w-full"
                       />
+                      <div>
+                        <input
+                          type="number"
+                          step="0.01"
+                          value={formEdicion.porcentajeAdministracion}
+                          onChange={(e) => setFormEdicion({ ...formEdicion, porcentajeAdministracion: e.target.value })}
+                          placeholder="% Administración (ej. 12)"
+                          className="border rounded px-3 py-2 text-sm w-full"
+                        />
+                        <p className="text-[11px] text-neutral-400 mt-1">
+                          Se usa en Presupuesto para calcular la Administración sobre lo ejecutado + anticipos pendientes.
+                        </p>
+                      </div>
                       <label className="flex items-center gap-2 text-xs">
                         <input
                           type="checkbox"
@@ -355,6 +371,9 @@ export default function SeleccionarProyecto() {
                       </div>
                       <p className="text-xs text-neutral-500 mt-1">Código: {p.codigo}</p>
                       {p.cliente && <p className="text-sm text-neutral-600 mt-2">{p.cliente}</p>}
+                      {p.porcentaje_administracion != null && (
+                        <p className="text-xs text-neutral-500 mt-2">Administración: {p.porcentaje_administracion}%</p>
+                      )}
                       {!p.mostrar_marca_habitatum && (
                         <p className="text-xs text-dorado mt-2">Sin marca HABITATUM en documentos</p>
                       )}
@@ -437,6 +456,19 @@ export default function SeleccionarProyecto() {
                     onChange={(e) => setForm({ ...form, cliente: e.target.value })}
                     className="border rounded px-3 py-2 text-sm sm:col-span-2"
                   />
+                  <div className="sm:col-span-2">
+                    <input
+                      type="number"
+                      step="0.01"
+                      placeholder="% Administración (ej. 12, opcional)"
+                      value={form.porcentajeAdministracion}
+                      onChange={(e) => setForm({ ...form, porcentajeAdministracion: e.target.value })}
+                      className="border rounded px-3 py-2 text-sm w-full"
+                    />
+                    <p className="text-[11px] text-neutral-400 mt-1">
+                      Se usa en Presupuesto para calcular la Administración sobre lo ejecutado + anticipos pendientes.
+                    </p>
+                  </div>
                 </div>
 
                 <label className="flex items-center gap-2 text-sm">
