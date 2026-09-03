@@ -403,6 +403,73 @@ function ejecutadoConBorrador(presupuestoItemId, ejecutadosPresupuesto, items) {
   return base + borrador;
 }
 
+// Desplegable propio (no <select> nativo) para poder alinear a la derecha y
+// colorear Presupuestado/Ejecutado/Saldo de cada ítem — un <select> nativo no
+// permite formato en sus <option>. Se expande hacia abajo dentro del mismo
+// flujo (no flotante) para no quedar cortado por el scroll del modal.
+function SelectorItemPresupuesto({ valor, presupuestoCapitulos, ejecutadosPresupuesto, items, onChange }) {
+  const [abierto, setAbierto] = useState(false);
+  const mapaItems = {};
+  presupuestoCapitulos.forEach((cap) => {
+    (cap.presupuesto_items || []).forEach((pi) => { mapaItems[pi.id] = pi; });
+  });
+  const seleccionado = valor ? mapaItems[valor] : null;
+
+  return (
+    <div className="flex-1">
+      <button type="button" onClick={() => setAbierto(!abierto)}
+        className="border border-neutral-300 rounded-md px-3 py-2 text-sm w-full bg-white text-left flex items-center justify-between gap-2">
+        <span className={`truncate ${seleccionado ? '' : 'text-neutral-400'}`}>
+          {seleccionado ? `${seleccionado.codigo} · ${seleccionado.descripcion}` : '— Elegir ítem del presupuesto —'}
+        </span>
+        <span className="text-neutral-400 shrink-0">{abierto ? '▴' : '▾'}</span>
+      </button>
+      {abierto && (
+        <div className="mt-1 border rounded-md shadow-sm max-h-72 overflow-y-auto bg-white">
+          <div className="px-3 py-1.5 text-[10px] font-semibold text-neutral-400 flex items-center justify-between gap-3 border-b sticky top-0 bg-white">
+            <span>Ítem</span>
+            <span className="flex items-center gap-3 shrink-0">
+              <span className="w-20 text-right">Presup.</span>
+              <span className="w-20 text-right">Ejec.</span>
+              <span className="w-20 text-right">Saldo</span>
+            </span>
+          </div>
+          <button type="button" onClick={() => { onChange(''); setAbierto(false); }}
+            className="w-full text-left px-3 py-2 text-sm text-neutral-400 hover:bg-gris-calido/20 border-b">
+            — Elegir ítem del presupuesto —
+          </button>
+          {presupuestoCapitulos.map((cap) => (
+            <div key={cap.id}>
+              <div className="px-3 py-1 text-xs font-semibold bg-gris-calido/20 text-carbon">
+                {cap.codigo} · {cap.nombre}
+              </div>
+              {(cap.presupuesto_items || []).map((pi) => {
+                const pres = Number(pi.valor_parcial || 0);
+                const ejec = ejecutadoConBorrador(pi.id, ejecutadosPresupuesto, items);
+                const sal = pres - ejec;
+                const pct = pres > 0 ? ejec / pres : 0;
+                const colorSaldo = sal < 0 ? 'text-red-600' : pct >= 0.9 ? 'text-amber-600' : 'text-green-600';
+                return (
+                  <button key={pi.id} type="button"
+                    onClick={() => { onChange(pi.id); setAbierto(false); }}
+                    className={`w-full text-left px-3 py-2 text-sm hover:bg-gris-calido/20 flex items-center justify-between gap-3 ${valor === pi.id ? 'bg-dorado/10' : ''}`}>
+                    <span className="truncate">{pi.codigo} · {pi.descripcion}</span>
+                    <span className="flex items-center gap-3 text-xs shrink-0 tabular-nums">
+                      <span className="text-neutral-500 w-20 text-right">{formatoPesos(pres)}</span>
+                      <span className="text-blue-600 w-20 text-right">{formatoPesos(ejec)}</span>
+                      <span className={`w-20 text-right font-medium ${colorSaldo}`}>{formatoPesos(sal)}</span>
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function ModalImputacion({ item, items, presupuestoCapitulos, ejecutadosPresupuesto, onChange, onClose }) {
   const asignaciones = item.asignaciones || [];
   const valorItem = Number(item.cantidad || 0) * Number(item.valor_unitario || 0);
@@ -462,25 +529,13 @@ function ModalImputacion({ item, items, presupuestoCapitulos, ejecutadosPresupue
             return (
               <div key={j} className="border rounded p-3 space-y-2">
                 <div className="flex items-center gap-2">
-                  <select value={a.presupuesto_item_id || ''}
-                    onChange={(e) => actualizarFila(j, 'presupuesto_item_id', e.target.value || '')}
-                    className="border border-neutral-300 rounded-md px-3 py-2 text-sm flex-1 bg-white">
-                    <option value="">— Elegir ítem del presupuesto —</option>
-                    {presupuestoCapitulos.map((cap) => (
-                      <optgroup key={cap.id} label={`${cap.codigo} · ${cap.nombre}`}>
-                        {(cap.presupuesto_items || []).map((pi) => {
-                              const pres = Number(pi.valor_parcial || 0);
-                              const ejec = ejecutadoConBorrador(pi.id, ejecutadosPresupuesto, items);
-                              const sal = pres - ejec;
-                              return (
-                                <option key={pi.id} value={pi.id}>
-                                  {pi.codigo} · {pi.descripcion} — Pres: {formatoPesos(pres)} · Ejec: {formatoPesos(ejec)} · Saldo: {formatoPesos(sal)}
-                                </option>
-                              );
-                            })}
-                      </optgroup>
-                    ))}
-                  </select>
+                  <SelectorItemPresupuesto
+                    valor={a.presupuesto_item_id || ''}
+                    presupuestoCapitulos={presupuestoCapitulos}
+                    ejecutadosPresupuesto={ejecutadosPresupuesto}
+                    items={items}
+                    onChange={(v) => actualizarFila(j, 'presupuesto_item_id', v)}
+                  />
                   {necesitaPct && (
                     <input type="number" min="0" max="100" step="0.01" value={a.porcentaje}
                       onChange={(e) => actualizarFila(j, 'porcentaje', e.target.value)}
