@@ -5,7 +5,7 @@ import { useProyectoActual } from '@/lib/useProyectoActual';
 import { crearClienteSupabase } from '@/lib/supabaseClient';
 import { formatoPesos } from '@/lib/calculosOC';
 import { parsearPresupuesto } from '@/lib/parsePresupuesto';
-import { calcularPendientePorCortar, cerrarCorte, mapaItemsPresupuesto, construirCorteVirtual } from '@/lib/calcularCorte';
+import { calcularPendientePorCortar, cerrarCorte, mapaItemsPresupuesto, construirCorteVirtual, obtenerOCsEnRango } from '@/lib/calcularCorte';
 import { exportarControlPresupuestal, prepararCortesParaExportar } from '@/lib/exportarControlPresupuestal';
 import NavBar from '@/components/NavBar';
 
@@ -118,7 +118,19 @@ export default function Presupuesto() {
     setExportando(hastaNumero);
     setError('');
     try {
-      const cortesPreparados = prepararCortesParaExportar(cortes, capitulos);
+      // presupuesto_corte_ocs (lo que ya trae `cortes` desde cargar()) no
+      // guarda datos a nivel de OC (total, neto a pagar, estado, contrato,
+      // imputación) — solo el detalle por ítem. Para la pestaña "Órdenes de
+      // Compra" del Excel se trae ese resumen con una consulta en vivo, con
+      // el mismo rango de fechas (fecha_desde, fecha_hasta) que quedó
+      // congelado para el corte que se está exportando.
+      const supabase = crearClienteSupabase();
+      const corteObjetivo = cortes.find((c) => c.numero === hastaNumero);
+      const ordenesResumen = corteObjetivo
+        ? await obtenerOCsEnRango(supabase, proyecto.id, corteObjetivo.fecha_desde, corteObjetivo.fecha_hasta)
+        : [];
+      const cortesConResumen = cortes.map((c) => (c.numero === hastaNumero ? { ...c, ordenesResumen } : c));
+      const cortesPreparados = prepararCortesParaExportar(cortesConResumen, capitulos);
       await exportarControlPresupuestal({ proyecto, presupuesto, capitulos, cortes: cortesPreparados, hastaNumero });
     } catch (err) {
       setError(err.message || 'No se pudo exportar el control presupuestal.');
