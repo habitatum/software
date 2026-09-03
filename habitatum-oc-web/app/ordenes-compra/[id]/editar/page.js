@@ -139,10 +139,6 @@ export default function EditarOrdenCompra() {
     const { error: errOC } = await supabase.from('ordenes_compra').update(cambios).eq('id', id);
     if (errOC) { setError(errOC.message); setGuardando(false); return; }
 
-    // Reemplaza los ítems: se borran los anteriores y se insertan los actuales.
-    const { error: errDelete } = await supabase.from('items_oc').delete().eq('orden_compra_id', id);
-    if (errDelete) { setError(errDelete.message); setGuardando(false); return; }
-
     // Cada ítem puede estar imputado a varios ítems del presupuesto (por
     // porcentaje). Se valida ANTES de borrar nada.
     const itemsConDescripcion = items.filter((it) => it.descripcion);
