@@ -13,6 +13,7 @@ export default function ListadoOrdenesCompra() {
   const [ordenes, setOrdenes] = useState([]);
   const [filtroEstado, setFiltroEstado] = useState('TODAS');
   const [busqueda, setBusqueda] = useState('');
+const [imputacionCompleta, setImputacionCompleta] = useState({});
 
   useEffect(() => {
     if (!usuario || !proyecto) return;
@@ -24,6 +25,34 @@ export default function ListadoOrdenesCompra() {
         .eq('proyecto_id', proyecto.id)
         .order('creado_en', { ascending: false });
       setOrdenes(data || []);
+
+// Una OC queda "totalmente imputada" cuando CADA uno de sus ítems
+// tiene asignaciones al presupuesto cuyo porcentaje suma 100%. Se
+// calcula aparte (no viene en la vista) trayendo los ítems de todas
+// las OC listadas junto con sus filas de la tabla puente.
+const ids = (data || []).map((o) => o.id);
+if (ids.length > 0) {
+const { data: itemsData } = await supabase
+.from('items_oc')
+.select('orden_compra_id, items_oc_presupuesto(porcentaje)')
+.in('orden_compra_id', ids);
+const itemsPorOC = {};
+(itemsData || []).forEach((it) => {
+if (!itemsPorOC[it.orden_compra_id]) itemsPorOC[it.orden_compra_id] = [];
+itemsPorOC[it.orden_compra_id].push(it);
+});
+const mapaImputacion = {};
+ids.forEach((id) => {
+const itemsDeEstaOC = itemsPorOC[id] || [];
+mapaImputacion[id] = itemsDeEstaOC.length > 0 && itemsDeEstaOC.every((it) => {
+const suma = (it.items_oc_presupuesto || []).reduce((acc, a) => acc + Number(a.porcentaje || 0), 0);
+return suma >= 99.99;
+});
+});
+setImputacionCompleta(mapaImputacion);
+} else {
+setImputacionCompleta({});
+}
     }
     cargar();
   }, [usuario, proyecto]);
@@ -99,6 +128,11 @@ export default function ListadoOrdenesCompra() {
                     {o.tipo_pago === 'ANTICIPO' && (
                       <span className="ml-2 bg-amber-100 text-amber-700 text-[10px] font-semibold px-1.5 py-0.5 rounded align-middle">ANTICIPO</span>
                     )}
+{imputacionCompleta[o.id] && (
+<span className="ml-2 inline-flex items-center justify-center w-4 h-4 bg-green-100 text-green-700 rounded-full align-middle text-[10px] font-bold" title="Todos los ítems de esta orden están imputados al presupuesto">
+✓
+</span>
+)}
                   </td>
                   <td className="p-3">{o.contratos?.numero_contrato ?? '—'}</td>
                   <td className="p-3">{o.proveedores?.nombre ?? '—'}</td>
