@@ -29,17 +29,53 @@ export function mapaItemsPresupuesto(capitulos) {
 // necesitamos para prorratear el IVA/AIU/Descuento/Retención neta de cada
 // orden entre sus ítems (ver valorEjecutadoItem más abajo), exactamente igual
 // que lo hace v_presupuesto_ejecutado en la base de datos.
-async function obtenerOCsEnRango(supabase, proyectoId, fechaDesde, fechaHasta) {
+export async function obtenerOCsEnRango(supabase, proyectoId, fechaDesde, fechaHasta) {
   let consulta = supabase
     .from('v_ordenes_compra_calculadas')
-    .select('id, folio, fecha, subtotal, subtotal_items, valor_iva, valor_aiu, descuento, valor_retenido, devolucion_retenido, proveedores(nombre)')
+    .select('id, folio, fecha, subtotal, subtotal_items, valor_iva, valor_aiu, descuento, valor_retenido, devolucion_retenido, total, neto_a_pagar, estado, tipo_pago, proveedores(nombre), contratos(numero_contrato)')
     .eq('proyecto_id', proyectoId)
     .neq('estado', 'ANULADA')
-    .lte('fecha', fechaHasta);
+    .lte('fecha', fechaHasta)
+    .order('fecha', { ascending: false });
   if (fechaDesde) consulta = consulta.gt('fecha', fechaDesde);
   const { data, error } = await consulta;
   if (error) throw error;
-  return data || [];
+  const ocs = data || [];
+
+  // Igual que en la pantalla de Órdenes de Compra: una OC queda "totalmente
+  // imputada" cuando CADA uno de sus ítems tiene asignaciones al presupuesto
+  // cuyo porcentaje suma 100% (ver calcularImputacionCompleta más abajo).
+  // Se anota aquí, en cada fila, para que la pestaña "Órdenes de Compra" del
+  // Excel pueda mostrar el mismo check ✓ que ve el usuario en pantalla.
+  const mapaImputacion = await calcularImputacionCompleta(supabase, ocs.map((o) => o.id));
+  ocs.forEach((o) => { o.imputacion_completa = mapaImputacion[o.id] || false; });
+  return ocs;
+}
+
+// Réplica exacta de la lógica de app/ordenes-compra/page.js: una OC queda
+// "totalmente imputada" cuando tiene ítems Y CADA ítem tiene asignaciones al
+// presupuesto (items_oc_presupuesto) cuyo porcentaje suma >= 99.99%.
+async function calcularImputacionCompleta(supabase, ordenIds) {
+  if (!ordenIds || ordenIds.length === 0) return {};
+  const { data: itemsData, error } = await supabase
+    .from('items_oc')
+    .select('orden_compra_id, items_oc_presupuesto(porcentaje)')
+    .in('orden_compra_id', ordenIds);
+  if (error) throw error;
+  const itemsPorOC = {};
+  (itemsData || []).forEach((it) => {
+    if (!itemsPorOC[it.orden_compra_id]) itemsPorOC[it.orden_compra_id] = [];
+    itemsPorOC[it.orden_compra_id].push(it);
+  });
+  const mapa = {};
+  ordenIds.forEach((id) => {
+    const itemsDeEstaOC = itemsPorOC[id] || [];
+    mapa[id] = itemsDeEstaOC.length > 0 && itemsDeEstaOC.every((it) => {
+      const suma = (it.items_oc_presupuesto || []).reduce((acc, a) => acc + Number(a.porcentaje || 0), 0);
+      return suma >= 99.99;
+    });
+  });
+  return mapa;
 }
 
 // Trae los ítems de OC (vinculados a un ítem de presupuesto) de una lista de
@@ -239,7 +275,7 @@ export async function cerrarCorte(supabase, { presupuestoId, proyectoId, numero,
     if (error) throw error;
   }
 
-  return { ...corte, items: filasCorteItems, ocs: filasCorteOCs };
+  return { ...corte, items: filasCorteItems, ocs: filasCorteOCs, ordenesResumen: ocs };
 }
 
 // Construye el mismo "shape" que produce cerrarCorte (items + ocs), pero a
@@ -282,5 +318,6 @@ export function construirCorteVirtual(pendiente, mapaItems, numero) {
     anticipos_pendientes: pendiente.anticiposPendientes,
     items,
     ocs,
+    ordenesResumen: pendiente.ocs || [],
   };
 }
