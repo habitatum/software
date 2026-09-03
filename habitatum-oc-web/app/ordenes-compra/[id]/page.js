@@ -29,7 +29,7 @@ export default function DetalleOrdenCompra() {
       .eq('id', id).single();
     const { data: itemsData } = await supabase
       .from('items_oc')
-      .select('*, presupuesto_items(codigo, descripcion)')
+      .select('*, items_oc_presupuesto(porcentaje, presupuesto_items(codigo, descripcion))')
       .eq('orden_compra_id', id).order('orden').order('id');
     setOc(ocData);
     setItems(itemsData || []);
@@ -197,7 +197,7 @@ export default function DetalleOrdenCompra() {
                       <td className="py-2 px-3 text-right font-medium whitespace-nowrap">{formatoPesos(subtotalItem)}</td>
                       <td className="py-2 px-3 text-right text-neutral-500 whitespace-nowrap">{porcentaje.toFixed(1)}%</td>
                       <td className="py-2 px-3 text-neutral-500">
-                        {it.presupuesto_items ? `${it.presupuesto_items.codigo} · ${it.presupuesto_items.descripcion}` : '—'}
+                        {imputacionTexto(it.items_oc_presupuesto)}
                       </td>
                     </tr>
                   );
@@ -277,6 +277,16 @@ export default function DetalleOrdenCompra() {
       </main>
     </div>
   );
+}
+
+function imputacionTexto(asignaciones) {
+  const validas = (asignaciones || []).filter((a) => a.presupuesto_items);
+  if (validas.length === 0) return '—';
+  if (validas.length === 1) {
+    const p = validas[0].presupuesto_items;
+    return `${p.codigo} · ${p.descripcion}`;
+  }
+  return validas.map((a) => `${a.presupuesto_items.codigo} (${Number(a.porcentaje || 0).toFixed(0)}%)`).join(', ');
 }
 
 function Dato({ label, valor }) {
