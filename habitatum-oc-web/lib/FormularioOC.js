@@ -366,6 +366,7 @@ export default function FormularioOC({
       {modalImputacionIndex !== null && items[modalImputacionIndex] && (
         <ModalImputacion
           item={items[modalImputacionIndex]}
+          items={items}
           presupuestoCapitulos={presupuestoCapitulos}
           ejecutadosPresupuesto={ejecutadosPresupuesto}
           onChange={(nuevas) => actualizarItem(modalImputacionIndex, 'asignaciones', nuevas)}
@@ -383,7 +384,26 @@ function resumenImputacion(asignaciones) {
   return `${validas.length} ítems del presupuesto`;
 }
 
-function ModalImputacion({ item, presupuestoCapitulos, ejecutadosPresupuesto, onChange, onClose }) {
+function ejecutadoConBorrador(presupuestoItemId, ejecutadosPresupuesto, items) {
+  // Suma lo ya guardado en la base de datos (ejecutadosPresupuesto) MÁS lo que
+  // ya está imputado a ese ítem del presupuesto en ESTE formulario, aunque
+  // todavía no se haya guardado la Orden de Compra. Así el Ejecutado/Saldo
+  // que se ve aquí queda al día apenas se carga un ítem, sin esperar a
+  // guardar.
+  const base = Number(ejecutadosPresupuesto[presupuestoItemId] || 0);
+  let borrador = 0;
+  (items || []).forEach((it) => {
+    (it.asignaciones || []).forEach((a) => {
+      if (a.presupuesto_item_id === presupuestoItemId) {
+        const valorFila = Number(it.cantidad || 0) * Number(it.valor_unitario || 0);
+        borrador += valorFila * (Number(a.porcentaje || 0) / 100);
+      }
+    });
+  });
+  return base + borrador;
+}
+
+function ModalImputacion({ item, items, presupuestoCapitulos, ejecutadosPresupuesto, onChange, onClose }) {
   const asignaciones = item.asignaciones || [];
   const valorItem = Number(item.cantidad || 0) * Number(item.valor_unitario || 0);
   const sumaPct = asignaciones.reduce((acc, a) => acc + Number(a.porcentaje || 0), 0);
@@ -437,7 +457,7 @@ function ModalImputacion({ item, presupuestoCapitulos, ejecutadosPresupuesto, on
           {asignaciones.map((a, j) => {
             const info = mapaItems[a.presupuesto_item_id];
             const presupuestado = info ? Number(info.valor_parcial || 0) : 0;
-            const ejecutado = a.presupuesto_item_id ? Number(ejecutadosPresupuesto[a.presupuesto_item_id] || 0) : 0;
+            const ejecutado = a.presupuesto_item_id ? ejecutadoConBorrador(a.presupuesto_item_id, ejecutadosPresupuesto, items) : 0;
             const saldo = presupuestado - ejecutado;
             return (
               <div key={j} className="border rounded p-3 space-y-2">
@@ -448,9 +468,16 @@ function ModalImputacion({ item, presupuestoCapitulos, ejecutadosPresupuesto, on
                     <option value="">— Elegir ítem del presupuesto —</option>
                     {presupuestoCapitulos.map((cap) => (
                       <optgroup key={cap.id} label={`${cap.codigo} · ${cap.nombre}`}>
-                        {(cap.presupuesto_items || []).map((pi) => (
-                          <option key={pi.id} value={pi.id}>{pi.codigo} · {pi.descripcion}</option>
-                        ))}
+                        {(cap.presupuesto_items || []).map((pi) => {
+                              const pres = Number(pi.valor_parcial || 0);
+                              const ejec = ejecutadoConBorrador(pi.id, ejecutadosPresupuesto, items);
+                              const sal = pres - ejec;
+                              return (
+                                <option key={pi.id} value={pi.id}>
+                                  {pi.codigo} · {pi.descripcion} — Pres: {formatoPesos(pres)} · Ejec: {formatoPesos(ejec)} · Saldo: {formatoPesos(sal)}
+                                </option>
+                              );
+                            })}
                       </optgroup>
                     ))}
                   </select>
