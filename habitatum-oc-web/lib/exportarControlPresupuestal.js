@@ -20,6 +20,19 @@ function estilizarCelda(celda, { negrita = false, relleno, colorTexto, alineacio
   if (numero) celda.numFmt = '#,##0';
 }
 
+// Convierte un número de columna (1 = A, 27 = AA, ...) a su letra de Excel,
+// para poder escribir fórmulas con referencias de celda (=F12/D12, etc).
+function columnaLetra(n) {
+  let s = '';
+  let num = n;
+  while (num > 0) {
+    const m = (num - 1) % 26;
+    s = String.fromCharCode(65 + m) + s;
+    num = Math.floor((num - 1) / 26);
+  }
+  return s;
+}
+
 // Construye y descarga el Excel de Control Presupuestal por cortes, replicando
 // el formato de referencia: columnas base del presupuesto + un bloque de 3
 // columnas (Cantidad / Vr Unitario / Vr Parcial) por cada corte cerrado hasta
@@ -27,6 +40,17 @@ function estilizarCelda(celda, { negrita = false, relleno, colorTexto, alineacio
 // total de cada corte y del acumulado, no solo del presupuesto). Incluye
 // además una hoja de detalle por corte con las Órdenes de Compra que lo
 // componen.
+//
+// Las casillas de dinero llevan FÓRMULAS reales de Excel, no solo números
+// fijos (para que el usuario pueda auditar/editar en el propio archivo):
+//   - Vr Unitario de cada ítem = Vr Parcial / Cantidad (de esa misma columna).
+//   - Vr Parcial de cada Capítulo = suma de sus ítems (nunca de otro Capítulo).
+//   - TOTAL COSTOS DIRECTOS / INDIRECTOS = suma de los ítems de esa categoría
+//     (nunca de las filas de Capítulo, para no sumar doble).
+//   - VALOR TOTAL y TOTAL CONTROL PRESUPUESTAL = suma de las filas de arriba.
+// La CANTIDAD de cada corte se deja en blanco a propósito: la pone el usuario
+// a mano en Excel (el software no mide cantidades físicas ejecutadas, solo el
+// valor en pesos ya imputado a cada ítem del presupuesto).
 //
 // esPreview: cuando es true, el último "corte" incluido (numero === hastaNumero)
 // en realidad es un corte virtual (ver construirCorteVirtual en calcularCorte.js)
@@ -39,6 +63,10 @@ export async function exportarControlPresupuestal({ proyecto, presupuesto, capit
   const workbook = new ExcelJS.Workbook();
   workbook.creator = 'HABITATUM';
   workbook.created = new Date();
+  // Fuerza a Excel a recalcular todas las fórmulas apenas se abra el
+  // archivo, para que las casillas nunca queden mostrando un valor
+  // desactualizado (por ejemplo apenas el usuario llene la Cantidad).
+  workbook.calcProperties = { fullCalcOnLoad: true };
 
   const hoja = workbook.addWorksheet('CONTROL PPTAL');
 
@@ -120,6 +148,15 @@ export async function exportarControlPresupuestal({ proyecto, presupuesto, capit
   });
 
   // ---------- Filas de capítulos / ítems ----------
+  // columnasValor: en cuáles columnas "Vr Parcial" cada Capítulo debe llevar
+  // la fórmula =SUMA(sus ítems) — la del presupuesto (base), la de cada
+  // corte, y la del acumulado.
+  const columnasValor = [6, ...cortesAIncluir.map((c, j) => colVrParcialCorte(j)), colVrParcialTotalAcum];
+  // rangosPorCapitulo: fila de inicio/fin de los ÍTEMS de cada capítulo (no
+  // incluye la fila del propio capítulo), para poder sumar SOLO ítems tanto
+  // en la fórmula del capítulo como en la de TOTAL DIRECTOS/INDIRECTOS.
+  const rangosPorCapitulo = [];
+
   let fila = filaSub + 1;
   let sumaDirecto = 0;
   let sumaIndirecto = 0;
@@ -130,105 +167,171 @@ export async function exportarControlPresupuestal({ proyecto, presupuesto, capit
 
   capitulos.forEach((cap) => {
     const esIndirecto = cap.categoria === 'INDIRECTO';
+    const filaCap = fila;
 
     hoja.mergeCells(fila, 1, fila, 2);
     const celdaCap = hoja.getCell(fila, 1);
     celdaCap.value = `${cap.codigo} ${cap.nombre}`;
     estilizarCelda(celdaCap, { negrita: true, relleno: GRIS_CALIDO, colorTexto: CARBON, numero: false, alineacion: 'left' });
     [3, 4, 5, 6].forEach((c) => estilizarCelda(hoja.getCell(fila, c), { negrita: true, relleno: GRIS_CALIDO, colorTexto: CARBON, numero: false }));
-    hoja.getCell(fila, 6).value = Number(cap.valor_presupuestado || 0);
-    hoja.getCell(fila, 6).numFmt = '#,##0';
 
-    let acumValCap = 0;
     cortesAIncluir.forEach((c, j) => {
-      const val = c._capValor?.[cap.id] || 0;
-      acumValCap += val;
-      if (esIndirecto) sumaIndirectoPorCorte[j] += val; else sumaDirectoPorCorte[j] += val;
       const col = colBloqueCorte(j);
       [col, col + 1, col + 2].forEach((cc) => estilizarCelda(hoja.getCell(fila, cc), { relleno: GRIS_CALIDO, numero: false }));
-      hoja.getCell(fila, col + 2).value = val;
-      hoja.getCell(fila, col + 2).numFmt = '#,##0';
     });
-    if (esIndirecto) sumaIndirectoAcum += acumValCap; else sumaDirectoAcum += acumValCap;
-
     [inicioTotal, inicioTotal + 1, inicioTotal + 2].forEach((cc) => estilizarCelda(hoja.getCell(fila, cc), { relleno: DORADO_CLARO, numero: false }));
-    hoja.getCell(fila, colVrParcialTotalAcum).value = acumValCap;
-    hoja.getCell(fila, colVrParcialTotalAcum).numFmt = '#,##0';
 
     if (esIndirecto) sumaIndirecto += Number(cap.valor_presupuestado || 0);
     else sumaDirecto += Number(cap.valor_presupuestado || 0);
 
     fila += 1;
+    const filaInicioItems = fila;
 
+    let acumValCap = 0;
+    const acumValCapPorCorte = new Array(numCortes).fill(0);
     (cap.presupuesto_items || []).forEach((it) => {
       hoja.getCell(fila, 1).value = it.codigo;
       hoja.getCell(fila, 2).value = it.descripcion;
       hoja.getCell(fila, 3).value = it.unidad || '';
       hoja.getCell(fila, 4).value = Number(it.cantidad || 0);
-      hoja.getCell(fila, 5).value = Number(it.valor_unitario || 0);
       hoja.getCell(fila, 6).value = Number(it.valor_parcial || 0);
+      // Vr Unitario = Vr Parcial / Cantidad, como fórmula (columna F / D de
+      // esta misma fila), no un número fijo.
+      hoja.getCell(fila, 5).value = { formula: `IFERROR(${columnaLetra(6)}${fila}/${columnaLetra(4)}${fila},0)`, result: Number(it.valor_unitario || 0) };
       [1, 2, 3, 4, 5, 6].forEach((c) => estilizarCelda(hoja.getCell(fila, c), { numero: c >= 4, alineacion: c <= 2 ? 'left' : 'right' }));
 
-      let acumCant = 0; let acumVal = 0;
+      let acumVal = 0;
       cortesAIncluir.forEach((c, j) => {
         const registro = (c.items || []).find((ci) => ci.presupuesto_item_id === it.id);
-        const cant = Number(registro?.cantidad_ejecutada || 0);
         const val = Number(registro?.valor_ejecutado || 0);
-        acumCant += cant; acumVal += val;
+        acumVal += val;
+        acumValCapPorCorte[j] += val;
+        if (esIndirecto) sumaIndirectoPorCorte[j] += val; else sumaDirectoPorCorte[j] += val;
         const col = colBloqueCorte(j);
-        hoja.getCell(fila, col).value = cant || null;
-        hoja.getCell(fila, col + 1).value = cant > 0 ? val / cant : null;
+        // Cantidad de este corte: EN BLANCO. La pone el usuario a mano en
+        // Excel — el software solo conoce el valor en pesos ya imputado a
+        // este ítem, no la cantidad física realmente ejecutada.
+        hoja.getCell(fila, col).value = null;
+        hoja.getCell(fila, col + 1).value = { formula: `IFERROR(${columnaLetra(col + 2)}${fila}/${columnaLetra(col)}${fila},"")` };
         hoja.getCell(fila, col + 2).value = val || null;
         [col, col + 1, col + 2].forEach((cc) => estilizarCelda(hoja.getCell(fila, cc), { alineacion: 'right' }));
       });
-      hoja.getCell(fila, colVrParcialTotalAcum - 2).value = acumCant || null;
-      hoja.getCell(fila, colVrParcialTotalAcum - 1).value = acumCant > 0 ? acumVal / acumCant : null;
+      acumValCap += acumVal;
+      if (esIndirecto) sumaIndirectoAcum += acumVal; else sumaDirectoAcum += acumVal;
+
+      const colCantAcum = colVrParcialTotalAcum - 2;
+      const colUnitAcum = colVrParcialTotalAcum - 1;
+      // Cantidad acumulada = suma de las cantidades manuales de cada corte
+      // (fórmula: se recalcula sola a medida que el usuario las va
+      // llenando en cada bloque de corte).
+      if (numCortes > 0) {
+        const sumaCantidades = cortesAIncluir.map((c, j) => `${columnaLetra(colBloqueCorte(j))}${fila}`).join('+');
+        hoja.getCell(fila, colCantAcum).value = { formula: sumaCantidades };
+      } else {
+        hoja.getCell(fila, colCantAcum).value = null;
+      }
       hoja.getCell(fila, colVrParcialTotalAcum).value = acumVal || null;
-      [colVrParcialTotalAcum - 2, colVrParcialTotalAcum - 1, colVrParcialTotalAcum].forEach((cc) => estilizarCelda(hoja.getCell(fila, cc), { relleno: DORADO_CLARO, alineacion: 'right' }));
+      hoja.getCell(fila, colUnitAcum).value = { formula: `IFERROR(${columnaLetra(colVrParcialTotalAcum)}${fila}/${columnaLetra(colCantAcum)}${fila},"")` };
+      [colCantAcum, colUnitAcum, colVrParcialTotalAcum].forEach((cc) => estilizarCelda(hoja.getCell(fila, cc), { relleno: DORADO_CLARO, alineacion: 'right' }));
 
       fila += 1;
+    });
+
+    const filaFinItems = fila - 1;
+    rangosPorCapitulo.push({ filaInicioItems, filaFinItems, esIndirecto });
+
+    // Vr Parcial de este Capítulo = suma de SUS ítems (nunca de otro
+    // capítulo), en cada columna de valor: presupuestado, cada corte, y el
+    // acumulado. El "result" cacheado deja la casilla mostrando el número
+    // correcto aunque el usuario no tenga Excel recalculando automáticamente.
+    const resultadosValor = [Number(cap.valor_presupuestado || 0), ...acumValCapPorCorte, acumValCap];
+    columnasValor.forEach((colValor, idx) => {
+      const letra = columnaLetra(colValor);
+      const celda = hoja.getCell(filaCap, colValor);
+      if (filaFinItems >= filaInicioItems) {
+        celda.value = { formula: `SUM(${letra}${filaInicioItems}:${letra}${filaFinItems})`, result: resultadosValor[idx] };
+      } else {
+        celda.value = 0;
+      }
+      celda.numFmt = '#,##0';
     });
   });
 
   // ---------- Totales generales (presupuesto, cada corte y el acumulado) ----------
   fila += 1;
   const valorTotal = sumaDirecto + sumaIndirecto;
+
+  // Fórmula de TOTAL COSTOS DIRECTOS / INDIRECTOS: suma SOLO las filas de
+  // ÍTEM de esa categoría (nunca las filas de Capítulo, para no sumar
+  // doble), en la columna de valor indicada.
+  function formulaCategoria(colValor, indirecto) {
+    const letra = columnaLetra(colValor);
+    const rangos = rangosPorCapitulo.filter((r) => r.esIndirecto === indirecto && r.filaFinItems >= r.filaInicioItems);
+    if (rangos.length === 0) return '0';
+    return rangos.map((r) => `SUM(${letra}${r.filaInicioItems}:${letra}${r.filaFinItems})`).join('+');
+  }
+
+  const filaDirectos = fila;
+  const filaIndirectos = fila + 1;
+  const filaValorTotal = fila + 2;
+
   const filasTotales = [
-    { texto: 'TOTAL COSTOS DIRECTOS =', base: sumaDirecto, porCorte: sumaDirectoPorCorte, acum: sumaDirectoAcum },
-    { texto: 'TOTAL COSTOS INDIRECTOS =', base: sumaIndirecto, porCorte: sumaIndirectoPorCorte, acum: sumaIndirectoAcum },
-    {
-      texto: 'VALOR TOTAL =',
-      base: valorTotal,
-      porCorte: sumaDirectoPorCorte.map((v, j) => v + sumaIndirectoPorCorte[j]),
-      acum: sumaDirectoAcum + sumaIndirectoAcum,
-    },
+    { fila: filaDirectos, texto: 'TOTAL COSTOS DIRECTOS =', base: sumaDirecto, porCorte: sumaDirectoPorCorte, acum: sumaDirectoAcum, indirecto: false },
+    { fila: filaIndirectos, texto: 'TOTAL COSTOS INDIRECTOS =', base: sumaIndirecto, porCorte: sumaIndirectoPorCorte, acum: sumaIndirectoAcum, indirecto: true },
   ];
-  filasTotales.forEach(({ texto, base, porCorte, acum }) => {
-    hoja.mergeCells(fila, 1, fila, 5);
-    const celdaTexto = hoja.getCell(fila, 1);
+  filasTotales.forEach(({ fila: filaFila, texto, base, porCorte, acum, indirecto }) => {
+    hoja.mergeCells(filaFila, 1, filaFila, 5);
+    const celdaTexto = hoja.getCell(filaFila, 1);
     celdaTexto.value = texto;
     estilizarCelda(celdaTexto, { negrita: true, relleno: DORADO, colorTexto: HUESO, numero: false, alineacion: 'right' });
-    [2, 3, 4, 5].forEach((c) => estilizarCelda(hoja.getCell(fila, c), { negrita: true, relleno: DORADO, colorTexto: HUESO, numero: false }));
+    [2, 3, 4, 5].forEach((c) => estilizarCelda(hoja.getCell(filaFila, c), { negrita: true, relleno: DORADO, colorTexto: HUESO, numero: false }));
 
-    const celdaBase = hoja.getCell(fila, 6);
-    celdaBase.value = base;
+    const celdaBase = hoja.getCell(filaFila, 6);
+    celdaBase.value = { formula: formulaCategoria(6, indirecto), result: base };
     estilizarCelda(celdaBase, { negrita: true, relleno: DORADO, colorTexto: HUESO });
 
     porCorte.forEach((valor, j) => {
       const col = colBloqueCorte(j);
-      [col, col + 1].forEach((cc) => estilizarCelda(hoja.getCell(fila, cc), { negrita: true, relleno: DORADO, colorTexto: HUESO, numero: false }));
-      const celda = hoja.getCell(fila, col + 2);
-      celda.value = valor;
+      [col, col + 1].forEach((cc) => estilizarCelda(hoja.getCell(filaFila, cc), { negrita: true, relleno: DORADO, colorTexto: HUESO, numero: false }));
+      const celda = hoja.getCell(filaFila, col + 2);
+      celda.value = { formula: formulaCategoria(col + 2, indirecto), result: valor };
       estilizarCelda(celda, { negrita: true, relleno: DORADO, colorTexto: HUESO });
     });
 
-    [colVrParcialTotalAcum - 2, colVrParcialTotalAcum - 1].forEach((cc) => estilizarCelda(hoja.getCell(fila, cc), { negrita: true, relleno: DORADO, colorTexto: HUESO, numero: false }));
-    const celdaAcum = hoja.getCell(fila, colVrParcialTotalAcum);
-    celdaAcum.value = acum;
+    [colVrParcialTotalAcum - 2, colVrParcialTotalAcum - 1].forEach((cc) => estilizarCelda(hoja.getCell(filaFila, cc), { negrita: true, relleno: DORADO, colorTexto: HUESO, numero: false }));
+    const celdaAcum = hoja.getCell(filaFila, colVrParcialTotalAcum);
+    celdaAcum.value = { formula: formulaCategoria(colVrParcialTotalAcum, indirecto), result: acum };
     estilizarCelda(celdaAcum, { negrita: true, relleno: DORADO, colorTexto: HUESO });
-
-    fila += 1;
   });
+
+  // VALOR TOTAL = TOTAL COSTOS DIRECTOS + TOTAL COSTOS INDIRECTOS (fórmula
+  // que referencia esas dos filas de arriba, no vuelve a sumar los ítems).
+  hoja.mergeCells(filaValorTotal, 1, filaValorTotal, 5);
+  const celdaTextoVT = hoja.getCell(filaValorTotal, 1);
+  celdaTextoVT.value = 'VALOR TOTAL =';
+  estilizarCelda(celdaTextoVT, { negrita: true, relleno: DORADO, colorTexto: HUESO, numero: false, alineacion: 'right' });
+  [2, 3, 4, 5].forEach((c) => estilizarCelda(hoja.getCell(filaValorTotal, c), { negrita: true, relleno: DORADO, colorTexto: HUESO, numero: false }));
+
+  const celdaBaseVT = hoja.getCell(filaValorTotal, 6);
+  celdaBaseVT.value = { formula: `${columnaLetra(6)}${filaDirectos}+${columnaLetra(6)}${filaIndirectos}`, result: valorTotal };
+  estilizarCelda(celdaBaseVT, { negrita: true, relleno: DORADO, colorTexto: HUESO });
+
+  cortesAIncluir.forEach((c, j) => {
+    const col = colBloqueCorte(j);
+    [col, col + 1].forEach((cc) => estilizarCelda(hoja.getCell(filaValorTotal, cc), { negrita: true, relleno: DORADO, colorTexto: HUESO, numero: false }));
+    const letra = columnaLetra(col + 2);
+    const celda = hoja.getCell(filaValorTotal, col + 2);
+    celda.value = { formula: `${letra}${filaDirectos}+${letra}${filaIndirectos}`, result: sumaDirectoPorCorte[j] + sumaIndirectoPorCorte[j] };
+    estilizarCelda(celda, { negrita: true, relleno: DORADO, colorTexto: HUESO });
+  });
+
+  [colVrParcialTotalAcum - 2, colVrParcialTotalAcum - 1].forEach((cc) => estilizarCelda(hoja.getCell(filaValorTotal, cc), { negrita: true, relleno: DORADO, colorTexto: HUESO, numero: false }));
+  const letraAcum = columnaLetra(colVrParcialTotalAcum);
+  const celdaAcumVT = hoja.getCell(filaValorTotal, colVrParcialTotalAcum);
+  celdaAcumVT.value = { formula: `${letraAcum}${filaDirectos}+${letraAcum}${filaIndirectos}`, result: sumaDirectoAcum + sumaIndirectoAcum };
+  estilizarCelda(celdaAcumVT, { negrita: true, relleno: DORADO, colorTexto: HUESO });
+
+  fila = filaValorTotal + 1;
 
   // ---------- Anticipos pendientes de amortizar ----------
   // No se vinculan a un ítem del presupuesto, así que no tienen "flujo por
@@ -238,16 +341,10 @@ export async function exportarControlPresupuestal({ proyecto, presupuesto, capit
   // Presupuestal real (el que coincide con el efectivo entregado al
   // contratista, y también la base correcta para cobrar la Administración).
   const anticiposPendientes = Number(cortesAIncluir[cortesAIncluir.length - 1]?.anticipos_pendientes || 0);
-  // OJO: antes esto se calculaba como `valorTotal + anticiposPendientes`,
-  // donde valorTotal es el PRESUPUESTO CONTRATADO completo (suma de
-  // valor_presupuestado de todos los capítulos). Eso sobrestima el total
-  // para cobro mientras la obra no esté 100% ejecutada. El total correcto
-  // es lo YA EJECUTADO a la fecha (sumaDirectoAcum + sumaIndirectoAcum) más
-  // los anticipos pendientes de amortizar — el mismo criterio que ya usa
-  // la pantalla de Presupuesto en la app.
   const totalEjecutadoAcum = sumaDirectoAcum + sumaIndirectoAcum;
   const totalConAnticipos = totalEjecutadoAcum + anticiposPendientes;
 
+  const filaAnticipos = fila;
   hoja.mergeCells(fila, 1, fila, 5);
   const celdaTextoAnt = hoja.getCell(fila, 1);
   celdaTextoAnt.value = 'ANTICIPOS PENDIENTES DE AMORTIZAR (no ligados a ítem) =';
@@ -259,10 +356,13 @@ export async function exportarControlPresupuestal({ proyecto, presupuesto, capit
   });
   [colVrParcialTotalAcum - 2, colVrParcialTotalAcum - 1].forEach((cc) => estilizarCelda(hoja.getCell(fila, cc), { negrita: true, relleno: GRIS_CALIDO, colorTexto: CARBON, numero: false }));
   const celdaAntAcum = hoja.getCell(fila, colVrParcialTotalAcum);
+  // Saldo de anticipos: no viene de sumar ítems (no está ligado a ninguno),
+  // así que se deja como número — no hay nada que una fórmula pudiera sumar.
   celdaAntAcum.value = anticiposPendientes;
   estilizarCelda(celdaAntAcum, { negrita: true, relleno: GRIS_CALIDO, colorTexto: CARBON });
   fila += 1;
 
+  const filaTotalControl = fila;
   hoja.mergeCells(fila, 1, fila, 5);
   const celdaTextoTotal = hoja.getCell(fila, 1);
   celdaTextoTotal.value = 'TOTAL CONTROL PRESUPUESTAL (para cobro) =';
@@ -274,22 +374,25 @@ export async function exportarControlPresupuestal({ proyecto, presupuesto, capit
   });
   [colVrParcialTotalAcum - 2, colVrParcialTotalAcum - 1].forEach((cc) => estilizarCelda(hoja.getCell(fila, cc), { negrita: true, relleno: DORADO, colorTexto: HUESO, numero: false }));
   const celdaTotalConAnt = hoja.getCell(fila, colVrParcialTotalAcum);
-  celdaTotalConAnt.value = totalConAnticipos;
+  // Total Control Presupuestal (para cobro) = VALOR TOTAL (Directos +
+  // Indirectos) + Anticipos pendientes. Sigue incluyendo Indirectos, sin
+  // cambios (solo la Administración de abajo los excluye de su base).
+  celdaTotalConAnt.value = { formula: `${letraAcum}${filaValorTotal}+${letraAcum}${filaAnticipos}`, result: totalConAnticipos };
   estilizarCelda(celdaTotalConAnt, { negrita: true, relleno: DORADO, colorTexto: HUESO });
   fila += 1;
 
   // ---------- Administración (solo si el proyecto tiene % configurado) ----------
-  // Base = Total Control Presupuestal (para cobro), es decir lo ya
-  // ejecutado + anticipos pendientes de amortizar (neto, no doble-cuenta
-  // cuando después se amortice). Así la Administración cobrada crece con
-  // el avance real de la obra y con los anticipos entregados.
+  // Base = TOTAL COSTOS DIRECTOS (acumulado) + Anticipos pendientes de
+  // amortizar — los Costos Indirectos NO entran en esta base (a diferencia
+  // del Total Control Presupuestal de arriba, que sí los incluye).
   const pctAdmin = Number(proyecto?.porcentaje_administracion || 0);
   if (pctAdmin > 0) {
-    const valorAdministracion = totalConAnticipos * (pctAdmin / 100);
+    const baseAdministracion = sumaDirectoAcum + anticiposPendientes;
+    const valorAdministracion = baseAdministracion * (pctAdmin / 100);
 
     hoja.mergeCells(fila, 1, fila, 5);
     const celdaTextoAdmin = hoja.getCell(fila, 1);
-    celdaTextoAdmin.value = `ADMINISTRACIÓN (${pctAdmin}%) =`;
+    celdaTextoAdmin.value = `ADMINISTRACIÓN (${pctAdmin}%) — solo sobre Directos + Anticipos =`;
     estilizarCelda(celdaTextoAdmin, { negrita: true, relleno: CARBON, colorTexto: HUESO, numero: false, alineacion: 'right' });
     [2, 3, 4, 5, 6].forEach((c) => estilizarCelda(hoja.getCell(fila, c), { negrita: true, relleno: CARBON, colorTexto: HUESO, numero: false }));
     cortesAIncluir.forEach((c, j) => {
@@ -298,7 +401,10 @@ export async function exportarControlPresupuestal({ proyecto, presupuesto, capit
     });
     [colVrParcialTotalAcum - 2, colVrParcialTotalAcum - 1].forEach((cc) => estilizarCelda(hoja.getCell(fila, cc), { negrita: true, relleno: CARBON, colorTexto: HUESO, numero: false }));
     const celdaAdmin = hoja.getCell(fila, colVrParcialTotalAcum);
-    celdaAdmin.value = valorAdministracion;
+    celdaAdmin.value = {
+      formula: `(${letraAcum}${filaDirectos}+${letraAcum}${filaAnticipos})*${pctAdmin}/100`,
+      result: valorAdministracion,
+    };
     estilizarCelda(celdaAdmin, { negrita: true, relleno: CARBON, colorTexto: HUESO });
     fila += 1;
   }
