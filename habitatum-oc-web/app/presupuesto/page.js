@@ -33,6 +33,11 @@ export default function Presupuesto() {
   const [detalleItem, setDetalleItem] = useState(null);
   const [cargandoDetalle, setCargandoDetalle] = useState(false);
 
+  // Modal de "agregar ítem" al presupuesto (sin reemplazar nada existente).
+  const [modalAgregarItem, setModalAgregarItem] = useState(null); // capítulo destino
+  const [nuevoItem, setNuevoItem] = useState({ codigo: '', descripcion: '', unidad: '', cantidad: '', valor_unitario: '' });
+  const [guardandoItem, setGuardandoItem] = useState(false);
+
   async function cargar() {
     setCargandoDatos(true);
     const supabase = crearClienteSupabase();
@@ -158,13 +163,26 @@ export default function Presupuesto() {
     setCargandoDetalle(true);
     try {
       const supabase = crearClienteSupabase();
+      // Desde la migración 028, un ítem de OC puede estar imputado a varios
+      // ítems del presupuesto por %; se consulta la tabla puente
+      // items_oc_presupuesto (no items_oc.presupuesto_item_id directamente)
+      // y se prorratea la cantidad mostrada según el % de cada imputación.
       const { data, error: errDetalle } = await supabase
-        .from('items_oc')
-        .select('id, descripcion, cantidad, valor_unitario, orden_compra_id, ordenes_compra(folio, fecha, estado, proveedores(nombre))')
-        .eq('presupuesto_item_id', it.id)
-        .order('id');
+        .from('items_oc_presupuesto')
+        .select('porcentaje, items_oc(id, descripcion, cantidad, valor_unitario, orden_compra_id, ordenes_compra(folio, fecha, estado, proveedores(nombre)))')
+        .eq('presupuesto_item_id', it.id);
       if (errDetalle) throw errDetalle;
-      const filas = (data || []).filter((d) => d.ordenes_compra?.estado !== 'ANULADA');
+      const filas = (data || [])
+        .filter((d) => d.items_oc && d.items_oc.ordenes_compra?.estado !== 'ANULADA')
+        .map((d) => ({
+          id: d.items_oc.id,
+          descripcion: d.items_oc.descripcion,
+          cantidad: Number(d.items_oc.cantidad || 0) * (Number(d.porcentaje || 0) / 100),
+          valor_unitario: d.items_oc.valor_unitario,
+          porcentaje: Number(d.porcentaje || 0),
+          orden_compra_id: d.items_oc.orden_compra_id,
+          ordenes_compra: d.items_oc.ordenes_compra,
+        }));
       filas.sort((a, b) => (a.ordenes_compra?.fecha || '').localeCompare(b.ordenes_compra?.fecha || ''));
       setDetalleItem(filas);
     } catch (err) {
@@ -178,6 +196,54 @@ export default function Presupuesto() {
   function cerrarModalItem() {
     setModalItem(null);
     setDetalleItem(null);
+  }
+
+  function abrirAgregarItem(cap) {
+    setModalAgregarItem(cap);
+    setNuevoItem({ codigo: '', descripcion: '', unidad: '', cantidad: '', valor_unitario: '' });
+  }
+
+  function cerrarAgregarItem() {
+    setModalAgregarItem(null);
+  }
+
+  async function guardarNuevoItem(e) {
+    e.preventDefault();
+    if (!modalAgregarItem) return;
+    setGuardandoItem(true);
+    try {
+      const supabase = crearClienteSupabase();
+      const cantidad = Number(nuevoItem.cantidad) || 0;
+      const valorUnitario = Number(nuevoItem.valor_unitario) || 0;
+      const valorParcial = cantidad * valorUnitario;
+      const orden = (modalAgregarItem.presupuesto_items || []).length;
+      const { error: errInsert } = await supabase.from('presupuesto_items').insert({
+        capitulo_id: modalAgregarItem.id,
+        codigo: nuevoItem.codigo,
+        descripcion: nuevoItem.descripcion,
+        unidad: nuevoItem.unidad,
+        cantidad,
+        valor_unitario: valorUnitario,
+        valor_parcial: valorParcial,
+        orden,
+      });
+      if (errInsert) throw errInsert;
+
+      // Mantiene consistente el "Presupuestado" del capítulo sumando el nuevo ítem.
+      const nuevoValorCap = Number(modalAgregarItem.valor_presupuestado || 0) + valorParcial;
+      const { error: errUpdateCap } = await supabase
+        .from('presupuesto_capitulos')
+        .update({ valor_presupuestado: nuevoValorCap })
+        .eq('id', modalAgregarItem.id);
+      if (errUpdateCap) throw errUpdateCap;
+
+      setModalAgregarItem(null);
+      await cargar();
+    } catch (err) {
+      setError(err.message || 'No se pudo agregar el ítem al presupuesto.');
+    } finally {
+      setGuardandoItem(false);
+    }
   }
 
   async function subirArchivo(e) {
@@ -494,6 +560,19 @@ export default function Presupuesto() {
                             </tr>
                           );
                         })}
+                      {abierto && (
+                        <tr className="border-t">
+                          <td colSpan={8} className="p-3 pl-6">
+                            <button
+                              type="button"
+                              onClick={() => abrirAgregarItem(cap)}
+                              className="text-xs border rounded px-2 py-1 hover:bg-gris-calido/20 text-dorado"
+                            >
+                              + Agregar ítem
+                            </button>
+                          </td>
+                        </tr>
+                      )}
                       </Fragment>
                     );
                   })}
@@ -530,7 +609,8 @@ export default function Presupuesto() {
                         <th className="py-2 pr-2">Descripción</th>
                         <th className="py-2 pr-2 text-right">Cantidad</th>
                         <th className="py-2 pr-2 text-right">Vr Unitario</th>
-                        <th className="py-2 text-right">Subtotal</th>
+                        <th className="py-2 pr-2 text-right">Subtotal</th>
+                        <th className="py-2 text-right">% Imp.</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -542,7 +622,8 @@ export default function Presupuesto() {
                           <td className="py-2 pr-2">{d.descripcion}</td>
                           <td className="py-2 pr-2 text-right">{d.cantidad}</td>
                           <td className="py-2 pr-2 text-right">{formatoPesos(d.valor_unitario)}</td>
-                          <td className="py-2 text-right">{formatoPesos(Number(d.cantidad || 0) * Number(d.valor_unitario || 0))}</td>
+                          <td className="py-2 pr-2 text-right">{formatoPesos(Number(d.cantidad || 0) * Number(d.valor_unitario || 0))}</td>
+                          <td className="py-2 text-right text-neutral-500">{d.porcentaje != null ? Number(d.porcentaje).toFixed(0) + '%' : '100%'}</td>
                         </tr>
                       ))}
                     </tbody>
@@ -556,6 +637,50 @@ export default function Presupuesto() {
                 </>
               )}
             </div>
+          </div>
+        </div>
+      )}
+
+      {modalAgregarItem && (
+        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-lg max-w-md w-full">
+            <div className="bg-carbon text-hueso px-5 py-3 flex items-center justify-between rounded-t-lg">
+              <p className="font-semibold">Agregar ítem — {modalAgregarItem.codigo} {modalAgregarItem.nombre}</p>
+              <button type="button" onClick={cerrarAgregarItem} className="text-hueso hover:text-dorado text-lg leading-none px-2">✕</button>
+            </div>
+            <form onSubmit={guardarNuevoItem} className="p-5 space-y-3">
+              <div>
+                <label className="text-xs text-neutral-500 block mb-1">Código</label>
+                <input type="text" required value={nuevoItem.codigo} onChange={(e) => setNuevoItem({ ...nuevoItem, codigo: e.target.value })} className="w-full border rounded px-3 py-1.5 text-sm" />
+              </div>
+              <div>
+                <label className="text-xs text-neutral-500 block mb-1">Descripción</label>
+                <input type="text" required value={nuevoItem.descripcion} onChange={(e) => setNuevoItem({ ...nuevoItem, descripcion: e.target.value })} className="w-full border rounded px-3 py-1.5 text-sm" />
+              </div>
+              <div className="grid grid-cols-3 gap-3">
+                <div>
+                  <label className="text-xs text-neutral-500 block mb-1">Unidad</label>
+                  <input type="text" value={nuevoItem.unidad} onChange={(e) => setNuevoItem({ ...nuevoItem, unidad: e.target.value })} className="w-full border rounded px-3 py-1.5 text-sm" />
+                </div>
+                <div>
+                  <label className="text-xs text-neutral-500 block mb-1">Cantidad</label>
+                  <input type="number" step="0.01" required value={nuevoItem.cantidad} onChange={(e) => setNuevoItem({ ...nuevoItem, cantidad: e.target.value })} className="w-full border rounded px-3 py-1.5 text-sm" />
+                </div>
+                <div>
+                  <label className="text-xs text-neutral-500 block mb-1">Valor unitario</label>
+                  <input type="number" step="0.01" required value={nuevoItem.valor_unitario} onChange={(e) => setNuevoItem({ ...nuevoItem, valor_unitario: e.target.value })} className="w-full border rounded px-3 py-1.5 text-sm" />
+                </div>
+              </div>
+              <p className="text-right text-sm text-neutral-500">
+                Valor parcial: {formatoPesos((Number(nuevoItem.cantidad) || 0) * (Number(nuevoItem.valor_unitario) || 0))}
+              </p>
+              <div className="flex justify-end gap-2 pt-2">
+                <button type="button" onClick={cerrarAgregarItem} className="text-sm px-3 py-1.5 rounded border">Cancelar</button>
+                <button type="submit" disabled={guardandoItem} className="text-sm px-3 py-1.5 rounded bg-carbon text-hueso disabled:opacity-50">
+                  {guardandoItem ? 'Guardando…' : 'Guardar ítem'}
+                </button>
+              </div>
+            </form>
           </div>
         </div>
       )}
