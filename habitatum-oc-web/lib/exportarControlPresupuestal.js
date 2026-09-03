@@ -540,6 +540,66 @@ export async function exportarControlPresupuestal({ proyecto, presupuesto, capit
     filaTotal.eachCell((celda) => { celda.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: DORADO_CLARO } }; });
   });
 
+  // ---------- Hoja de Órdenes de Compra del corte que se está cerrando/
+  // previsualizando ----------
+  // A diferencia de las hojas "Detalle" de arriba (una por cada corte
+  // incluido en el acumulado), esta es UNA sola hoja con el listado de
+  // Órdenes de Compra de "dicho corte" — el que se está cerrando (o el rango
+  // "a hoy" en la vista previa) — con exactamente las mismas columnas que ve
+  // el usuario en la pantalla de Órdenes de Compra, solo que con la Fecha
+  // primero. corte.ordenesResumen viene de obtenerOCsEnRango/
+  // construirCorteVirtual en calcularCorte.js (una fila por OC, ya con
+  // imputacion_completa calculada).
+  const corteObjetivo = cortesAIncluir[cortesAIncluir.length - 1];
+  if (corteObjetivo) {
+    const nombreHojaOC = esPreview && corteObjetivo.numero === hastaNumero
+      ? 'A hoy - Ordenes de Compra'
+      : `Corte ${corteObjetivo.numero} - Ordenes de Compra`;
+    const hojaOC = workbook.addWorksheet(nombreHojaOC.slice(0, 31));
+    hojaOC.columns = [
+      { header: 'Fecha', key: 'fecha', width: 12 },
+      { header: 'Folio', key: 'folio', width: 22 },
+      { header: 'Contrato', key: 'contrato', width: 16 },
+      { header: 'Proveedor', key: 'proveedor', width: 28 },
+      { header: 'Total', key: 'total', width: 15 },
+      { header: 'A Pagar', key: 'a_pagar', width: 15 },
+      { header: 'Estado', key: 'estado', width: 12 },
+    ];
+    hojaOC.getRow(1).eachCell((celda) => {
+      celda.font = { bold: true, color: { argb: HUESO } };
+      celda.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: CARBON } };
+    });
+    const ordenesResumen = corteObjetivo.ordenesResumen || [];
+    ordenesResumen.forEach((oc) => {
+      // Excel no puede mostrar los "pills" de color de la pantalla, así que
+      // se anotan como texto junto al Folio: (ANTICIPO) si es una orden de
+      // anticipo, ✓ si quedó totalmente imputada al presupuesto.
+      let folio = oc.folio || '';
+      if (oc.tipo_pago === 'ANTICIPO') folio += ' (ANTICIPO)';
+      if (oc.imputacion_completa) folio += ' ✓';
+      hojaOC.addRow({
+        fecha: oc.fecha,
+        folio,
+        contrato: oc.contratos?.numero_contrato || '—',
+        proveedor: oc.proveedores?.nombre || '—',
+        total: Number(oc.total || 0),
+        a_pagar: Number(oc.neto_a_pagar || 0),
+        estado: oc.estado || '',
+      });
+    });
+    hojaOC.getColumn('total').numFmt = '#,##0';
+    hojaOC.getColumn('a_pagar').numFmt = '#,##0';
+    hojaOC.addRow({});
+    const filaTotalOC = hojaOC.addRow({
+      proveedor: 'TOTAL',
+      total: ordenesResumen.reduce((acc, o) => acc + Number(o.total || 0), 0),
+      a_pagar: ordenesResumen.reduce((acc, o) => acc + Number(o.neto_a_pagar || 0), 0),
+    });
+    filaTotalOC.font = { bold: true, color: { argb: CARBON } };
+    filaTotalOC.eachCell((celda) => { celda.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: DORADO_CLARO } }; });
+    hojaOC.views = [{ state: 'frozen', ySplit: 1 }];
+  }
+
   const buffer = await workbook.xlsx.writeBuffer();
   const blob = new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
   const url = URL.createObjectURL(blob);
