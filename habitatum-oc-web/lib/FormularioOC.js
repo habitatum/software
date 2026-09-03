@@ -493,7 +493,7 @@ function ModalImputacion({ item, items, presupuestoCapitulos, ejecutadosPresupue
         return [{ presupuesto_item_id: '', porcentaje: 100 }];
       }
       if (prev.length === 1) {
-        // Al pasar de 1 a 2 Ã­tems, reparte 50/50 para que la suma siga en 100%.
+        // Al pasar de 1 a 2 ítems, reparte 50/50 para que la suma siga en 100%.
         return [
           { ...prev[0], porcentaje: 50 },
           { presupuesto_item_id: '', porcentaje: 50 },
@@ -505,7 +505,7 @@ function ModalImputacion({ item, items, presupuestoCapitulos, ejecutadosPresupue
   function quitarFila(j) {
     setAsignaciones((prev) => {
       const nuevas = prev.filter((_, idx) => idx !== j);
-      // Si queda una sola fila, se asume 100% automÃ¡ticamente.
+      // Si queda una sola fila, se asume 100% automáticamente.
       return nuevas.length === 1 ? [{ ...nuevas[0], porcentaje: 100 }] : nuevas;
     });
   }
@@ -528,13 +528,13 @@ function ModalImputacion({ item, items, presupuestoCapitulos, ejecutadosPresupue
         <div className="bg-carbon text-hueso px-5 py-3 flex items-center justify-between rounded-t-lg sticky top-0">
           <div>
             <p className="font-semibold">Imputar al presupuesto</p>
-            <p className="text-xs text-gris-calido">{item.descripcion || '(sin descripciÃ³n)'} â {formatoPesos(valorItem)}</p>
+            <p className="text-xs text-gris-calido">{item.descripcion || '(sin descripción)'} — {formatoPesos(valorItem)}</p>
           </div>
-          <button type="button" onClick={intentarCerrar} className="text-hueso hover:text-dorado text-lg leading-none px-2">â</button>
+          <button type="button" onClick={intentarCerrar} className="text-hueso hover:text-dorado text-lg leading-none px-2">✕</button>
         </div>
         <div className="p-5 space-y-3">
           {asignaciones.length === 0 && (
-            <p className="text-sm text-neutral-500">Este Ã­tem no estÃ¡ vinculado a ningÃºn Ã­tem del presupuesto.</p>
+            <p className="text-sm text-neutral-500">Este ítem no está vinculado a ningún ítem del presupuesto.</p>
           )}
           {asignaciones.map((a, j) => {
             const info = mapaItems[a.presupuesto_item_id];
@@ -558,7 +558,7 @@ function ModalImputacion({ item, items, presupuestoCapitulos, ejecutadosPresupue
                   )}
                   {necesitaPct && <span className="text-sm text-neutral-500">%</span>}
                   <button type="button" onClick={() => quitarFila(j)}
-                    className="text-red-600 text-sm border border-red-200 rounded w-7 h-7 leading-none hover:bg-red-50">â</button>
+                    className="text-red-600 text-sm border border-red-200 rounded w-7 h-7 leading-none hover:bg-red-50">✕</button>
                 </div>
                 {a.presupuesto_item_id && (
                   <div className="grid grid-cols-3 gap-2 text-xs text-neutral-500 bg-neutral-50 rounded p-2">
@@ -572,11 +572,11 @@ function ModalImputacion({ item, items, presupuestoCapitulos, ejecutadosPresupue
           })}
           <button type="button" onClick={agregarFila}
             className="text-sm border rounded px-3 py-1.5 hover:bg-gris-calido/20">
-            + Agregar Ã­tem del presupuesto
+            + Agregar ítem del presupuesto
           </button>
           {necesitaPct && (
             <p className={`text-sm ${sumaOk ? 'text-green-600' : 'text-red-600'}`}>
-              Suma de porcentajes: {sumaPct.toFixed(1)}% {sumaOk ? 'â' : 'â debe sumar 100% para poder guardar'}
+              Suma de porcentajes: {sumaPct.toFixed(1)}% {sumaOk ? '✓' : '— debe sumar 100% para poder guardar'}
             </p>
           )}
         </div>
@@ -594,7 +594,7 @@ function ModalImputacion({ item, items, presupuestoCapitulos, ejecutadosPresupue
       {confirmandoCierre && (
         <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-[60] p-4" onClick={(e) => e.stopPropagation()}>
           <div className="bg-white rounded-lg shadow-lg max-w-sm w-full p-5 space-y-4">
-            <p className="text-sm text-neutral-700">Tienes cambios sin guardar en la imputaciÃ³n de este Ã­tem. Â¿Deseas salir sin guardarlos?</p>
+            <p className="text-sm text-neutral-700">Tienes cambios sin guardar en la imputación de este ítem. ¿Deseas salir sin guardarlos?</p>
             <div className="flex justify-end gap-2">
               <button type="button" onClick={() => setConfirmandoCierre(false)}
                 className="border border-neutral-300 text-neutral-700 px-3 py-1.5 rounded text-sm hover:bg-neutral-50">
