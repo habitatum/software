@@ -33,8 +33,10 @@ export default function Presupuesto() {
   const [detalleItem, setDetalleItem] = useState(null);
   const [cargandoDetalle, setCargandoDetalle] = useState(false);
 
-  // Modal de "agregar ítem" al presupuesto (sin reemplazar nada existente).
-  const [modalAgregarItem, setModalAgregarItem] = useState(null); // capítulo destino
+  // Modal de "agregar ítem adicional": siempre va a un capítulo fijo
+  // llamado "Adicionales" al final del presupuesto (se crea si no existe),
+  // para no tocar nunca los capítulos del presupuesto aprobado.
+  const [modalAgregarItem, setModalAgregarItem] = useState(false);
   const [nuevoItem, setNuevoItem] = useState({ codigo: '', descripcion: '', unidad: '', cantidad: '', valor_unitario: '' });
   const [guardandoItem, setGuardandoItem] = useState(false);
 
@@ -198,27 +200,49 @@ export default function Presupuesto() {
     setDetalleItem(null);
   }
 
-  function abrirAgregarItem(cap) {
-    setModalAgregarItem(cap);
+function abrirAgregarItem() {
+    setModalAgregarItem(true);
     setNuevoItem({ codigo: '', descripcion: '', unidad: '', cantidad: '', valor_unitario: '' });
   }
 
   function cerrarAgregarItem() {
-    setModalAgregarItem(null);
+    setModalAgregarItem(false);
   }
 
   async function guardarNuevoItem(e) {
     e.preventDefault();
-    if (!modalAgregarItem) return;
     setGuardandoItem(true);
     try {
       const supabase = crearClienteSupabase();
       const cantidad = Number(nuevoItem.cantidad) || 0;
       const valorUnitario = Number(nuevoItem.valor_unitario) || 0;
       const valorParcial = cantidad * valorUnitario;
-      const orden = (modalAgregarItem.presupuesto_items || []).length;
+
+      // Los ítems adicionales van siempre a un capítulo "Adicionales" al
+      // final del presupuesto (se crea la primera vez que se usa). Así el
+      // presupuesto aprobado (los demás capítulos) nunca se modifica.
+      let capAdicionales = capitulos.find((c) => c.nombre === 'Adicionales');
+      if (!capAdicionales) {
+        const maxOrden = capitulos.reduce((acc, c) => Math.max(acc, Number(c.orden) || 0), 0);
+        const { data: nuevoCap, error: errCap } = await supabase
+          .from('presupuesto_capitulos')
+          .insert({
+            presupuesto_id: presupuesto.id,
+            codigo: 'ADIC',
+            nombre: 'Adicionales',
+            categoria: 'Adicionales',
+            valor_presupuestado: 0,
+            orden: maxOrden + 1,
+          })
+          .select()
+          .single();
+        if (errCap) throw errCap;
+        capAdicionales = { ...nuevoCap, presupuesto_items: [] };
+      }
+
+      const orden = (capAdicionales.presupuesto_items || []).length;
       const { error: errInsert } = await supabase.from('presupuesto_items').insert({
-        capitulo_id: modalAgregarItem.id,
+        capitulo_id: capAdicionales.id,
         codigo: nuevoItem.codigo,
         descripcion: nuevoItem.descripcion,
         unidad: nuevoItem.unidad,
@@ -229,18 +253,17 @@ export default function Presupuesto() {
       });
       if (errInsert) throw errInsert;
 
-      // Mantiene consistente el "Presupuestado" del capítulo sumando el nuevo ítem.
-      const nuevoValorCap = Number(modalAgregarItem.valor_presupuestado || 0) + valorParcial;
+      const nuevoValorCap = Number(capAdicionales.valor_presupuestado || 0) + valorParcial;
       const { error: errUpdateCap } = await supabase
         .from('presupuesto_capitulos')
         .update({ valor_presupuestado: nuevoValorCap })
-        .eq('id', modalAgregarItem.id);
+        .eq('id', capAdicionales.id);
       if (errUpdateCap) throw errUpdateCap;
 
-      setModalAgregarItem(null);
+      setModalAgregarItem(false);
       await cargar();
     } catch (err) {
-      setError(err.message || 'No se pudo agregar el ítem al presupuesto.');
+      setError(err.message || 'No se pudo agregar el ítem adicional.');
     } finally {
       setGuardandoItem(false);
     }
@@ -502,6 +525,16 @@ export default function Presupuesto() {
               )}
             </div>
 
+            <div className="flex justify-end mb-2">
+              <button
+                type="button"
+                onClick={abrirAgregarItem}
+                className="text-xs border rounded px-3 py-1.5 hover:bg-gris-calido/20 text-dorado"
+              >
+                + Agregar ítem adicional
+              </button>
+            </div>
+
             <div className="bg-white rounded-lg shadow-sm border overflow-hidden">
               <table className="w-full text-sm">
                 <thead className="bg-gris-calido/30 text-left">
@@ -560,19 +593,6 @@ export default function Presupuesto() {
                             </tr>
                           );
                         })}
-                      {abierto && (
-                        <tr className="border-t">
-                          <td colSpan={8} className="p-3 pl-6">
-                            <button
-                              type="button"
-                              onClick={() => abrirAgregarItem(cap)}
-                              className="text-xs border rounded px-2 py-1 hover:bg-gris-calido/20 text-dorado"
-                            >
-                              + Agregar ítem
-                            </button>
-                          </td>
-                        </tr>
-                      )}
                       </Fragment>
                     );
                   })}
@@ -645,7 +665,10 @@ export default function Presupuesto() {
         <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
           <div className="bg-white rounded-lg max-w-md w-full">
             <div className="bg-carbon text-hueso px-5 py-3 flex items-center justify-between rounded-t-lg">
-              <p className="font-semibold">Agregar ítem — {modalAgregarItem.codigo} {modalAgregarItem.nombre}</p>
+              <div>
+                <p className="font-semibold">Agregar ítem adicional</p>
+                <p className="text-xs text-hueso/70">Se agrega al capítulo &quot;Adicionales&quot; (se crea si no existe todavía)</p>
+              </div>
               <button type="button" onClick={cerrarAgregarItem} className="text-hueso hover:text-dorado text-lg leading-none px-2">✕</button>
             </div>
             <form onSubmit={guardarNuevoItem} className="p-5 space-y-3">
