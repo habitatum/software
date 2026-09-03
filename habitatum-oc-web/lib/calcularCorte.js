@@ -24,13 +24,15 @@ export function mapaItemsPresupuesto(capitulos) {
 
 // Trae las Órdenes de Compra vigentes del proyecto cuya fecha cae en el rango
 // (fechaDesde, fechaHasta] (fechaDesde null = sin límite inferior). Se lee de
-// la vista calculada (no de la tabla base) para tener también subtotal,
-// valor_iva, valor_aiu y descuento: los necesitamos para prorratear el IVA/AIU
-// de cada orden entre sus ítems (ver valorEjecutadoItem más abajo).
+// la vista calculada (no de la tabla base) para tener también subtotal_items,
+// valor_iva, valor_aiu, descuento, valor_retenido y devolucion_retenido: los
+// necesitamos para prorratear el IVA/AIU/Descuento/Retención neta de cada
+// orden entre sus ítems (ver valorEjecutadoItem más abajo), exactamente igual
+// que lo hace v_presupuesto_ejecutado en la base de datos.
 async function obtenerOCsEnRango(supabase, proyectoId, fechaDesde, fechaHasta) {
   let consulta = supabase
     .from('v_ordenes_compra_calculadas')
-    .select('id, folio, fecha, subtotal, valor_iva, valor_aiu, descuento, proveedores(nombre)')
+    .select('id, folio, fecha, subtotal, subtotal_items, valor_iva, valor_aiu, descuento, valor_retenido, devolucion_retenido, proveedores(nombre)')
     .eq('proyecto_id', proyectoId)
     .neq('estado', 'ANULADA')
     .lte('fecha', fechaHasta);
@@ -80,24 +82,36 @@ async function obtenerItemsDeOrdenes(supabase, ordenIds) {
 
 // Valor realmente ejecutado de un ítem de OC: su subtotal (cantidad × valor
 // unitario) más la parte proporcional que le corresponde del IVA + AIU menos
-// el Descuento de ESA orden completa, repartido según el peso de ese ítem
-// dentro del subtotal de la orden (la misma proporción que ya se muestra en
-// la columna "% Orden" del detalle de cada OC). Así, la suma de los ítems de
-// una OC siempre coincide exactamente con el Total de esa OC, y el Ejecutado
-// del Presupuesto cuadra con el Total de Órdenes de Compra.
+// el Descuento y la Retención neta (retenido - devolución) de ESA orden
+// completa, repartido según el peso de ese ítem dentro del subtotal_items de
+// la orden (la misma proporción que ya se muestra en la columna "% Orden" del
+// detalle de cada OC). Así, la suma de los ítems de una OC siempre coincide
+// exactamente con el Total de esa OC, y el Ejecutado del Presupuesto (este
+// archivo, para los cortes/Excel) cuadra con el Ejecutado que ya muestra la
+// pantalla de Presupuesto (v_presupuesto_ejecutado en la base de datos).
 function valorEjecutadoItem(item, oc) {
   const subtotalItem = Number(item.cantidad || 0) * Number(item.valor_unitario || 0);
-  const subtotalOC = Number(oc?.subtotal || 0);
+  // OJO: el prorrateo es sobre subtotal_items (la suma cruda de los ítems de
+  // la orden), NO sobre subtotal (que en una orden ANTICIPO con % ya viene
+  // reducido) — igual que v_presupuesto_ejecutado desde la migración 023.
+  // Usar subtotal aquí infla el ejecutado de una orden ANTICIPO con % y
+  // descuadra el Excel contra la pantalla de Presupuesto.
+  const subtotalOC = Number(oc?.subtotal_items || 0);
   if (!oc || subtotalOC <= 0) return subtotalItem;
-  const ajusteOC = Number(oc.valor_iva || 0) + Number(oc.valor_aiu || 0) - Number(oc.descuento || 0);
+  // La retención neta (retenido - devolución) se resta igual que en
+  // v_presupuesto_ejecutado desde la migración 026: el Ejecutado real es lo
+  // que de verdad se le debe/pagó al contratista, no el bruto antes de
+  // retener.
+  const ajusteOC = Number(oc.valor_iva || 0) + Number(oc.valor_aiu || 0) - Number(oc.descuento || 0)
+    - (Number(oc.valor_retenido || 0) - Number(oc.devolucion_retenido || 0));
   const proporcion = subtotalItem / subtotalOC;
   return subtotalItem + proporcion * ajusteOC;
 }
 
 // Agrupa una lista de items_oc por ítem de presupuesto, sumando cantidad y
-// valor total (incluyendo la parte proporcional de IVA/AIU/Descuento de cada
-// orden — ver valorEjecutadoItem). ocPorId: mapa id de OC -> fila de
-// v_ordenes_compra_calculadas (con subtotal/valor_iva/valor_aiu/descuento).
+// valor total (incluyendo la parte proporcional de IVA/AIU/Descuento/
+// Retención neta de cada orden — ver valorEjecutadoItem). ocPorId: mapa id
+// de OC -> fila de v_ordenes_compra_calculadas.
 export function agruparPorItemPresupuesto(itemsOC, ocPorId = {}) {
   const mapa = {};
   itemsOC.forEach((it) => {
@@ -214,8 +228,9 @@ export async function cerrarCorte(supabase, { presupuestoId, proyectoId, numero,
       descripcion: it.descripcion,
       cantidad: Number(it.cantidad || 0),
       valor_unitario: Number(it.valor_unitario || 0),
-      // Incluye la parte proporcional de IVA/AIU/Descuento de la orden (ver
-      // valorEjecutadoItem), así que puede diferir de cantidad × valor_unitario.
+      // Incluye la parte proporcional de IVA/AIU/Descuento/Retención neta
+      // de la orden (ver valorEjecutadoItem), así que puede diferir de
+      // cantidad × valor_unitario.
       valor: valorEjecutadoItem(it, oc),
     };
   });
