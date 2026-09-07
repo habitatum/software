@@ -1,0 +1,27 @@
+{
+  "name": "HABITATUM · Órdenes de Compra",
+  "short_name": "HABITATUM",
+  "description": "Sistema de Contratos, Proveedores y Órdenes de Compra",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#EFECE6",
+  "theme_color": "#2E2E2E",
+  "icons": [
+    {
+      "src": "/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png"
+    },
+    {
+      "src": "/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png"
+    },
+    {
+      "src": "/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
+    }
+  ]
+}
