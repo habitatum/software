@@ -391,8 +391,8 @@ function abrirAgregarItem() {
   return (
     <div>
       <NavBar usuario={usuario} proyecto={proyecto} />
-      <main className="p-8 max-w-6xl mx-auto space-y-6">
-        <div className="flex items-center justify-between">
+      <main className="p-4 sm:p-8 max-w-6xl mx-auto space-y-6">
+        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
           <div>
             <h1 className="text-2xl font-semibold">Presupuesto</h1>
             <p className="text-sm text-neutral-500">{proyecto.nombre}</p>
@@ -424,7 +424,7 @@ function abrirAgregarItem() {
               <Dato label="Valor total presupuesto" valor={formatoPesos(presupuesto.valor_total)} />
             </div>
 
-            <div className="bg-carbon text-hueso rounded-lg p-5 grid grid-cols-3 gap-4 text-sm">
+            <div className="bg-carbon text-hueso rounded-lg p-5 grid grid-cols-1 sm:grid-cols-3 gap-4 text-sm">
               <FilaResumenGrande label="Presupuestado" valor={totalPresupuestado} />
               <FilaResumenGrande label="Ejecutado (ítems)" valor={totalEjecutado} />
               <FilaResumenGrande label="Saldo" valor={totalPresupuestado - totalEjecutado} />
@@ -455,7 +455,7 @@ function abrirAgregarItem() {
             </div>
 
             <div className="bg-white rounded-lg shadow-sm border p-5 space-y-4">
-              <div className="flex items-center justify-between">
+              <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
                 <h2 className="font-semibold">Cortes de Control Presupuestal</h2>
                 {cortes.length > 0 && (
                   <button
@@ -473,7 +473,8 @@ function abrirAgregarItem() {
               )}
 
               {cortes.length > 0 && (
-                <table className="w-full text-sm">
+                <div className="overflow-x-auto">
+<table className="w-full text-sm">
                   <thead className="text-left text-neutral-500">
                     <tr>
                       <th className="py-1">Corte</th>
@@ -501,6 +502,7 @@ function abrirAgregarItem() {
                     ))}
                   </tbody>
                 </table>
+</div>
               )}
 
               {usuario.rol !== 'lectura' && pendiente && (
@@ -547,7 +549,7 @@ function abrirAgregarItem() {
               </button>
             </div>
 
-            <div className="bg-white rounded-lg shadow-sm border overflow-hidden">
+            <div className="bg-white rounded-lg shadow-sm border overflow-x-auto">
               <table className="w-full text-sm">
                 <thead className="bg-gris-calido/30 text-left">
                   <tr>
@@ -632,7 +634,8 @@ function abrirAgregarItem() {
                 <p className="text-sm text-neutral-500">Todavía no hay ningún costo de Orden de Compra cargado en este ítem.</p>
               ) : (
                 <>
-                  <table className="w-full text-sm">
+                  <div className="overflow-x-auto">
+<table className="w-full text-sm">
                     <thead className="text-left text-neutral-500 border-b">
                       <tr>
                         <th className="py-2 pr-2">Folio OC</th>
@@ -660,6 +663,7 @@ function abrirAgregarItem() {
                       ))}
                     </tbody>
                   </table>
+</div>
                   <p className="text-xs text-neutral-400 mt-3">
                     Subtotal antes de prorratear IVA/AIU/Descuento/Retención de cada orden. El valor &quot;Ejecutado&quot; del ítem puede diferir levemente porque incluye esa parte proporcional.
                   </p>
@@ -692,7 +696,7 @@ function abrirAgregarItem() {
                 <label className="text-xs text-neutral-500 block mb-1">Descripción</label>
                 <input type="text" required value={nuevoItem.descripcion} onChange={(e) => setNuevoItem({ ...nuevoItem, descripcion: e.target.value })} className="w-full border rounded px-3 py-1.5 text-sm" />
               </div>
-              <div className="grid grid-cols-3 gap-3">
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                 <div>
                   <label className="text-xs text-neutral-500 block mb-1">Unidad</label>
                   <input type="text" value={nuevoItem.unidad} onChange={(e) => setNuevoItem({ ...nuevoItem, unidad: e.target.value })} className="w-full border rounded px-3 py-1.5 text-sm" />
