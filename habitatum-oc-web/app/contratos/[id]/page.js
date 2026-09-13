@@ -188,8 +188,8 @@ export default function DetalleContrato() {
   return (
     <div>
       <NavBar usuario={usuario} proyecto={proyecto} />
-      <main className="p-8 max-w-4xl mx-auto space-y-6">
-        <div className="flex items-center justify-between">
+      <main className="p-4 sm:p-8 max-w-4xl mx-auto space-y-6">
+        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
           <div className="flex items-center gap-3">
             <h1 className="text-2xl font-semibold">{contrato.numero_contrato}</h1>
             {anulado && (
@@ -246,7 +246,7 @@ export default function DetalleContrato() {
             </div>
 
             {items.length > 0 && (
-              <div className="bg-white rounded-lg shadow-sm border overflow-hidden">
+              <div className="bg-white rounded-lg shadow-sm border overflow-x-auto">
                 <h2 className="font-medium p-4 pb-0">Cuadro de ítems (informativo)</h2>
                 <table className="w-full text-sm mt-2">
                   <thead className="bg-gris-calido/30 text-left">
@@ -279,7 +279,7 @@ export default function DetalleContrato() {
               <div className="flex justify-between font-semibold border-t pt-2 mt-2"><span>Devolución acumulada</span><span>{formatoPesos(acumulados?.devolucion_acumulada)}</span></div>
             </div>
 
-            <div className="bg-white rounded-lg shadow-sm border overflow-hidden">
+            <div className="bg-white rounded-lg shadow-sm border overflow-x-auto">
               <h2 className="font-medium p-4 pb-0">Órdenes de Compra del contrato</h2>
               <table className="w-full text-sm mt-2">
                 <thead className="bg-gris-calido/30 text-left"><tr><th className="p-3">Folio</th><th className="p-3">Fecha</th><th className="p-3">Tipo pago</th><th className="p-3 text-right">Total</th><th className="p-3 text-right">A Pagar</th></tr></thead>
@@ -389,7 +389,7 @@ export default function DetalleContrato() {
               </p>
               {errorExcel && <p className="text-red-600 text-xs mt-1">{errorExcel}</p>}
               {form.items_excel.length > 0 && (
-                <div className="mt-2 border rounded overflow-hidden">
+                <div className="mt-2 border rounded overflow-x-auto">
                   <table className="w-full text-xs">
                     <thead className="bg-gris-calido/30 text-left">
                       <tr><th className="p-2">Descripción</th><th className="p-2">Unidad</th><th className="p-2 text-right">Cantidad</th><th className="p-2 text-right">Valor unitario</th><th className="p-2 text-right">Total</th></tr>
