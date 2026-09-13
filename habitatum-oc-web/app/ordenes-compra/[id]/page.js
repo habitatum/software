@@ -98,8 +98,8 @@ export default function DetalleOrdenCompra() {
   return (
     <div>
       <NavBar usuario={usuario} proyecto={proyecto} />
-      <main className="p-8 max-w-4xl mx-auto space-y-6">
-        <div className="flex items-center justify-between">
+      <main className="p-4 sm:p-8 max-w-4xl mx-auto space-y-6">
+        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
           <div>
             <h1 className="text-2xl font-semibold">{oc.folio}</h1>
             {oc.estado === 'ANULADA' && <span className="text-xs font-medium text-red-600">ANULADA</span>}
