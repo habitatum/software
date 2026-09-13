@@ -110,7 +110,7 @@ export default function Usuarios() {
   return (
     <div>
       <NavBar usuario={usuario} />
-      <main className="p-8 max-w-3xl mx-auto space-y-6">
+      <main className="p-4 sm:p-8 max-w-3xl mx-auto space-y-6">
         <h1 className="text-2xl font-semibold">Usuarios</h1>
 
         <div className="bg-white border rounded-lg p-5 space-y-4">
@@ -171,7 +171,7 @@ export default function Usuarios() {
           )}
         </div>
 
-        <div className="bg-white rounded-lg shadow-sm border overflow-hidden">
+        <div className="bg-white rounded-lg shadow-sm border overflow-x-auto">
           <table className="w-full text-sm">
             <thead className="bg-gris-calido/30 text-left"><tr><th className="p-3">Nombre</th><th className="p-3">Correo / Usuario</th><th className="p-3">Rol</th><th className="p-3">Estado</th><th className="p-3">Bitácora</th><th className="p-3">Acciones</th></tr></thead>
             <tbody>
