@@ -98,8 +98,8 @@ export default function Proveedores() {
   return (
     <div>
       <NavBar usuario={usuario} />
-      <main className="p-8 max-w-4xl mx-auto">
-        <div className="flex justify-between items-center mb-6">
+      <main className="p-4 sm:p-8 max-w-4xl mx-auto">
+        <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-3 mb-6">
           <h1 className="text-2xl font-semibold">Proveedores</h1>
           {usuario.rol !== 'lectura' && (
             <button onClick={() => (mostrarForm ? cancelar() : abrirCreacion())} className="bg-carbon text-hueso px-4 py-2 rounded text-sm">
@@ -133,7 +133,7 @@ export default function Proveedores() {
           </form>
         )}
 
-        <div className="bg-white rounded-lg shadow-sm border overflow-hidden">
+        <div className="bg-white rounded-lg shadow-sm border overflow-x-auto">
           <table className="w-full text-sm">
             <thead className="bg-gris-calido/30 text-left">
               <tr>
