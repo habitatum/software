@@ -171,8 +171,8 @@ export default function BitacoraDeObra() {
   return (
     <div>
       <NavBar usuario={usuario} proyecto={proyecto} />
-      <main className="p-8 max-w-4xl mx-auto space-y-6">
-        <div className="flex items-start justify-between gap-4">
+      <main className="p-4 sm:p-8 max-w-4xl mx-auto space-y-6">
+        <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4">
           <div>
             <h1 className="text-2xl font-semibold">Bitácora de obra</h1>
             <p className="text-sm text-neutral-500 mt-1">{proyecto.nombre}</p>
