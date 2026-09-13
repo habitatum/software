@@ -178,8 +178,8 @@ export default function Contratos() {
   return (
     <div>
       <NavBar usuario={usuario} proyecto={proyecto} />
-      <main className="p-8 max-w-4xl mx-auto">
-        <div className="flex justify-between items-center mb-6">
+      <main className="p-4 sm:p-8 max-w-4xl mx-auto">
+        <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-3 mb-6">
           <div>
             <h1 className="text-2xl font-semibold">Contratos</h1>
             <p className="text-sm text-neutral-500">{proyecto.nombre}</p>
@@ -321,7 +321,7 @@ export default function Contratos() {
               </p>
               {errorExcel && <p className="text-red-600 text-xs mt-1">{errorExcel}</p>}
               {form.items_excel.length > 0 && (
-                <div className="mt-2 border rounded overflow-hidden">
+                <div className="mt-2 border rounded overflow-x-auto">
                   <table className="w-full text-xs">
                     <thead className="bg-gris-calido/30 text-left">
                       <tr><th className="p-2">Descripción</th><th className="p-2">Unidad</th><th className="p-2 text-right">Cantidad</th><th className="p-2 text-right">Valor unitario</th><th className="p-2 text-right">Total</th></tr>
@@ -377,7 +377,7 @@ export default function Contratos() {
           </form>
         )}
 
-        <div className="bg-white rounded-lg shadow-sm border overflow-hidden">
+        <div className="bg-white rounded-lg shadow-sm border overflow-x-auto">
           <table className="w-full text-sm">
             <thead className="bg-gris-calido/30 text-left">
               <tr><th className="p-3">N° Contrato</th><th className="p-3">Contratista</th><th className="p-3 text-right">Valor inicial</th></tr>
