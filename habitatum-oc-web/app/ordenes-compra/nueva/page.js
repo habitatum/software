@@ -179,7 +179,7 @@ export default function NuevaOrdenCompra() {
   return (
     <div>
       <NavBar usuario={usuario} proyecto={proyecto} />
-      <main className="p-8 max-w-4xl mx-auto">
+      <main className="p-4 sm:p-8 max-w-4xl mx-auto">
         <h1 className="text-2xl font-semibold mb-1">Nueva Orden de Compra</h1>
         <p className="text-sm text-neutral-500 mb-6">{proyecto.nombre}</p>
 
