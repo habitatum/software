@@ -81,8 +81,8 @@ setImputacionCompleta({});
   return (
     <div>
       <NavBar usuario={usuario} proyecto={proyecto} />
-      <main className="p-8 max-w-6xl mx-auto">
-        <div className="flex items-center justify-between mb-6">
+      <main className="p-4 sm:p-8 max-w-6xl mx-auto">
+        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-6">
           <div>
             <h1 className="text-2xl font-semibold">Órdenes de Compra</h1>
             <p className="text-sm text-neutral-500">{proyecto.nombre}</p>
@@ -107,7 +107,7 @@ setImputacionCompleta({});
           </select>
         </div>
 
-        <div className="bg-white rounded-lg shadow-sm border overflow-hidden">
+        <div className="bg-white rounded-lg shadow-sm border overflow-x-auto">
           <table className="w-full text-sm">
             <thead className="bg-gris-calido/30 text-left">
               <tr>
