@@ -9,6 +9,7 @@ import { formatoPesos } from '@/lib/calculosOC';
 import { TIPOS_CONTRATO, NOMBRES_TIPO_CONTRATO, plantillaClausulas, clausulasDelContrato } from '@/lib/plantillasContrato';
 import { parseItemsExcel } from '@/lib/parseItemsContrato';
 import NavBar from '@/components/NavBar';
+import { compartirOAbrirArchivo } from '@/lib/compartirArchivo';
 
 function campoFormEdicion(contrato) {
   return {
@@ -48,6 +49,7 @@ export default function DetalleContrato() {
   const [guardando, setGuardando] = useState(false);
   const [procesandoEstado, setProcesandoEstado] = useState(false);
   const [errorEstado, setErrorEstado] = useState('');
+  const [generandoPDF, setGenerandoPDF] = useState(false);
 
   async function cargar() {
     const supabase = crearClienteSupabase();
@@ -127,6 +129,12 @@ export default function DetalleContrato() {
     cargar();
   }
 
+  async function descargarPDF() {
+    setGenerandoPDF(true);
+    await compartirOAbrirArchivo(`/api/contratos/${id}/pdf`, `${contrato.numero_contrato}.pdf`);
+    setGenerandoPDF(false);
+  }
+
   // Anular / reactivar: exclusivo de admin. El contrato anulado no se borra,
   // solo queda bloqueado (no se puede editar ni usarlo en Órdenes de Compra
   // nuevas) hasta que un admin lo reactive.
@@ -200,9 +208,9 @@ export default function DetalleContrato() {
             {usuario.rol !== 'lectura' && !editando && !anulado && (
               <button onClick={abrirEdicion} className="border px-4 py-2 rounded text-sm">Editar</button>
             )}
-            <a href={`/api/contratos/${id}/pdf`} target="_blank" rel="noreferrer" className="bg-carbon text-hueso px-4 py-2 rounded text-sm">
-              Descargar PDF
-            </a>
+            <button onClick={descargarPDF} disabled={generandoPDF} className="bg-carbon text-hueso px-4 py-2 rounded text-sm disabled:opacity-50">
+              {generandoPDF ? 'Generando...' : 'Descargar PDF'}
+            </button>
             {usuario.rol === 'admin' && !editando && (
               <button
                 onClick={alternarAnulado}
