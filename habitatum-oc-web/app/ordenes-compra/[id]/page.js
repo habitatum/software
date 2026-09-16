@@ -7,6 +7,7 @@ import { useProyectoActual } from '@/lib/useProyectoActual';
 import { crearClienteSupabase } from '@/lib/supabaseClient';
 import { formatoPesos } from '@/lib/calculosOC';
 import NavBar from '@/components/NavBar';
+import { compartirOAbrirArchivo } from '@/lib/compartirArchivo';
 
 export default function DetalleOrdenCompra() {
   const { id } = useParams();
@@ -20,6 +21,7 @@ export default function DetalleOrdenCompra() {
   const [auditoria, setAuditoria] = useState(null);
   const [anulando, setAnulando] = useState(false);
   const [eliminando, setEliminando] = useState(false);
+  const [generandoPDF, setGenerandoPDF] = useState(false);
 
   async function cargar() {
     const supabase = crearClienteSupabase();
@@ -79,6 +81,12 @@ export default function DetalleOrdenCompra() {
     cargarAuditoria();
   }
 
+  async function descargarPDF() {
+    setGenerandoPDF(true);
+    await compartirOAbrirArchivo(`/api/ordenes-compra/${id}/pdf`, `${oc.folio}.pdf`);
+    setGenerandoPDF(false);
+  }
+
   async function eliminarOrden() {
     if (!window.confirm(
       `¿Eliminar definitivamente la Orden de Compra ${oc.folio}? Esta acción no se puede deshacer y se borrarán también sus ítems. El consecutivo de folio quedará libre para la próxima Orden de Compra.`
@@ -123,10 +131,10 @@ export default function DetalleOrdenCompra() {
                 Editar
               </Link>
             )}
-            <a href={`/api/ordenes-compra/${id}/pdf`} target="_blank" rel="noreferrer"
-              className="bg-carbon text-hueso px-4 py-2 rounded text-sm">
-              Descargar PDF
-            </a>
+            <button onClick={descargarPDF} disabled={generandoPDF}
+              className="bg-carbon text-hueso px-4 py-2 rounded text-sm disabled:opacity-50">
+              {generandoPDF ? 'Generando...' : 'Descargar PDF'}
+            </button>
           </div>
         </div>
 
