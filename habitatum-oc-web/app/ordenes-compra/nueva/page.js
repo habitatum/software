@@ -50,7 +50,7 @@ export default function NuevaOrdenCompra() {
       // Los Proveedores son globales: se muestran todos, sin filtrar por proyecto.
       const [{ data: prov }, { data: cont }, { data: ant }, { data: usrs }, { data: pres }] = await Promise.all([
         supabase.from('proveedores').select('id, nombre').order('nombre'),
-        supabase.from('contratos').select('id, numero_contrato, estado, valor_inicial').eq('proyecto_id', proyecto.id).order('numero_contrato'),
+        supabase.from('contratos').select('id, numero_contrato, estado, valor_inicial, proveedor_id, concepto, proveedores(nombre)').eq('proyecto_id', proyecto.id).order('numero_contrato'),
         // Se usa la vista calculada para traer también el saldo pendiente por
         // amortizar de cada anticipo (necesario para avisar/objetar si una OC
         // se pasa del saldo disponible).
