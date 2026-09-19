@@ -46,11 +46,11 @@ export default function FormularioOC({
             </select>
           </Campo>
           <Campo label="Contrato (opcional)">
-            <select value={oc.contrato_id} onChange={(e) => setOc({ ...oc, contrato_id: e.target.value })} className={INPUT}>
+            <select value={oc.contrato_id} onChange={(e) => { const contratoId = e.target.value; const c = contratos.find((x) => x.id === contratoId); setOc({ ...oc, contrato_id: contratoId, proveedor_id: c ? c.proveedor_id : oc.proveedor_id, descripcion: c ? (c.concepto || oc.descripcion) : oc.descripcion }); }} className={INPUT}>
               <option value="">— Sin contrato —</option>
               {contratos.map((c) => (
                 <option key={c.id} value={c.id}>
-                  {c.numero_contrato}{c.estado === 'ANULADO' ? ' (ANULADO)' : ''}
+                  {c.numero_contrato}{c.proveedores?.nombre ? ` - ${c.proveedores.nombre}` : ''}{c.estado === 'ANULADO' ? ' (ANULADO)' : ''}
                 </option>
               ))}
             </select>
