@@ -16,12 +16,23 @@ export async function compartirOAbrirArchivo(url, nombreArchivo, opciones = {}) 
     const blob = await respuesta.blob();
     const archivo = new File([blob], nombreArchivo, { type: tipo });
 
-    if (typeof navigator !== 'undefined' && navigator.canShare && navigator.canShare({ files: [archivo] })) {
+    // Solo en celular/tablet usamos la hoja nativa de compartir: es la única
+    // forma de guardar el PDF cuando la app está instalada en la pantalla de
+    // inicio de iPhone/iPad. Windows/Mac con Chrome o Edge también implementan
+    // navigator.share con archivos, pero ahí el usuario espera una descarga
+    // directa a la carpeta de Descargas, no la hoja de compartir — por eso se
+    // restringe esta rama a dispositivos móviles.
+    const esMovil = typeof navigator !== 'undefined' && (
+      /Android|iPhone|iPad|iPod/i.test(navigator.userAgent) ||
+      (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1)
+    );
+
+    if (esMovil && navigator.canShare && navigator.canShare({ files: [archivo] })) {
       await navigator.share({ files: [archivo] });
       return;
     }
 
-    // Escritorio / Android: descarga directa del blob.
+    // Escritorio (y celulares sin soporte de Web Share con archivos): descarga directa del blob.
     const urlObjeto = URL.createObjectURL(blob);
     const enlace = document.createElement('a');
     enlace.href = urlObjeto;
