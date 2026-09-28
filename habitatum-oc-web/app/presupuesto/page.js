@@ -8,6 +8,7 @@ import { parsearPresupuesto } from '@/lib/parsePresupuesto';
 import { calcularPendientePorCortar, cerrarCorte, mapaItemsPresupuesto, construirCorteVirtual, obtenerOCsEnRango } from '@/lib/calcularCorte';
 import { exportarControlPresupuestal, prepararCortesParaExportar } from '@/lib/exportarControlPresupuestal';
 import NavBar from '@/components/NavBar';
+import PresupuestoTodoCosto from '@/lib/PresupuestoTodoCosto';
 
 export default function Presupuesto() {
   const { usuario, cargando } = useUsuarioActual();
@@ -87,7 +88,7 @@ export default function Presupuesto() {
     setCargandoDatos(false);
   }
 
-  useEffect(() => { if (usuario && proyecto) cargar(); }, [usuario, proyecto]); // eslint-disable-line
+  useEffect(() => { if (usuario && proyecto && proyecto.modelo_contratacion !== 'TODO_COSTO') cargar(); }, [usuario, proyecto]); // eslint-disable-line
 
   async function confirmarCierreCorte() {
     if (!window.confirm(`¿Cerrar el Corte ${cortes.length + 1} con fecha de corte ${fechaCierre}? Una ver cerrado no se puede modificar.`)) return;
@@ -362,6 +363,18 @@ function abrirAgregarItem() {
   }
 
   if (cargando || !usuario || cargandoProyecto || !proyecto) return null;
+
+  // Proyectos TODO COSTO: presupuesto con costo/venta y control propio (ver lib/PresupuestoTodoCosto.js).
+  if (proyecto.modelo_contratacion === 'TODO_COSTO') {
+    return (
+      <div>
+        <NavBar usuario={usuario} proyecto={proyecto} />
+        <main className="p-4 sm:p-8 max-w-6xl mx-auto">
+          <PresupuestoTodoCosto usuario={usuario} proyecto={proyecto} />
+        </main>
+      </div>
+    );
+  }
 
   const totalPresupuestado = capitulos.reduce((acc, c) => acc + Number(c.valor_presupuestado || 0), 0);
   const totalEjecutado = capitulos.reduce((acc, c) => acc + sumaEjecutadoCapitulo(c, ejecutados), 0);

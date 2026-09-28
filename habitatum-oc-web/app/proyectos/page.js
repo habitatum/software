@@ -6,7 +6,97 @@ import { useUsuarioActual } from '@/lib/useUsuarioActual';
 import { crearClienteSupabase } from '@/lib/supabaseClient';
 import { guardarProyectoActualId, obtenerProyectoActualId, limpiarProyectoActual } from '@/lib/proyectoActual';
 
-const VACIO = { nombre: '', codigo: '', cliente: '', mostrarMarca: true, nombreEmisor: '', porcentajeAdministracion: '' };
+const FINANZAS_VACIO = {
+  modelo: 'ADMINISTRACION_DELEGADA',
+  modalidad: 'AIU', porcentajeUtilidad: '', porcentajeA: '', porcentajeI: '', porcentajeU: '',
+  valorContratoCliente: '', cuentaReceptora: 'HABITATUM', topeCajaMenor: '1000000',
+};
+const VACIO = { nombre: '', codigo: '', cliente: '', mostrarMarca: true, nombreEmisor: '', porcentajeAdministracion: '', ...FINANZAS_VACIO };
+
+const num = (v) => (v === '' || v === null || v === undefined ? 0 : Number(v));
+
+// Valida y arma los datos financieros de un proyecto TODO COSTO (tabla proyectos_finanzas,
+// que por seguridad solo puede leer/escribir un admin).
+function validarFinanzas(f) {
+  if (f.modelo !== 'TODO_COSTO') return { ok: true };
+  if (f.modalidad === 'AIU') {
+    if (num(f.porcentajeA) + num(f.porcentajeI) + num(f.porcentajeU) <= 0) return { ok: false, error: 'Define los % de A, I y U del proyecto.' };
+  } else if (num(f.porcentajeUtilidad) <= 0) {
+    return { ok: false, error: 'Define el % de utilidad del proyecto.' };
+  }
+  if (num(f.topeCajaMenor) <= 0) return { ok: false, error: 'El tope de caja menor debe ser mayor a 0.' };
+  return { ok: true };
+}
+function filaFinanzas(proyectoId, f) {
+  const esAIU = f.modalidad === 'AIU';
+  return {
+    proyecto_id: proyectoId,
+    modalidad_facturacion: f.modalidad,
+    porcentaje_utilidad: esAIU ? num(f.porcentajeA) + num(f.porcentajeI) + num(f.porcentajeU) : num(f.porcentajeUtilidad),
+    porcentaje_a: esAIU ? num(f.porcentajeA) : 0,
+    porcentaje_i: esAIU ? num(f.porcentajeI) : 0,
+    porcentaje_u: esAIU ? num(f.porcentajeU) : 0,
+    valor_contrato_cliente: f.valorContratoCliente === '' ? null : num(f.valorContratoCliente),
+    cuenta_receptora: f.cuentaReceptora,
+    actualizado_en: new Date().toISOString(),
+  };
+}
+
+// Bloque de formulario compartido (crear / editar) para el modelo de contratación.
+function CamposContratacion({ f, set }) {
+  const CAMPO = 'border rounded px-3 py-2 text-sm w-full';
+  const todoCosto = f.modelo === 'TODO_COSTO';
+  return (
+    <div className="space-y-2 border-t pt-3">
+      <label className="text-xs font-medium text-neutral-600">Modelo de contratación con el cliente</label>
+      <select value={f.modelo} onChange={(e) => set({ modelo: e.target.value })} className={CAMPO}>
+        <option value="ADMINISTRACION_DELEGADA">Administración delegada</option>
+        <option value="TODO_COSTO">Todo costo</option>
+      </select>
+      {todoCosto && (
+        <div className="space-y-2 bg-white/60 rounded p-3 border border-dorado/40">
+          <p className="text-[11px] text-dorado font-medium">Solo visible para administradores</p>
+          <label className="text-xs text-neutral-600">Facturación al cliente</label>
+          <select
+            value={f.modalidad}
+            onChange={(e) => set({ modalidad: e.target.value, ...(e.target.value === 'SIN_FACTURA' ? { cuentaReceptora: 'PERSONAL' } : {}) })}
+            className={CAMPO}
+          >
+            <option value="AIU">AIU con IVA sobre la utilidad</option>
+            <option value="IVA">IVA sobre el total</option>
+            <option value="SIN_FACTURA">Sin facturación</option>
+          </select>
+          {f.modalidad === 'AIU' ? (
+            <div className="grid grid-cols-3 gap-2">
+              <input type="number" step="0.01" placeholder="% A" value={f.porcentajeA} onChange={(e) => set({ porcentajeA: e.target.value })} className={CAMPO} />
+              <input type="number" step="0.01" placeholder="% I" value={f.porcentajeI} onChange={(e) => set({ porcentajeI: e.target.value })} className={CAMPO} />
+              <input type="number" step="0.01" placeholder="% U" value={f.porcentajeU} onChange={(e) => set({ porcentajeU: e.target.value })} className={CAMPO} />
+              <p className="col-span-3 text-[11px] text-neutral-500">
+                Margen total {num(f.porcentajeA) + num(f.porcentajeI) + num(f.porcentajeU)}% · precio de venta = costo × (1 + A + I + U). El IVA se liquida sobre la U.
+              </p>
+            </div>
+          ) : (
+            <div>
+              <input type="number" step="0.01" placeholder="% Utilidad sobre el costo (ej. 25)" value={f.porcentajeUtilidad} onChange={(e) => set({ porcentajeUtilidad: e.target.value })} className={CAMPO} />
+              <p className="text-[11px] text-neutral-500 mt-1">Precio de venta = costo × (1 + utilidad). Aplica igual a todo el proyecto.</p>
+            </div>
+          )}
+          <input type="number" placeholder="Valor contratado con el cliente (opcional)" value={f.valorContratoCliente} onChange={(e) => set({ valorContratoCliente: e.target.value })} className={CAMPO} />
+          <label className="text-xs text-neutral-600">Cuenta que recibe los pagos del cliente</label>
+          <select value={f.cuentaReceptora} onChange={(e) => set({ cuentaReceptora: e.target.value })} className={CAMPO}>
+            <option value="HABITATUM">Cuenta HABITATUM</option>
+            <option value="PERSONAL">Cuenta personal</option>
+          </select>
+          <label className="text-xs text-neutral-600">Tope de caja menor (se legaliza en una OC al alcanzarlo)</label>
+          <input type="number" value={f.topeCajaMenor} onChange={(e) => set({ topeCajaMenor: e.target.value })} className={CAMPO} />
+          {f.modalidad === 'SIN_FACTURA' && (
+            <p className="text-[11px] text-neutral-500">Sin facturación: recuerda desmarcar la marca HABITATUM y poner tu nombre como emisor de los documentos.</p>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
 
 export default function SeleccionarProyecto() {
   const { usuario, cargando } = useUsuarioActual();
@@ -22,7 +112,7 @@ export default function SeleccionarProyecto() {
   // "codigo" se agrega aquí para poder editarlo después de creado el proyecto
   // (antes solo se podía asignar una vez, al crear). Sigue siendo solo-admin,
   // igual que el resto de este bloque de edición.
-  const [formEdicion, setFormEdicion] = useState({ nombre: '', codigo: '', cliente: '', mostrarMarca: true, nombreEmisor: '', porcentajeAdministracion: '' });
+  const [formEdicion, setFormEdicion] = useState({ nombre: '', codigo: '', cliente: '', mostrarMarca: true, nombreEmisor: '', porcentajeAdministracion: '', ...FINANZAS_VACIO });
   const [errorEdicion, setErrorEdicion] = useState('');
   const [guardandoEdicion, setGuardandoEdicion] = useState(false);
 
@@ -80,10 +170,25 @@ export default function SeleccionarProyecto() {
     router.push('/dashboard');
   }
 
-  function abrirEdicion(p, e) {
+  async function abrirEdicion(p, e) {
     e.stopPropagation();
     setEditandoId(p.id);
+    let fin = null;
+    if (p.modelo_contratacion === 'TODO_COSTO') {
+      const supabase = crearClienteSupabase();
+      const { data } = await supabase.from('proyectos_finanzas').select('*').eq('proyecto_id', p.id).maybeSingle();
+      fin = data;
+    }
     setFormEdicion({
+      modelo: p.modelo_contratacion || 'ADMINISTRACION_DELEGADA',
+      modalidad: fin?.modalidad_facturacion || 'AIU',
+      porcentajeUtilidad: fin && fin.modalidad_facturacion !== 'AIU' ? String(fin.porcentaje_utilidad ?? '') : '',
+      porcentajeA: fin?.modalidad_facturacion === 'AIU' ? String(fin.porcentaje_a ?? '') : '',
+      porcentajeI: fin?.modalidad_facturacion === 'AIU' ? String(fin.porcentaje_i ?? '') : '',
+      porcentajeU: fin?.modalidad_facturacion === 'AIU' ? String(fin.porcentaje_u ?? '') : '',
+      valorContratoCliente: fin?.valor_contrato_cliente != null ? String(fin.valor_contrato_cliente) : '',
+      cuentaReceptora: fin?.cuenta_receptora || 'HABITATUM',
+      topeCajaMenor: String(p.tope_caja_menor ?? 1000000),
       nombre: p.nombre,
       codigo: p.codigo,
       cliente: p.cliente || '',
@@ -115,11 +220,15 @@ export default function SeleccionarProyecto() {
       setErrorEdicion('Escribe el nombre que debe aparecer en los documentos de este proyecto.');
       return;
     }
+    const vf = validarFinanzas(formEdicion);
+    if (!vf.ok) { setErrorEdicion(vf.error); return; }
     setGuardandoEdicion(true);
     const supabase = crearClienteSupabase();
     const { error: err } = await supabase
       .from('proyectos')
       .update({
+        modelo_contratacion: formEdicion.modelo,
+        tope_caja_menor: num(formEdicion.topeCajaMenor) || 1000000,
         nombre: formEdicion.nombre.trim(),
         codigo: formEdicion.codigo.trim(),
         cliente: formEdicion.cliente.trim() || null,
@@ -128,6 +237,12 @@ export default function SeleccionarProyecto() {
         porcentaje_administracion: formEdicion.porcentajeAdministracion === '' ? null : Number(formEdicion.porcentajeAdministracion),
       })
       .eq('id', id);
+    if (!err && formEdicion.modelo === 'TODO_COSTO') {
+      const { error: errF } = await supabase.from('proyectos_finanzas').upsert(filaFinanzas(id, formEdicion));
+      // El precio de venta del presupuesto depende del margen: se recalcula al guardar.
+      if (!errF) await supabase.rpc('convertir_presupuesto_a_todo_costo', { p_proyecto: id });
+      if (errF) { setGuardandoEdicion(false); setErrorEdicion(errF.message); return; }
+    }
     setGuardandoEdicion(false);
     if (err) {
       setErrorEdicion(err.message.includes('duplicate') ? 'Ya existe un proyecto con ese código.' : err.message);
@@ -202,11 +317,15 @@ export default function SeleccionarProyecto() {
       return;
     }
 
+    const vf = validarFinanzas(form);
+    if (!vf.ok) { setError(vf.error); return; }
     setGuardando(true);
     const supabase = crearClienteSupabase();
     const { data, error: err } = await supabase
       .from('proyectos')
       .insert({
+        modelo_contratacion: form.modelo,
+        tope_caja_menor: num(form.topeCajaMenor) || 1000000,
         nombre: form.nombre.trim(),
         codigo: form.codigo.trim(),
         cliente: form.cliente.trim() || null,
@@ -216,6 +335,10 @@ export default function SeleccionarProyecto() {
       })
       .select()
       .single();
+    if (!err && form.modelo === 'TODO_COSTO') {
+      const { error: errF } = await supabase.from('proyectos_finanzas').upsert(filaFinanzas(data.id, form));
+      if (errF) { setGuardando(false); setError('El proyecto se creó, pero no se guardó la configuración financiera: ' + errF.message); return; }
+    }
     setGuardando(false);
     if (err) {
       setError(err.message.includes('duplicate') ? 'Ya existe un proyecto con ese código.' : err.message);
@@ -274,7 +397,8 @@ export default function SeleccionarProyecto() {
                         placeholder="Cliente (opcional)"
                         className="border rounded px-3 py-2 text-sm w-full"
                       />
-                      <div>
+                      <CamposContratacion f={formEdicion} set={(cambios) => setFormEdicion({ ...formEdicion, ...cambios })} />
+                      {formEdicion.modelo !== 'TODO_COSTO' && <div>
                         <input
                           type="number"
                           step="0.01"
@@ -286,7 +410,7 @@ export default function SeleccionarProyecto() {
                         <p className="text-[11px] text-neutral-400 mt-1">
                           Se usa en Presupuesto para calcular la Administración sobre lo ejecutado + anticipos pendientes.
                         </p>
-                      </div>
+                      </div>}
                       <label className="flex items-center gap-2 text-xs">
                         <input
                           type="checkbox"
@@ -369,9 +493,14 @@ export default function SeleccionarProyecto() {
                           </div>
                         )}
                       </div>
-                      <p className="text-xs text-neutral-500 mt-1">Código: {p.codigo}</p>
+                      <p className="text-xs text-neutral-500 mt-1">
+                        Código: {p.codigo}
+                        <span className="ml-2 inline-block text-[10px] font-semibold px-1.5 py-0.5 rounded bg-carbon/10 text-carbon align-middle">
+                          {p.modelo_contratacion === 'TODO_COSTO' ? 'Todo costo' : 'Adm. delegada'}
+                        </span>
+                      </p>
                       {p.cliente && <p className="text-sm text-neutral-600 mt-2">{p.cliente}</p>}
-                      {p.porcentaje_administracion != null && (
+                      {p.modelo_contratacion !== 'TODO_COSTO' && p.porcentaje_administracion != null && (
                         <p className="text-xs text-neutral-500 mt-2">Administración: {p.porcentaje_administracion}%</p>
                       )}
                       {!p.mostrar_marca_habitatum && (
@@ -457,6 +586,9 @@ export default function SeleccionarProyecto() {
                     className="border rounded px-3 py-2 text-sm sm:col-span-2"
                   />
                   <div className="sm:col-span-2">
+                    <CamposContratacion f={form} set={(cambios) => setForm({ ...form, ...cambios })} />
+                  </div>
+                  {form.modelo !== 'TODO_COSTO' && <div className="sm:col-span-2">
                     <input
                       type="number"
                       step="0.01"
@@ -468,7 +600,7 @@ export default function SeleccionarProyecto() {
                     <p className="text-[11px] text-neutral-400 mt-1">
                       Se usa en Presupuesto para calcular la Administración sobre lo ejecutado + anticipos pendientes.
                     </p>
-                  </div>
+                  </div>}
                 </div>
 
                 <label className="flex items-center gap-2 text-sm">
