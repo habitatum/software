@@ -72,12 +72,20 @@ export function calcularOrdenCompra(oc, items, pagado = 0, totalAnticipoReferenc
   // amortizan ese anticipo (cada una con sus propios impuestos sobre lo que
   // factura). Por eso, si esta orden es un Anticipo, el IVA/AIU nunca se
   // suma a su Total, sin importar qué tipo de impuesto tenga configurado.
+  // El descuento reduce la base gravable ANTES de calcular IVA/AIU (igual que
+  // la vista v_ordenes_compra_calculadas, migración 031). Si hay ítems sin_iva,
+  // el descuento se reparte proporcionalmente entre la parte gravable y la no gravable.
+  const descuento = Number(oc.descuento || 0);
+  const baseNeta = Math.max(subtotal - descuento, 0);
+  const gravableNeta = subtotal > 0
+    ? Math.max(subtotal_gravable - descuento * (subtotal_gravable / subtotal), 0)
+    : 0;
+
   const { valor_iva, valor_administracion, valor_imprevistos, valor_utilidad, valor_aiu, porcentaje_aiu } =
     esAnticipo
       ? { valor_iva: 0, valor_administracion: 0, valor_imprevistos: 0, valor_utilidad: 0, valor_aiu: 0, porcentaje_aiu: 0 }
-      : calcularImpuestos(oc, subtotal, subtotal_gravable);
+      : calcularImpuestos(oc, baseNeta, gravableNeta);
 
-  const descuento = Number(oc.descuento || 0);
   const total = redondear(subtotal - descuento + valor_iva + valor_aiu);
 
   const valor_retenido = redondear(total * (Number(oc.porcentaje_retencion) || 0) / 100);

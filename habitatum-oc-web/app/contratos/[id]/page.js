@@ -50,6 +50,7 @@ export default function DetalleContrato() {
   const [procesandoEstado, setProcesandoEstado] = useState(false);
   const [errorEstado, setErrorEstado] = useState('');
   const [generandoPDF, setGenerandoPDF] = useState(false);
+  const [generandoEstado, setGenerandoEstado] = useState(false);
 
   async function cargar() {
     const supabase = crearClienteSupabase();
@@ -135,6 +136,13 @@ export default function DetalleContrato() {
     setGenerandoPDF(false);
   }
 
+  async function descargarEstadoCuenta() {
+    setGenerandoEstado(true);
+    const hoy = new Date().toISOString().slice(0, 10);
+    await compartirOAbrirArchivo(`/api/contratos/${id}/estado-cuenta`, `Estado de cuenta ${contrato.numero_contrato} ${hoy}.pdf`);
+    setGenerandoEstado(false);
+  }
+
   // Anular / reactivar: exclusivo de admin. El contrato anulado no se borra,
   // solo queda bloqueado (no se puede editar ni usarlo en Órdenes de Compra
   // nuevas) hasta que un admin lo reactive.
@@ -204,12 +212,15 @@ export default function DetalleContrato() {
               <span className="bg-red-100 text-red-700 text-xs font-semibold px-2 py-1 rounded">ANULADO</span>
             )}
           </div>
-          <div className="flex gap-2">
+          <div className="flex flex-wrap gap-2">
             {usuario.rol !== 'lectura' && !editando && !anulado && (
               <button onClick={abrirEdicion} className="border px-4 py-2 rounded text-sm">Editar</button>
             )}
             <button onClick={descargarPDF} disabled={generandoPDF} className="bg-carbon text-hueso px-4 py-2 rounded text-sm disabled:opacity-50">
               {generandoPDF ? 'Generando...' : 'Descargar PDF'}
+            </button>
+            <button onClick={descargarEstadoCuenta} disabled={generandoEstado} className="border border-dorado text-dorado px-4 py-2 rounded text-sm hover:bg-hueso disabled:opacity-50">
+              {generandoEstado ? 'Generando...' : 'Estado de cuenta'}
             </button>
             {usuario.rol === 'admin' && !editando && (
               <button
