@@ -24,6 +24,10 @@ export default function NavBar({ usuario, proyecto }) {
     { href: '/registro-fotografico', label: 'Registro Fotográfico' },
     { href: '/proveedores', label: 'Proveedores' },
   ];
+  // Caja: solo administradores y solo en proyectos Todo costo.
+  if (usuario?.rol === 'admin' && proyecto?.modelo_contratacion === 'TODO_COSTO') {
+    enlaces.splice(4, 0, { href: '/caja', label: 'Caja' });
+  }
   if (usuario?.rol === 'admin') enlaces.push({ href: '/usuarios', label: 'Usuarios' });
 
   return (
