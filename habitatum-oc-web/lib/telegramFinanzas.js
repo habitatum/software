@@ -153,6 +153,81 @@ function resumenBorrador(b) {
   );
 }
 
+
+const MENSAJE_SATURADO = (detalle) =>
+  '⏳ <b>La IA de lectura (Gemini gratuito) está saturada en este momento.</b>\n' +
+  'Guardé el documento. Toca <b>🔄 Reintentar</b> en un minuto y lo leo de nuevo, sin reenviarlo.' +
+  (detalle ? `\n<i>${escaparHTML(detalle)}</i>` : '');
+
+function tecladoReintentar(id) {
+  return { inline_keyboard: [[
+    { text: '🔄 Reintentar', callback_data: `r:${id}` },
+    { text: '❌ Descartar', callback_data: `x:${id}` },
+  ]] };
+}
+
+// Lee el documento con la IA y arma el borrador. No toca Telegram ni la base de datos.
+async function leerDocumento(capitulos, { texto, esCajaMenor, parteArchivo, fecha }) {
+  const capNota = texto.match(RE_CAPITULO)?.[1] || null;
+  const fallaIA = () => ({
+    ok: false,
+    reintentable: comun.geminiSaturado(),
+    mensaje: comun.geminiSaturado()
+      ? (comun.ultimoErrorGemini || '')
+      : '❌ No pude leer el documento con la IA.\n<i>Detalle técnico: ' + escaparHTML(comun.ultimoErrorGemini || 'respuesta no válida') + '</i>',
+  });
+  const fechaValida = (f) => (/^\d{4}-\d{2}-\d{2}$/.test(f || '') ? f : fecha);
+
+  if (esCajaMenor) {
+    const respuesta = await llamarGemini([{ text: promptCajaMenor(capitulos, texto) }, ...(parteArchivo ? [parteArchivo] : [])], { json: true });
+    if (!respuesta) return fallaIA();
+    const lectura = parsearJSON(respuesta);
+    if (!lectura || !(Number(lectura.valor) > 0)) {
+      return { ok: false, mensaje: '❌ No pude identificar el valor del gasto. Escribe por ejemplo: <i>CAJA MENOR 25000 transporte cap 7</i>.' };
+    }
+    const cap = capituloPorCodigo(capitulos, capNota || lectura.capitulo_codigo);
+    return {
+      ok: true,
+      tipo: 'CAJA_MENOR',
+      datos: {
+        valor: Math.round(Number(lectura.valor)),
+        concepto: String(lectura.concepto || 'Gasto de caja menor').slice(0, 200),
+        fecha: fechaValida(lectura.fecha),
+        capitulo_id: cap?.id || null, capitulo_codigo: cap?.codigo || null, capitulo_nombre: cap?.nombre || null,
+      },
+    };
+  }
+
+  const respuesta = await llamarGemini([{ text: promptFactura(capitulos, texto) }, parteArchivo], { json: true });
+  if (!respuesta) return fallaIA();
+  const lectura = parsearJSON(respuesta);
+  if (!lectura) return { ok: false, mensaje: '❌ La IA respondió, pero no en el formato esperado. Intenta reenviar el documento.' };
+  if (lectura.es_documento_de_pago === false) {
+    return { ok: false, mensaje: '🤔 Esto no parece una factura o comprobante de pago. Si es un gasto sin factura, reenvíalo con la nota <b>CAJA MENOR</b>.' };
+  }
+  const cuadre = cuadrarConTotal(lectura);
+  const cap = capituloPorCodigo(capitulos, capNota || lectura.capitulo_codigo);
+  return {
+    ok: true,
+    tipo: 'OC',
+    datos: {
+      tipo_orden: lectura.tipo_orden === 'SERVICIO' ? 'SERVICIO' : 'COMPRA',
+      proveedor_nombre: String(lectura.proveedor_nombre || '').slice(0, 200),
+      proveedor_nit: String(lectura.proveedor_nit || '').slice(0, 30),
+      numero_factura: String(lectura.numero_factura || '').slice(0, 60),
+      fecha: fechaValida(lectura.fecha),
+      concepto: String(lectura.concepto || '').slice(0, 200),
+      items: cuadre.items,
+      descuento: cuadre.descuento,
+      iva_porcentaje: cuadre.iva_porcentaje,
+      total_factura: Number(lectura.total) || null,
+      total_calculado: cuadre.total_calculado,
+      nota: cuadre.nota || null,
+      capitulo_id: cap?.id || null, capitulo_codigo: cap?.codigo || null, capitulo_nombre: cap?.nombre || null,
+    },
+  };
+}
+
 // ---------- Mensajes ----------
 export async function procesarMensajeFinanzas(supabase, mensaje, proyecto) {
   const chatId = String(mensaje.chat.id);
@@ -215,50 +290,19 @@ export async function procesarMensajeFinanzas(supabase, mensaje, proyecto) {
       }
     }
 
-    const capNota = texto.match(RE_CAPITULO)?.[1] || null;
-    let tipo, datos;
-
-    if (esCajaMenor) {
-      const lectura = parsearJSON(await llamarGemini(
-        [{ text: promptCajaMenor(capitulos, texto) }, ...(parteArchivo ? [parteArchivo] : [])], { json: true }
-      ));
-      if (!lectura || !(Number(lectura.valor) > 0)) {
-        return editar('❌ No pude identificar el valor del gasto. Escribe por ejemplo: <i>CAJA MENOR 25000 transporte cap 7</i>.' + (comun.ultimoErrorGemini ? '\n<i>Detalle técnico: ' + escaparHTML(comun.ultimoErrorGemini) + '</i>' : ''));
-      }
-      const cap = capituloPorCodigo(capitulos, capNota || lectura.capitulo_codigo);
-      tipo = 'CAJA_MENOR';
-      datos = {
-        valor: Math.round(Number(lectura.valor)),
-        concepto: String(lectura.concepto || 'Gasto de caja menor').slice(0, 200),
-        fecha: /^\d{4}-\d{2}-\d{2}$/.test(lectura.fecha || '') ? lectura.fecha : fecha,
-        capitulo_id: cap?.id || null, capitulo_codigo: cap?.codigo || null, capitulo_nombre: cap?.nombre || null,
-      };
-    } else {
-      const lectura = parsearJSON(await llamarGemini([{ text: promptFactura(capitulos, texto) }, parteArchivo], { json: true }));
-      if (!lectura) return editar('❌ No pude leer el documento: la IA (Gemini) no respondió.\n<i>Detalle técnico: ' + escaparHTML(comun.ultimoErrorGemini || 'respuesta no válida') + '</i>');
-      if (lectura.es_documento_de_pago === false) {
-        return editar('🤔 Esto no parece una factura o comprobante de pago. Si es un gasto sin factura, reenvíalo con la nota <b>CAJA MENOR</b>.');
-      }
-      const cuadre = cuadrarConTotal(lectura);
-      const cap = capituloPorCodigo(capitulos, capNota || lectura.capitulo_codigo);
-      tipo = 'OC';
-      datos = {
-        tipo_orden: lectura.tipo_orden === 'SERVICIO' ? 'SERVICIO' : 'COMPRA',
-        proveedor_nombre: String(lectura.proveedor_nombre || '').slice(0, 200),
-        proveedor_nit: String(lectura.proveedor_nit || '').slice(0, 30),
-        numero_factura: String(lectura.numero_factura || '').slice(0, 60),
-        fecha: /^\d{4}-\d{2}-\d{2}$/.test(lectura.fecha || '') ? lectura.fecha : fecha,
-        concepto: String(lectura.concepto || '').slice(0, 200),
-        items: cuadre.items,
-        descuento: cuadre.descuento,
-        iva_porcentaje: cuadre.iva_porcentaje,
-        total_factura: Number(lectura.total) || null,
-        total_calculado: cuadre.total_calculado,
-        nota: cuadre.nota || null,
-        capitulo_id: cap?.id || null, capitulo_codigo: cap?.codigo || null, capitulo_nombre: cap?.nombre || null,
-      };
+    const r = await leerDocumento(capitulos, { texto, esCajaMenor, parteArchivo, fecha });
+    if (!r.ok && !r.reintentable) return editar(r.mensaje);
+    if (!r.ok) {
+      // Gemini saturado: se guarda la foto y se ofrece reintentar con un toque.
+      const { data: pend, error: errP } = await supabase.from('telegram_borradores').insert({
+        proyecto_id: proyecto.id, chat_id: chatId, tipo: esCajaMenor ? 'CAJA_MENOR' : 'OC',
+        datos: { lectura_pendiente: true, texto, fecha, mime: parteArchivo?.inline_data?.mime_type || null },
+        soporte_path: soportePath, remitente, mensaje_id: mensaje.message_id, bot_mensaje_id: avisoId,
+      }).select().single();
+      if (errP) throw errP;
+      return editar(MENSAJE_SATURADO(r.mensaje), tecladoReintentar(pend.id));
     }
-
+    const { tipo, datos } = r;
     const { data: borrador, error } = await supabase.from('telegram_borradores').insert({
       proyecto_id: proyecto.id, chat_id: chatId, tipo, datos, soporte_path: soportePath, remitente,
       mensaje_id: mensaje.message_id, bot_mensaje_id: avisoId,
@@ -285,6 +329,34 @@ export async function procesarCallbackFinanzas(supabase, cb) {
   if (b.estado !== 'PENDIENTE') return contestar(b.estado === 'CONFIRMADO' ? 'Ya fue registrado.' : 'Ya fue descartado.');
 
   const quien = cb.from?.first_name || cb.from?.username || 'alguien';
+
+  if (b.datos?.lectura_pendiente) {
+    if (accion === 'x') {
+      await supabase.from('telegram_borradores').update({ estado: 'DESCARTADO' }).eq('id', id);
+      await contestar('Descartado');
+      return editar(`❌ <i>Documento descartado por ${escaparHTML(quien)}.</i>`);
+    }
+    if (accion !== 'r') return contestar('Primero toca 🔄 Reintentar');
+    await contestar('Leyendo de nuevo…');
+    await editar('⏳ Leyendo el documento de nuevo…');
+    let parteArchivo = null;
+    if (b.soporte_path) {
+      const { data: blob } = await supabase.storage.from('soportes-oc').download(b.soporte_path);
+      if (blob) parteArchivo = { inline_data: { mime_type: b.datos.mime || blob.type || 'image/jpeg', data: Buffer.from(await blob.arrayBuffer()).toString('base64') } };
+    }
+    const capitulosR = await capitulosDelProyecto(supabase, b.proyecto_id);
+    const r = await leerDocumento(capitulosR, {
+      texto: b.datos.texto || '', esCajaMenor: b.tipo === 'CAJA_MENOR', parteArchivo, fecha: b.datos.fecha || fechaColombia(),
+    });
+    if (!r.ok && r.reintentable) return editar(MENSAJE_SATURADO(r.mensaje), tecladoReintentar(id));
+    if (!r.ok) {
+      await supabase.from('telegram_borradores').update({ estado: 'DESCARTADO' }).eq('id', id);
+      return editar(r.mensaje);
+    }
+    const actualizado = { ...b, tipo: r.tipo, datos: r.datos };
+    await supabase.from('telegram_borradores').update({ tipo: r.tipo, datos: r.datos }).eq('id', id);
+    return editar(resumenBorrador(actualizado), tecladoPrincipal(id));
+  }
   const { data: proyecto } = await supabase.from('proyectos').select('id, tope_caja_menor').eq('id', b.proyecto_id).single();
   const capitulos = await capitulosDelProyecto(supabase, b.proyecto_id);
 
