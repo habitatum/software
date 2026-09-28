@@ -8,6 +8,7 @@ import { formatoPesos } from '@/lib/calculosOC';
 import { TIPOS_CONTRATO, NOMBRES_TIPO_CONTRATO, plantillaClausulas } from '@/lib/plantillasContrato';
 import { parseItemsExcel } from '@/lib/parseItemsContrato';
 import NavBar from '@/components/NavBar';
+import { compartirOAbrirArchivo } from '@/lib/compartirArchivo';
 
 const ANIO_ACTUAL = new Date().getFullYear();
 const VACIO_LEGAL = {
@@ -34,6 +35,7 @@ export default function Contratos() {
   const { usuario, cargando } = useUsuarioActual();
   const { proyecto, cargando: cargandoProyecto } = useProyectoActual();
   const [contratos, setContratos] = useState([]);
+  const [generandoEstadoId, setGenerandoEstadoId] = useState(null);
   const [proveedores, setProveedores] = useState([]);
   const [form, setForm] = useState(VACIO);
   const [mostrarForm, setMostrarForm] = useState(false);
@@ -174,6 +176,15 @@ export default function Contratos() {
 
   const disponiblesParaElAnio = consecutivosDisponibles(form.anio);
   const totalItemsExcel = (form.items_excel || []).reduce((acc, it) => acc + (it.total || 0), 0);
+
+
+  // Estado de cuenta en PDF de un contrato, directo desde el listado.
+  async function descargarEstadoCuenta(c) {
+    setGenerandoEstadoId(c.id);
+    const hoy = new Date().toISOString().slice(0, 10);
+    await compartirOAbrirArchivo(`/api/contratos/${c.id}/estado-cuenta`, `Estado de cuenta ${c.numero_contrato} ${hoy}.pdf`);
+    setGenerandoEstadoId(null);
+  }
 
   return (
     <div>
@@ -380,7 +391,7 @@ export default function Contratos() {
         <div className="bg-white rounded-lg shadow-sm border overflow-x-auto">
           <table className="w-full text-sm">
             <thead className="bg-gris-calido/30 text-left">
-              <tr><th className="p-3">N° Contrato</th><th className="p-3">Contratista</th><th className="p-3 text-right">Valor inicial</th></tr>
+              <tr><th className="p-3">N° Contrato</th><th className="p-3">Contratista</th><th className="p-3 text-right">Valor inicial</th><th className="p-3 text-right"></th></tr>
             </thead>
             <tbody>
               {contratos.map((c) => (
@@ -393,6 +404,15 @@ export default function Contratos() {
                   </td>
                   <td className="p-3">{c.proveedores?.nombre}</td>
                   <td className="p-3 text-right">{formatoPesos(c.valor_inicial)}</td>
+                  <td className="p-3 text-right">
+                    <button
+                      onClick={() => descargarEstadoCuenta(c)}
+                      disabled={generandoEstadoId === c.id}
+                      className="border border-dorado text-dorado px-3 py-1.5 rounded text-xs whitespace-nowrap hover:bg-hueso disabled:opacity-50"
+                    >
+                      {generandoEstadoId === c.id ? 'Generando...' : 'Estado de cuenta'}
+                    </button>
+                  </td>
                 </tr>
               ))}
             </tbody>
