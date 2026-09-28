@@ -158,6 +158,8 @@ export default function EditarOrdenCompra() {
       sin_iva: !!it.sin_iva,
       orden: idx,
       orden_compra_id: id,
+      // Conserva la imputación a capítulo (OC creadas por el bot / caja menor).
+      capitulo_id: it.capitulo_id || null,
     }));
 
     // Reemplaza los ítems: se borran los anteriores (esto también borra en

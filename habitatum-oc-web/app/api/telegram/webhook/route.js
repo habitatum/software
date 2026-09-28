@@ -1,4 +1,9 @@
 import { createClient } from '@supabase/supabase-js';
+import { telegramFetch, llamarGemini } from '@/lib/telegramComun';
+import { procesarMensajeFinanzas, procesarCallbackFinanzas } from '@/lib/telegramFinanzas';
+
+// La lectura de facturas con IA puede tardar varios segundos.
+export const maxDuration = 60;
 
 // Usa la service role key: este endpoint lo llama Telegram (no un usuario con
 // sesión), así que necesita saltarse RLS para escribir en bitacora_fotos,
@@ -10,10 +15,6 @@ const supabase = createClient(
 
 const TELEGRAM_TOKEN = process.env.TELEGRAM_BOT_TOKEN;
 const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
-// Mismos modelos (y mismo orden de respaldo) que el skill bitacora-obra ya
-// probado en Apps Script: si el primero no está disponible en el proyecto de
-// Gemini, se reintenta con el siguiente antes de fallar.
-const MODELOS_GEMINI = ['gemini-3.5-flash', 'gemini-3.1-flash-lite'];
 
 // Telegram siempre debe recibir 200 rápido, incluso si algo interno falla,
 // para que no reintente el mismo mensaje una y otra vez.
@@ -43,11 +44,38 @@ export async function POST(request) {
 }
 
 async function procesarUpdate(update) {
-  const mensaje = update.message;
-  if (!mensaje || !mensaje.photo || mensaje.photo.length === 0) return;
+  // Botones del bot de finanzas (✅ Confirmar / 📂 Capítulo / ❌ Descartar).
+  if (update.callback_query) {
+    await procesarCallbackFinanzas(supabase, update.callback_query);
+    return;
+  }
 
+  const mensaje = update.message;
+  if (!mensaje) return;
   const chat = mensaje.chat;
   const chatId = String(chat.id);
+
+  // ¿Es el grupo de FINANZAS de un proyecto? (facturas → OC, caja menor)
+  const { data: proyectoFinanzas } = await supabase
+    .from('proyectos')
+    .select('id, nombre, tope_caja_menor')
+    .eq('telegram_chat_id_finanzas', chatId)
+    .maybeSingle();
+  if (proyectoFinanzas) {
+    await procesarMensajeFinanzas(supabase, mensaje, proyectoFinanzas);
+    return;
+  }
+
+  // Grupo de BITÁCORA: solo procesa fotos.
+  const esGrupoConocido = await supabase.from('proyectos').select('id').eq('telegram_chat_id', chatId).maybeSingle();
+  if (!esGrupoConocido.data) {
+    // Grupo todavía no vinculado: se registra (con cualquier mensaje) para que el Admin lo vincule desde /proyectos.
+    if (chat.type !== 'private') {
+      await supabase.from('telegram_grupos_pendientes').upsert({ chat_id: chatId, titulo: chat.title || chat.first_name || 'Sin nombre' });
+    }
+    return;
+  }
+  if (!mensaje.photo || mensaje.photo.length === 0) return;
 
   const { data: proyecto } = await supabase
     .from('proyectos')
@@ -106,55 +134,6 @@ async function procesarUpdate(update) {
   });
 
   await actualizarResumenDelDia(proyecto.id, fecha);
-}
-
-async function telegramFetch(metodo, params) {
-  const url = `https://api.telegram.org/bot${TELEGRAM_TOKEN}/${metodo}`;
-  const res = await fetch(url, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(params),
-  });
-  return res.json();
-}
-
-// Igual que el skill bitacora-obra en Apps Script: recorre MODELOS_GEMINI en
-// orden (si un modelo no está disponible en el proyecto, prueba el
-// siguiente) y dentro de cada modelo reintenta ante 429 (cupo agotado) / 503
-// (sobrecarga) con backoff.
-async function llamarGemini(parts, intentosPorModelo = 2) {
-  for (const modelo of MODELOS_GEMINI) {
-    let ultimoStatus = null;
-    for (let intento = 1; intento <= intentosPorModelo; intento++) {
-      try {
-        const res = await fetch(
-          `https://generativelanguage.googleapis.com/v1beta/models/${modelo}:generateContent?key=${GEMINI_API_KEY}`,
-          {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ contents: [{ parts }] }),
-          }
-        );
-        ultimoStatus = res.status;
-        if ((res.status === 429 || res.status === 503) && intento < intentosPorModelo) {
-          await new Promise((r) => setTimeout(r, 800 * intento));
-          continue;
-        }
-        if (res.status === 404) break; // modelo no disponible: probar el siguiente
-        if (!res.ok) break;
-        const data = await res.json();
-        return data?.candidates?.[0]?.content?.parts?.[0]?.text?.trim() || null;
-      } catch (e) {
-        if (intento === intentosPorModelo) break;
-      }
-    }
-    if (ultimoStatus !== 404 && ultimoStatus !== null) {
-      // Falló por algo distinto a "modelo no disponible" (ej. 429 persistente):
-      // no vale la pena seguir probando otros modelos, se pierde igual.
-      return null;
-    }
-  }
-  return null;
 }
 
 // Mismo formato que ya usa el skill bitacora-obra (Telegram + Apps Script +

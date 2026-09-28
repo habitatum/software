@@ -56,6 +56,7 @@ export default function Caja() {
   const [mov, setMov] = useState({ tipo: 'INGRESO_CLIENTE', fecha: hoy(), valor: '', concepto: '', beneficiario: '' });
   const [conc, setConc] = useState({ fecha: hoy(), saldo_banco: '', nota: '' });
   const [hito, setHito] = useState({ concepto: '', valor: '', fecha_estimada: '' });
+  const [cajaMenor, setCajaMenor] = useState([]);
 
   const esAdmin = usuario?.rol === 'admin';
   const todoCosto = proyecto?.modelo_contratacion === 'TODO_COSTO';
@@ -65,6 +66,20 @@ export default function Caja() {
     const { data, error: err } = await supabase.rpc('caja_proyecto', { p_proyecto: proyecto.id });
     if (err) setError(err.message);
     setDatos(data || null);
+    const { data: cm } = await supabase
+      .from('caja_menor_gastos')
+      .select('id, fecha, valor, concepto, remitente, presupuesto_capitulos(codigo, nombre)')
+      .eq('proyecto_id', proyecto.id).is('oc_id', null).order('fecha').order('creado_en');
+    setCajaMenor(cm || []);
+  }
+
+  function legalizarCajaMenor() {
+    if (!window.confirm('¿Legalizar ahora la caja menor acumulada en una Orden de Compra?')) return;
+    ejecutar(async (s) => {
+      const { data, error: e } = await s.rpc('legalizar_caja_menor', { p_proyecto: proyecto.id });
+      if (e) throw e;
+      if (data?.legalizada) window.alert(`Caja menor legalizada en la ${data.folio} (${data.gastos} gastos, ${formatoPesos(data.total)}).`);
+    });
   }
   useEffect(() => { if (esAdmin && todoCosto) cargar(); }, [esAdmin, todoCosto, proyecto?.id]); // eslint-disable-line
 
@@ -278,6 +293,39 @@ export default function Caja() {
                 )}
               </section>
             </div>
+
+            <section className="bg-white rounded-lg border p-4">
+              <div className="flex items-baseline justify-between mb-2 gap-3">
+                <h2 className="font-semibold">Caja menor por legalizar</h2>
+                <span className="text-xs text-neutral-500">
+                  {formatoPesos(cajaMenor.reduce((a, g) => a + Number(g.valor), 0))} de {formatoPesos(proyecto.tope_caja_menor)} · se legaliza sola al llegar al tope
+                </span>
+              </div>
+              {cajaMenor.length === 0 ? (
+                <p className="text-sm text-neutral-500">No hay gastos de caja menor pendientes. Se registran desde el grupo de finanzas de Telegram con la nota CAJA MENOR.</p>
+              ) : (
+                <>
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-sm">
+                      <thead className="text-left text-xs text-neutral-500"><tr><th className="py-1">Fecha</th><th>Concepto</th><th>Capítulo</th><th className="text-right">Valor</th></tr></thead>
+                      <tbody>
+                        {cajaMenor.map((g) => (
+                          <tr key={g.id} className="border-t">
+                            <td className="py-2 whitespace-nowrap">{fecha(g.fecha)}</td>
+                            <td>{g.concepto}{g.remitente ? ` · ${g.remitente}` : ''}</td>
+                            <td className="text-xs">{g.presupuesto_capitulos ? `${g.presupuesto_capitulos.codigo} · ${g.presupuesto_capitulos.nombre}` : '—'}</td>
+                            <td className="text-right whitespace-nowrap">{formatoPesos(g.valor)}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                  <button disabled={guardando} onClick={legalizarCajaMenor} className="mt-3 border border-dorado text-dorado px-4 py-2 rounded text-sm hover:bg-hueso">
+                    Legalizar ahora en una OC
+                  </button>
+                </>
+              )}
+            </section>
 
             <section className="bg-white rounded-lg border p-4">
               <h2 className="font-semibold mb-2">Movimientos (ingresos, retiros y ajustes)</h2>

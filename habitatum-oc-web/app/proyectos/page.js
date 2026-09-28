@@ -142,11 +142,15 @@ export default function SeleccionarProyecto() {
   useEffect(() => { if (usuario) cargar(); }, [usuario]); // eslint-disable-line
   useEffect(() => { if (usuario?.rol === 'admin') cargarGruposPendientes(); }, [usuario]); // eslint-disable-line
 
-  async function vincularGrupo(chatId, proyectoId) {
-    if (!proyectoId) return;
+  // valor = "<proyectoId>|BITACORA" o "<proyectoId>|FINANZAS"
+  async function vincularGrupo(chatId, valor) {
+    if (!valor) return;
+    const [proyectoId, tipo] = valor.split('|');
     setVinculando(chatId);
     const supabase = crearClienteSupabase();
-    const { error: err } = await supabase.from('proyectos').update({ telegram_chat_id: chatId }).eq('id', proyectoId);
+    const columna = tipo === 'FINANZAS' ? 'telegram_chat_id_finanzas' : 'telegram_chat_id';
+    const { error: err } = await supabase.from('proyectos').update({ [columna]: chatId }).eq('id', proyectoId);
+    if (!err && tipo === 'FINANZAS') await activarBotonesBot();
     if (!err) {
       await supabase.from('telegram_grupos_pendientes').delete().eq('chat_id', chatId);
       cargar();
@@ -157,12 +161,23 @@ export default function SeleccionarProyecto() {
     setVinculando(null);
   }
 
-  async function desvincularGrupo(proyectoId, e) {
+  async function desvincularGrupo(proyectoId, e, tipo = 'BITACORA') {
     e.stopPropagation();
-    if (!window.confirm('¿Desvincular el grupo de Telegram de este proyecto? Las fotos que ya se recibieron no se pierden.')) return;
+    const texto = tipo === 'FINANZAS'
+      ? '¿Desvincular el grupo de FINANZAS? Las OC ya creadas no se pierden.'
+      : '¿Desvincular el grupo de Telegram de este proyecto? Las fotos que ya se recibieron no se pierden.';
+    if (!window.confirm(texto)) return;
     const supabase = crearClienteSupabase();
-    await supabase.from('proyectos').update({ telegram_chat_id: null }).eq('id', proyectoId);
+    await supabase.from('proyectos').update(tipo === 'FINANZAS' ? { telegram_chat_id_finanzas: null } : { telegram_chat_id: null }).eq('id', proyectoId);
     cargar();
+  }
+  // Activa los botones (callback_query) del bot de finanzas en el webhook de Telegram.
+  async function activarBotonesBot() {
+    const supabase = crearClienteSupabase();
+    const { data: { session } } = await supabase.auth.getSession();
+    const res = await fetch('/api/telegram/configurar', { method: 'POST', headers: { Authorization: `Bearer ${session?.access_token || ''}` } });
+    const j = await res.json().catch(() => ({}));
+    if (!j.ok) alert('El grupo quedó vinculado, pero no se pudieron activar los botones del bot: ' + (j.error || j.descripcion || res.status));
   }
 
   function elegir(id) {
@@ -518,6 +533,18 @@ export default function SeleccionarProyecto() {
                       ) : (
                         <p className="text-xs text-neutral-400 mt-2">Sin grupo de Telegram vinculado</p>
                       )}
+                      {p.modelo_contratacion === 'TODO_COSTO' && (p.telegram_chat_id_finanzas ? (
+                        <div className="flex items-center gap-2 mt-1">
+                          <p className="text-xs text-green-700">Grupo de finanzas vinculado (facturas → OC)</p>
+                          {usuario.rol === 'admin' && (
+                            <button onClick={(e) => desvincularGrupo(p.id, e, 'FINANZAS')} className="text-xs text-neutral-400 hover:text-red-600 underline">
+                              Desvincular
+                            </button>
+                          )}
+                        </div>
+                      ) : (
+                        <p className="text-xs text-neutral-400 mt-1">Sin grupo de finanzas vinculado</p>
+                      ))}
                     </>
                   )}
                 </div>
@@ -533,8 +560,9 @@ export default function SeleccionarProyecto() {
           <div className="bg-hueso rounded-lg p-5 mb-6">
             <h2 className="font-medium mb-1">Grupos de Telegram por vincular</h2>
             <p className="text-xs text-neutral-500 mb-3">
-              Estos grupos enviaron una foto pero todavía no están asignados a ningún proyecto. Elige a cuál
-              proyecto pertenecen para que sus fotos empiecen a llenar la Bitácora y el Registro Fotográfico.
+              Estos grupos le escribieron al bot pero todavía no están asignados. Elige el proyecto y el uso:
+              <strong> Bitácora</strong> (fotos de avance) o <strong>Finanzas</strong> (facturas que se convierten en Órdenes de Compra
+              y gastos de caja menor; solo proyectos todo costo).
             </p>
             <div className="space-y-2">
               {gruposPendientes.map((g) => (
@@ -547,7 +575,14 @@ export default function SeleccionarProyecto() {
                     className="border rounded px-2 py-1 text-sm"
                   >
                     <option value="" disabled>Vincular a proyecto...</option>
-                    {proyectos.map((p) => <option key={p.id} value={p.id}>{p.nombre}</option>)}
+                    <optgroup label="Bitácora (fotos de avance)">
+                      {proyectos.map((p) => <option key={p.id + 'b'} value={`${p.id}|BITACORA`}>{p.nombre}</option>)}
+                    </optgroup>
+                    <optgroup label="Finanzas (facturas → OC)">
+                      {proyectos.filter((p) => p.modelo_contratacion === 'TODO_COSTO').map((p) => (
+                        <option key={p.id + 'f'} value={`${p.id}|FINANZAS`}>{p.nombre}</option>
+                      ))}
+                    </optgroup>
                   </select>
                 </div>
               ))}
