@@ -199,9 +199,15 @@ export default function PresupuestoTodoCosto({ usuario, proyecto }) {
             </div>
           )}
 
+          {esAdmin && datos.historico && Number(datos.historico.movimientos) > 0 && (
+            <div className="bg-hueso border border-gris-calido rounded p-3 text-xs text-neutral-600">
+              Incluye <strong>{datos.historico.movimientos}</strong> pagos históricos por <strong>{formatoPesos(datos.historico.valor)}</strong>,
+              cargados tal cual desde el formato financiero anterior (hasta {datos.historico.hasta}). Desde esa fecha, el ejecutado sale de las Órdenes de Compra.
+            </div>
+          )}
           {Number(datos.sin_imputar) > 0 && (
             <div className="bg-amber-50 border border-amber-200 text-amber-900 rounded p-3 text-sm">
-              Hay <strong>{formatoPesos(datos.sin_imputar)}</strong> en Órdenes de Compra sin imputar a un capítulo del presupuesto.
+              Hay <strong>{formatoPesos(datos.sin_imputar)}</strong> en pagos sin capítulo del presupuesto asignado.
               Ese valor todavía no se refleja en el control por capítulo.
             </div>
           )}
