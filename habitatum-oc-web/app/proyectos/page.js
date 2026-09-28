@@ -178,6 +178,14 @@ export default function SeleccionarProyecto() {
     const res = await fetch('/api/telegram/configurar', { method: 'POST', headers: { Authorization: `Bearer ${session?.access_token || ''}` } });
     const j = await res.json().catch(() => ({}));
     if (!j.ok) alert('El grupo quedó vinculado, pero no se pudieron activar los botones del bot: ' + (j.error || j.descripcion || res.status));
+    return j;
+  }
+  const [diagnostico, setDiagnostico] = useState(null);
+  async function revisarBot() {
+    setDiagnostico({ cargando: true });
+    const j = await activarBotonesBot();
+    setDiagnostico(j || { error: 'Sin respuesta' });
+    cargarGruposPendientes();
   }
 
   function elegir(id) {
@@ -587,6 +595,30 @@ export default function SeleccionarProyecto() {
                 </div>
               ))}
             </div>
+          </div>
+        )}
+
+        {usuario.rol === 'admin' && (
+          <div className="bg-hueso rounded-lg p-5 mb-6">
+            <div className="flex items-center justify-between gap-3 flex-wrap">
+              <div>
+                <h2 className="font-medium">Bot de Telegram</h2>
+                <p className="text-xs text-neutral-500">Revisa la conexión con Telegram y activa los botones del bot de finanzas.</p>
+              </div>
+              <button onClick={revisarBot} className="border border-dorado text-dorado px-4 py-2 rounded text-sm hover:bg-white">
+                {diagnostico?.cargando ? 'Revisando...' : 'Revisar conexión del bot'}
+              </button>
+            </div>
+            {diagnostico && !diagnostico.cargando && (
+              <div className="mt-3 text-xs bg-white rounded border p-3 space-y-1">
+                <p><strong>Bot:</strong> {diagnostico.bot?.usuario || '—'} · {diagnostico.bot?.lee_todos_los_mensajes_de_grupos ? 'lee todos los mensajes de los grupos' : 'solo lee comandos y menciones (modo privacidad activo: hazlo administrador del grupo)'}</p>
+                <p><strong>Webhook:</strong> {diagnostico.webhook || '—'} {diagnostico.ok ? '✅' : '❌'}</p>
+                <p><strong>Mensajes en cola:</strong> {diagnostico.antes?.mensajes_en_cola ?? '—'}</p>
+                <p><strong>Último error de Telegram:</strong> {diagnostico.antes?.ultimo_error ? `${diagnostico.antes.ultimo_error} (${diagnostico.antes.fecha_ultimo_error})` : 'ninguno'}</p>
+                <p><strong>Tipos de mensaje activos:</strong> {(diagnostico.ahora?.tipos_permitidos || []).join(', ') || 'todos'}</p>
+                {diagnostico.error && <p className="text-red-600">{diagnostico.error}</p>}
+              </div>
+            )}
           </div>
         )}
 

@@ -15,6 +15,8 @@ export async function POST(request) {
   if (u?.rol !== 'admin') return Response.json({ ok: false, error: 'Solo administradores' }, { status: 403 });
 
   const info = await telegramFetch('getWebhookInfo', {});
+  const bot = await telegramFetch('getMe', {});
+  const antes = info?.result || {};
   let url = info?.result?.url;
   if (!url) url = `${new URL(request.url).origin}/api/telegram/webhook`;
   const params = { url, allowed_updates: ['message', 'callback_query'] };
@@ -27,5 +29,13 @@ export async function POST(request) {
       { command: 'ayuda', description: 'Cómo registrar facturas y gastos' },
     ],
   });
-  return Response.json({ ok: !!res?.ok, webhook: url, descripcion: res?.description, comandos: !!comandos?.ok });
+  const despues = (await telegramFetch('getWebhookInfo', {}))?.result || {};
+  return Response.json({
+    ok: !!res?.ok, webhook: url, descripcion: res?.description, comandos: !!comandos?.ok,
+    bot: bot?.result ? { usuario: '@' + bot.result.username, lee_todos_los_mensajes_de_grupos: !!bot.result.can_read_all_group_messages } : null,
+    antes: { url: antes.url || null, mensajes_en_cola: antes.pending_update_count ?? null, ultimo_error: antes.last_error_message || null,
+             fecha_ultimo_error: antes.last_error_date ? new Date(antes.last_error_date * 1000).toISOString() : null,
+             tipos_permitidos: antes.allowed_updates || null },
+    ahora: { mensajes_en_cola: despues.pending_update_count ?? null, tipos_permitidos: despues.allowed_updates || null },
+  });
 }
