@@ -616,6 +616,12 @@ export default function SeleccionarProyecto() {
                 <p><strong>Mensajes en cola:</strong> {diagnostico.antes?.mensajes_en_cola ?? '—'}</p>
                 <p><strong>Último error de Telegram:</strong> {diagnostico.antes?.ultimo_error ? `${diagnostico.antes.ultimo_error} (${diagnostico.antes.fecha_ultimo_error})` : 'ninguno'}</p>
                 <p><strong>Tipos de mensaje activos:</strong> {(diagnostico.ahora?.tipos_permitidos || []).join(', ') || 'todos'}</p>
+                {(diagnostico.gemini || []).length > 0 && (
+                  <div className="pt-1">
+                    <p><strong>Lectura con IA (Gemini):</strong></p>
+                    {diagnostico.gemini.map((g) => <p key={g.modelo} className="pl-3 break-all">· {g.modelo}: {g.estado}</p>)}
+                  </div>
+                )}
                 {diagnostico.error && <p className="text-red-600">{diagnostico.error}</p>}
               </div>
             )}

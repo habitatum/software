@@ -1,5 +1,7 @@
 import { createClient } from '@supabase/supabase-js';
-import { telegramFetch } from '@/lib/telegramComun';
+import { telegramFetch, probarModelosGemini } from '@/lib/telegramComun';
+
+export const maxDuration = 60;
 
 // Activa en el webhook del bot la recepción de botones (callback_query), que
 // el bot de finanzas necesita para ✅ Confirmar / 📂 Capítulo / ❌ Descartar.
@@ -30,12 +32,14 @@ export async function POST(request) {
     ],
   });
   const despues = (await telegramFetch('getWebhookInfo', {}))?.result || {};
+  const gemini = await probarModelosGemini();
   return Response.json({
     ok: !!res?.ok, webhook: url, descripcion: res?.description, comandos: !!comandos?.ok,
     bot: bot?.result ? { usuario: '@' + bot.result.username, lee_todos_los_mensajes_de_grupos: !!bot.result.can_read_all_group_messages } : null,
     antes: { url: antes.url || null, mensajes_en_cola: antes.pending_update_count ?? null, ultimo_error: antes.last_error_message || null,
              fecha_ultimo_error: antes.last_error_date ? new Date(antes.last_error_date * 1000).toISOString() : null,
              tipos_permitidos: antes.allowed_updates || null },
+    gemini,
     ahora: { mensajes_en_cola: despues.pending_update_count ?? null, tipos_permitidos: despues.allowed_updates || null },
   });
 }

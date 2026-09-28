@@ -16,6 +16,7 @@
 import {
   telegramFetch, descargarArchivoTelegram, llamarGemini, parsearJSON, pesos, fechaColombia, escaparHTML, hayGemini,
 } from './telegramComun';
+import * as comun from './telegramComun';
 
 const RE_CAJA_MENOR = /caja\s*menor/i;
 const RE_CAPITULO = /\bcap(?:[íi]tulo)?\.?\s*(\d{1,2}(?:\.\d{1,2})?)/i;
@@ -222,7 +223,7 @@ export async function procesarMensajeFinanzas(supabase, mensaje, proyecto) {
         [{ text: promptCajaMenor(capitulos, texto) }, ...(parteArchivo ? [parteArchivo] : [])], { json: true }
       ));
       if (!lectura || !(Number(lectura.valor) > 0)) {
-        return editar('❌ No pude identificar el valor del gasto. Escribe por ejemplo: <i>CAJA MENOR 25000 transporte cap 7</i>.');
+        return editar('❌ No pude identificar el valor del gasto. Escribe por ejemplo: <i>CAJA MENOR 25000 transporte cap 7</i>.' + (comun.ultimoErrorGemini ? '\n<i>Detalle técnico: ' + escaparHTML(comun.ultimoErrorGemini) + '</i>' : ''));
       }
       const cap = capituloPorCodigo(capitulos, capNota || lectura.capitulo_codigo);
       tipo = 'CAJA_MENOR';
@@ -234,7 +235,7 @@ export async function procesarMensajeFinanzas(supabase, mensaje, proyecto) {
       };
     } else {
       const lectura = parsearJSON(await llamarGemini([{ text: promptFactura(capitulos, texto) }, parteArchivo], { json: true }));
-      if (!lectura) return editar('❌ No pude leer el documento (la IA no respondió). Intenta de nuevo en un minuto o envía una foto más nítida.');
+      if (!lectura) return editar('❌ No pude leer el documento: la IA (Gemini) no respondió.\n<i>Detalle técnico: ' + escaparHTML(comun.ultimoErrorGemini || 'respuesta no válida') + '</i>');
       if (lectura.es_documento_de_pago === false) {
         return editar('🤔 Esto no parece una factura o comprobante de pago. Si es un gasto sin factura, reenvíalo con la nota <b>CAJA MENOR</b>.');
       }
