@@ -18,6 +18,14 @@ const TIPOS_CAPITULO = {
   PAGO_DIRECTO_CLIENTE: 'Pago directo del cliente',
 };
 
+// Columnas destacadas: Presupuestado (dorado) y Ejecutado (azul acero).
+const COL_PPTO = 'bg-[#b88a52]/[0.18] text-[#6b4a22] font-semibold';
+const COL_PPTO_SUAVE = 'bg-[#b88a52]/[0.09] text-[#6b4a22]';
+const COL_PPTO_TOTAL = 'bg-[#b88a52]/[0.28] text-[#5a3d1a]';
+const COL_EJEC = 'bg-[#3b5b7a]/[0.14] text-[#243b52] font-semibold';
+const COL_EJEC_SUAVE = 'bg-[#3b5b7a]/[0.07] text-[#243b52]';
+const COL_EJEC_TOTAL = 'bg-[#3b5b7a]/[0.22] text-[#1b2d40]';
+
 const MODALIDADES = { AIU: 'AIU con IVA sobre la utilidad', IVA: 'IVA sobre el total', SIN_FACTURA: 'Sin facturación' };
 
 function pct(a, b) {
@@ -25,15 +33,10 @@ function pct(a, b) {
   return Math.round(x * 10) / 10;
 }
 
+// Mismo semáforo del formato financiero: 🟢 OK · 🟡 ALERTA (≥ 90%) · 🔴 SOBREGIRO (> 100%).
 function Semaforo({ valor }) {
-  const color = valor > 100 ? 'bg-red-600' : valor >= 85 ? 'bg-amber-500' : 'bg-green-600';
-  const texto = valor > 100 ? 'Sobrecosto' : valor >= 85 ? 'Alerta' : 'OK';
-  return (
-    <span className="inline-flex items-center gap-1.5 text-xs whitespace-nowrap">
-      <span className={`inline-block w-2.5 h-2.5 rounded-full ${color}`} />
-      {texto}
-    </span>
-  );
+  const [emoji, texto, color] = valor > 100 ? ['🔴', 'SOBREGIRO', 'text-red-700'] : valor >= 90 ? ['🟡', 'ALERTA', 'text-amber-700'] : ['🟢', 'OK', 'text-green-700'];
+  return <span className={`text-xs font-semibold whitespace-nowrap ${color}`}>{emoji} {texto}</span>;
 }
 
 function Barra({ valor }) {
@@ -146,6 +149,122 @@ export default function PresupuestoTodoCosto({ usuario, proyecto }) {
   const utilidadProyectada = Number(t.venta || 0) - costoProyectado;
   const margenPresupuestado = pct(t.utilidad_presupuestada, t.costo);
 
+  // ---------- Agrupación igual al formato financiero ----------
+  const sumar = (lista) => lista.reduce((a, c) => ({
+    venta: a.venta + Number(c.venta || 0),
+    costo: a.costo + Number(c.costo || 0),
+    utilidad: a.utilidad + Number(c.utilidad_presupuestada || 0),
+    ejecutado: a.ejecutado + Number(c.ejecutado || 0),
+  }), { venta: 0, costo: 0, utilidad: 0, ejecutado: 0 });
+  const capsContrato = capitulos.filter((c) => c.tipo === 'CONTRATO');
+  const capsAdicionales = capitulos.filter((c) => c.tipo !== 'CONTRATO');
+  const grupos = [
+    { clave: 'contrato', titulo: 'Presupuesto · contrato inicial', tituloCorto: 'contrato inicial', capitulos: capsContrato, totales: sumar(capsContrato) },
+    ...(capsAdicionales.length ? [{ clave: 'adicionales', titulo: 'Adicionales', tituloCorto: 'adicionales', capitulos: capsAdicionales, totales: sumar(capsAdicionales) }] : []),
+  ].filter((g) => g.capitulos.length > 0);
+  const totalGeneral = sumar(capitulos);
+
+  function filaCapitulo(c) {
+    const abierto = !!expandidos[c.id];
+    const pctCosto = pct(c.ejecutado, c.costo);
+    const pctVenta = pct(c.ejecutado, c.venta);
+    return (
+      <Fragment key={c.id}>
+        <tr className="border-t hover:bg-hueso/60 cursor-pointer" onClick={() => setExpandidos((p) => ({ ...p, [c.id]: !p[c.id] }))}>
+          <td className="p-3 font-medium">
+            <span className="text-neutral-400 mr-1">{abierto ? '▾' : '▸'}</span>
+            {c.codigo} · {c.nombre}
+          </td>
+          {esAdmin ? (
+            <>
+              <td className="p-3" onClick={(e) => e.stopPropagation()}>
+                <select value={c.tipo} disabled={guardandoTipo === c.id} onChange={(e) => cambiarTipo(c.id, e.target.value)} className="border rounded px-2 py-1 text-xs">
+                  {Object.entries(TIPOS_CAPITULO).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
+                </select>
+              </td>
+              <td className={`p-3 text-right ${COL_PPTO}`}>{formatoPesos(c.venta)}</td>
+              <td className="p-3 text-right">{formatoPesos(c.costo)}</td>
+              <td className="p-3 text-right">{formatoPesos(c.utilidad_presupuestada)}</td>
+              <td className={`p-3 text-right ${COL_EJEC}`}>{formatoPesos(c.ejecutado)}</td>
+              <td className="p-3 text-right">{pctCosto}%</td>
+              <td className="p-3"><Semaforo valor={pctCosto} /></td>
+            </>
+          ) : (
+            <>
+              <td className={`p-3 text-right ${COL_PPTO}`}>{formatoPesos(c.venta)}</td>
+              <td className={`p-3 text-right ${COL_EJEC}`}>{formatoPesos(c.ejecutado)}</td>
+              <td className="p-3"><div className="flex items-center gap-2"><Barra valor={pctVenta} /><span className="text-xs w-12 text-right">{pctVenta}%</span></div></td>
+              <td className="p-3"><Semaforo valor={pctVenta} /></td>
+            </>
+          )}
+        </tr>
+        {abierto && (c.items || []).map((it) => {
+          const pi = pct(it.ejecutado, esAdmin ? it.costo : it.venta);
+          return (
+            <tr key={it.id} className="border-t text-xs text-neutral-600">
+              <td className="p-2 pl-9">{it.codigo} · {it.descripcion}</td>
+              {esAdmin ? (
+                <>
+                  <td className="p-2 text-neutral-400">{it.unidad || ''}{it.cantidad ? ` · ${it.cantidad}` : ''}</td>
+                  <td className={`p-2 text-right ${COL_PPTO_SUAVE}`}>{formatoPesos(it.venta)}</td>
+                  <td className="p-2 text-right">{formatoPesos(it.costo)}</td>
+                  <td className="p-2 text-right">{formatoPesos(Number(it.venta || 0) - Number(it.costo || 0))}</td>
+                  <td className={`p-2 text-right ${COL_EJEC_SUAVE}`}>{Number(it.ejecutado) ? formatoPesos(it.ejecutado) : '—'}</td>
+                  <td className="p-2 text-right">{Number(it.ejecutado) ? `${pi}%` : ''}</td>
+                  <td className="p-2">{Number(it.ejecutado) > 0 && <Semaforo valor={pi} />}</td>
+                </>
+              ) : (
+                <>
+                  <td className={`p-2 text-right ${COL_PPTO_SUAVE}`}>{formatoPesos(it.venta)}</td>
+                  <td className={`p-2 text-right ${COL_EJEC_SUAVE}`}>{Number(it.ejecutado) ? formatoPesos(it.ejecutado) : '—'}</td>
+                  <td className="p-2" colSpan={2} />
+                </>
+              )}
+            </tr>
+          );
+        })}
+        {abierto && Number(c.ejecutado_capitulo) > 0 && (
+          <tr className="border-t text-xs italic text-neutral-500">
+            <td className="p-2 pl-9" colSpan={esAdmin ? 5 : 2}>Ejecutado registrado al capítulo (sin ítem específico)</td>
+            <td className={`p-2 text-right ${COL_EJEC_SUAVE}`}>{formatoPesos(c.ejecutado_capitulo)}</td>
+            <td colSpan={esAdmin ? 2 : 2} />
+          </tr>
+        )}
+      </Fragment>
+    );
+  }
+
+  function filaTotal(etiqueta, t2, general) {
+    const pc = pct(t2.ejecutado, t2.costo);
+    const pv = pct(t2.ejecutado, t2.venta);
+    const base = general ? 'bg-carbon text-hueso font-bold border-t-2 border-dorado' : 'bg-hueso font-semibold border-t-2 border-dorado';
+    const ppto = general ? '' : COL_PPTO_TOTAL;
+    const ejec = general ? '' : COL_EJEC_TOTAL;
+    return (
+      <tr className={base}>
+        <td className="p-3">{etiqueta}</td>
+        {esAdmin ? (
+          <>
+            <td />
+            <td className={`p-3 text-right ${ppto}`}>{formatoPesos(t2.venta)}</td>
+            <td className="p-3 text-right">{formatoPesos(t2.costo)}</td>
+            <td className="p-3 text-right">{formatoPesos(t2.utilidad)}</td>
+            <td className={`p-3 text-right ${ejec}`}>{formatoPesos(t2.ejecutado)}</td>
+            <td className="p-3 text-right">{pc}%</td>
+            <td className="p-3">{general ? <span className="text-xs">{pc > 100 ? '🔴 SOBREGIRO' : pc >= 90 ? '🟡 ALERTA' : '🟢 OK'}</span> : <Semaforo valor={pc} />}</td>
+          </>
+        ) : (
+          <>
+            <td className={`p-3 text-right ${ppto}`}>{formatoPesos(t2.venta)}</td>
+            <td className={`p-3 text-right ${ejec}`}>{formatoPesos(t2.ejecutado)}</td>
+            <td className="p-3"><div className="flex items-center gap-2"><Barra valor={pv} /><span className="text-xs w-12 text-right">{pv}%</span></div></td>
+            <td className="p-3" />
+          </>
+        )}
+      </tr>
+    );
+  }
+
   return (
     <div className="space-y-6">
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
@@ -174,7 +293,7 @@ export default function PresupuestoTodoCosto({ usuario, proyecto }) {
         <>
           {esAdmin ? (
             <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-              <Tarjeta oscura titulo="Venta (contrato cliente)" valor={formatoPesos(t.venta)} nota={fin ? MODALIDADES[fin.modalidad_facturacion] : null} />
+              <Tarjeta oscura titulo="Presupuestado (contrato + adicionales)" valor={formatoPesos(t.venta)} nota={fin ? MODALIDADES[fin.modalidad_facturacion] : null} />
               <Tarjeta titulo="Costo presupuestado" valor={formatoPesos(t.costo)} nota={`Margen ${margenPresupuestado}% sobre costo`} />
               <Tarjeta titulo="Ejecutado (costo real)" valor={formatoPesos(t.ejecutado)} nota={`${pct(t.ejecutado, t.costo)}% del costo`} />
               <Tarjeta
@@ -185,7 +304,7 @@ export default function PresupuestoTodoCosto({ usuario, proyecto }) {
             </div>
           ) : (
             <div className="grid grid-cols-2 gap-3">
-              <Tarjeta oscura titulo="Valor total del presupuesto" valor={formatoPesos(t.venta)} />
+              <Tarjeta oscura titulo="Presupuestado" valor={formatoPesos(t.venta)} />
               <Tarjeta titulo="Avance ejecutado" valor={`${pct(t.ejecutado, t.venta)}%`} nota="Sobre el valor total" />
             </div>
           )}
@@ -219,127 +338,41 @@ export default function PresupuestoTodoCosto({ usuario, proyecto }) {
                   <tr>
                     <th className="p-3">Capítulo</th>
                     <th className="p-3">Tipo</th>
-                    <th className="p-3 text-right">Venta</th>
+                    <th className={`p-3 text-right ${COL_PPTO}`}>Presupuestado</th>
                     <th className="p-3 text-right">Costo</th>
                     <th className="p-3 text-right">Utilidad</th>
-                    <th className="p-3 text-right">Ejecutado</th>
+                    <th className={`p-3 text-right ${COL_EJEC}`}>Ejecutado</th>
                     <th className="p-3 text-right">% costo</th>
                     <th className="p-3">Estado</th>
                   </tr>
                 ) : (
                   <tr>
                     <th className="p-3">Capítulo</th>
-                    <th className="p-3 text-right">Valor total</th>
-                    <th className="p-3 w-48">Avance</th>
+                    <th className={`p-3 text-right ${COL_PPTO}`}>Presupuestado</th>
+                    <th className={`p-3 text-right ${COL_EJEC}`}>Ejecutado</th>
+                    <th className="p-3 w-40">Avance</th>
+                    <th className="p-3">Estado</th>
                   </tr>
                 )}
               </thead>
               <tbody>
-                {capitulos.map((c) => {
-                  const abierto = !!expandidos[c.id];
-                  const pctCosto = pct(c.ejecutado, c.costo);
-                  const pctVenta = pct(c.ejecutado, c.venta);
-                  return (
-                    <Fragment key={c.id}>
-                      <tr className="border-t hover:bg-hueso cursor-pointer" onClick={() => setExpandidos((p) => ({ ...p, [c.id]: !p[c.id] }))}>
-                        <td className="p-3 font-medium">
-                          <span className="text-neutral-400 mr-1">{abierto ? '▾' : '▸'}</span>
-                          {c.codigo} · {c.nombre}
-                        </td>
-                        {esAdmin ? (
-                          <>
-                            <td className="p-3" onClick={(e) => e.stopPropagation()}>
-                              <select
-                                value={c.tipo}
-                                disabled={guardandoTipo === c.id}
-                                onChange={(e) => cambiarTipo(c.id, e.target.value)}
-                                className="border rounded px-2 py-1 text-xs"
-                              >
-                                {Object.entries(TIPOS_CAPITULO).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
-                              </select>
-                            </td>
-                            <td className="p-3 text-right">{formatoPesos(c.venta)}</td>
-                            <td className="p-3 text-right">{formatoPesos(c.costo)}</td>
-                            <td className="p-3 text-right">{formatoPesos(c.utilidad_presupuestada)}</td>
-                            <td className="p-3 text-right">{formatoPesos(c.ejecutado)}</td>
-                            <td className="p-3 text-right">{pctCosto}%</td>
-                            <td className="p-3"><Semaforo valor={pctCosto} /></td>
-                          </>
-                        ) : (
-                          <>
-                            <td className="p-3 text-right">{formatoPesos(c.venta)}</td>
-                            <td className="p-3">
-                              <div className="flex items-center gap-2"><Barra valor={pctVenta} /><span className="text-xs w-12 text-right">{pctVenta}%</span></div>
-                            </td>
-                          </>
-                        )}
-                      </tr>
-                      {abierto && (c.items || []).map((it) => {
-                        const pi = pct(it.ejecutado, esAdmin ? it.costo : it.venta);
-                        return (
-                          <tr key={it.id} className="border-t bg-neutral-50/60 text-xs">
-                            <td className="p-2 pl-9">{it.codigo} · {it.descripcion}</td>
-                            {esAdmin ? (
-                              <>
-                                <td className="p-2 text-neutral-400">{it.unidad || ''}{it.cantidad ? ` · ${it.cantidad}` : ''}</td>
-                                <td className="p-2 text-right">{formatoPesos(it.venta)}</td>
-                                <td className="p-2 text-right">{formatoPesos(it.costo)}</td>
-                                <td className="p-2 text-right">{formatoPesos(Number(it.venta || 0) - Number(it.costo || 0))}</td>
-                                <td className="p-2 text-right">{formatoPesos(it.ejecutado)}</td>
-                                <td className="p-2 text-right">{pi}%</td>
-                                <td className="p-2">{Number(it.ejecutado) > 0 && <Semaforo valor={pi} />}</td>
-                              </>
-                            ) : (
-                              <>
-                                <td className="p-2 text-right">{formatoPesos(it.venta)}</td>
-                                <td className="p-2"><div className="flex items-center gap-2"><Barra valor={pi} /><span className="w-12 text-right">{pi}%</span></div></td>
-                              </>
-                            )}
-                          </tr>
-                        );
-                      })}
-                      {abierto && Number(c.ejecutado_capitulo) > 0 && (
-                        esAdmin ? (
-                          <tr className="border-t bg-neutral-50/60 text-xs italic">
-                            <td className="p-2 pl-9" colSpan={5}>Imputado al capítulo sin ítem específico</td>
-                            <td className="p-2 text-right">{formatoPesos(c.ejecutado_capitulo)}</td>
-                            <td colSpan={2} />
-                          </tr>
-                        ) : (
-                          <tr className="border-t bg-neutral-50/60 text-xs italic">
-                            <td className="p-2 pl-9" colSpan={3}>Incluye gastos imputados al capítulo sin ítem específico</td>
-                          </tr>
-                        )
-                      )}
-                    </Fragment>
-                  );
-                })}
-                <tr className="border-t-2 border-dorado bg-hueso font-semibold">
-                  <td className="p-3">Total</td>
-                  {esAdmin ? (
-                    <>
-                      <td />
-                      <td className="p-3 text-right">{formatoPesos(t.venta)}</td>
-                      <td className="p-3 text-right">{formatoPesos(t.costo)}</td>
-                      <td className="p-3 text-right">{formatoPesos(t.utilidad_presupuestada)}</td>
-                      <td className="p-3 text-right">{formatoPesos(t.ejecutado)}</td>
-                      <td className="p-3 text-right">{pct(t.ejecutado, t.costo)}%</td>
-                      <td className="p-3"><Semaforo valor={pct(t.ejecutado, t.costo)} /></td>
-                    </>
-                  ) : (
-                    <>
-                      <td className="p-3 text-right">{formatoPesos(t.venta)}</td>
-                      <td className="p-3"><div className="flex items-center gap-2"><Barra valor={pct(t.ejecutado, t.venta)} /><span className="text-xs w-12 text-right">{pct(t.ejecutado, t.venta)}%</span></div></td>
-                    </>
-                  )}
-                </tr>
+                {grupos.map((g) => (
+                  <Fragment key={g.clave}>
+                    <tr className="bg-carbon text-hueso">
+                      <td colSpan={esAdmin ? 8 : 5} className="px-3 py-2 text-xs font-semibold uppercase tracking-wide">{g.titulo}</td>
+                    </tr>
+                    {g.capitulos.map((c) => filaCapitulo(c))}
+                    {filaTotal(`Subtotal ${g.tituloCorto}`, g.totales, false)}
+                  </Fragment>
+                ))}
+                {grupos.length > 1 && filaTotal('TOTAL (contrato inicial + adicionales)', totalGeneral, true)}
               </tbody>
             </table>
           </div>
           {esAdmin && (
             <p className="text-xs text-neutral-500">
-              Semáforo contra el <strong>costo</strong> presupuestado: verde &lt; 85%, ámbar 85–100%, rojo &gt; 100% (sobrecosto que se come la utilidad).
-              Los capítulos de tipo &quot;Adicional sin utilidad&quot; y &quot;Pago directo del cliente&quot; tienen venta = costo.
+              Estado contra el <strong>costo</strong> presupuestado: 🟢 OK &lt; 90% · 🟡 ALERTA 90–100% · 🔴 SOBREGIRO &gt; 100% (sobrecosto que se come la utilidad).
+              En los adicionales (sin utilidad y pagos directos del cliente) el presupuestado es igual al costo.
             </p>
           )}
         </>
