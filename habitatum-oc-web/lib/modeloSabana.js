@@ -24,12 +24,21 @@ export function construirSabana({ items = [], cortes = [], anticipos = [], edici
   ];
   const todos = [...contractuales, ...adicionales];
 
+  const vuContrato = Object.fromEntries(todos.map((i) => [i.id, n(i.valor_unitario)]));
+  // Último valor unitario usado en un corte para cada ítem (el corte nuevo lo propone por defecto).
+  const ultimoVU = {};
   const columnas = cortes.map((c) => {
-    const q = {};
-    (c.corte_items || []).forEach((x) => { if (x.contrato_item_id) q[x.contrato_item_id] = (q[x.contrato_item_id] || 0) + n(x.cantidad); });
+    const q = {}; const vu = {};
+    (c.corte_items || []).forEach((x) => {
+      if (!x.contrato_item_id) return;
+      q[x.contrato_item_id] = (q[x.contrato_item_id] || 0) + n(x.cantidad);
+      vu[x.contrato_item_id] = n(x.valor_unitario);
+      if (n(x.cantidad)) ultimoVU[x.contrato_item_id] = n(x.valor_unitario);
+    });
     return {
       id: c.id, numero: c.numero, fecha: c.fecha, folio: c.ordenes_compra?.folio || null, historico: c.historico, editable: false,
       cantidad: (itemId) => q[itemId] || 0,
+      vu: (itemId) => (vu[itemId] !== undefined ? vu[itemId] : vuContrato[itemId] || 0),
       pctRetencion: n(c.porcentaje_retencion), retencion: n(c.valor_retencion), amortizacion: n(c.valor_amortizacion),
       descuento: n(c.descuento), neto: n(c.neto), notas: c.notas,
     };
@@ -41,6 +50,13 @@ export function construirSabana({ items = [], cortes = [], anticipos = [], edici
       cantidad: (itemId) => (String(itemId).startsWith('nuevo:')
         ? n((edicion.nuevos || []).find((x) => `nuevo:${x.tmpId}` === itemId)?.cantidad)
         : n(edicion.cantidades?.[itemId])),
+      // Valor unitario del corte en edición: el escrito; si no, el del último corte; si no, el del contrato.
+      vu: (itemId) => {
+        if (String(itemId).startsWith('nuevo:')) return n((edicion.nuevos || []).find((x) => `nuevo:${x.tmpId}` === itemId)?.valor_unitario);
+        const escrito = edicion.vus?.[itemId];
+        if (escrito !== undefined && escrito !== '') return n(escrito);
+        return ultimoVU[itemId] !== undefined ? ultimoVU[itemId] : vuContrato[itemId] || 0;
+      },
       pctRetencion: n(edicion.pctRetencion), amortizacion: n(edicion.amortizacion), descuento: n(edicion.descuento),
       titulo: edicion.titulo || 'NUEVO',
     });
@@ -49,8 +65,8 @@ export function construirSabana({ items = [], cortes = [], anticipos = [], edici
 
   // Subtotales por columna
   columnas.forEach((col) => {
-    col.subContrato = r2(contractuales.reduce((a, i) => a + col.cantidad(i.id) * n(i.valor_unitario), 0));
-    col.subAdicionales = r2(adicionales.reduce((a, i) => a + col.cantidad(i.id) * n(i.valor_unitario), 0));
+    col.subContrato = r2(contractuales.reduce((a, i) => a + col.cantidad(i.id) * col.vu(i.id), 0));
+    col.subAdicionales = r2(adicionales.reduce((a, i) => a + col.cantidad(i.id) * col.vu(i.id), 0));
     col.total = r2(col.subContrato + col.subAdicionales);
     if (col.editable) {
       col.retencion = r2((col.total - col.descuento) * col.pctRetencion / 100);
@@ -62,6 +78,7 @@ export function construirSabana({ items = [], cortes = [], anticipos = [], edici
   const totalAnticipos = anticipos.reduce((a, x) => a + n(x.total), 0);
   const acumulado = {
     cantidad: (itemId) => columnas.reduce((a, c) => a + c.cantidad(itemId), 0),
+    valor: (itemId) => r2(columnas.reduce((a, c) => a + c.cantidad(itemId) * c.vu(itemId), 0)),
     subContrato: r2(columnas.reduce((a, c) => a + c.subContrato, 0)),
     subAdicionales: r2(columnas.reduce((a, c) => a + c.subAdicionales, 0)),
     total: r2(columnas.reduce((a, c) => a + c.total, 0)),
@@ -75,6 +92,7 @@ export function construirSabana({ items = [], cortes = [], anticipos = [], edici
 
   const subtotalContratado = r2(contractuales.reduce((a, i) => a + n(i.cantidad) * n(i.valor_unitario), 0));
   return {
+    ultimoVU, vuContrato,
     contractuales, adicionales, todos, columnas, acumulado, totalAnticipos, subtotalContratado,
     pctAnticipo: n(valorContrato) > 0 ? Math.round((totalAnticipos / n(valorContrato)) * 1000) / 10 : 0,
     excede: (item) => item.cantidad != null && acumulado.cantidad(item.id) > n(item.cantidad) + 0.0005,

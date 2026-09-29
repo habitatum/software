@@ -37,7 +37,7 @@ export default function SabanaCortes({ m, contrato, edicion, onPdf, hrefCorte, p
 
   function celdasCorte(col, item) {
     const q = col.cantidad(item.id);
-    const vu = Number(item.valor_unitario);
+    const vu = col.vu(item.id);
     if (col.editable) {
       const valorInput = String(item.id).startsWith('nuevo:')
         ? (edicion.nuevos.find((x) => `nuevo:${x.tmpId}` === item.id)?.cantidad ?? '')
@@ -50,7 +50,14 @@ export default function SabanaCortes({ m, contrato, edicion, onPdf, hrefCorte, p
               onChange={(e) => (String(item.id).startsWith('nuevo:') ? edicion.onCantidadNuevo(item.tmpId, e.target.value) : edicion.onCantidad(item.id, e.target.value))}
               className="border rounded px-1.5 py-0.5 text-xs w-20 text-right bg-white" />
           </td>
-          <td className={`${TD} text-right ${EDIT}`}>{$(vu)}</td>
+          <td className={`p-1 ${EDIT}`}>
+            {String(item.id).startsWith('nuevo:') ? <span className="text-xs block text-right px-1">{$(vu)}</span> : (
+              <input type="number" step="any" disabled={!edicion.puedeEditar} value={edicion.vus?.[item.id] ?? ''} placeholder={String(vu)}
+                title="Valor unitario de este corte (por defecto, el del último corte o el del contrato)"
+                onChange={(e) => edicion.onVU(item.id, e.target.value)}
+                className={`border rounded px-1.5 py-0.5 text-xs w-24 text-right bg-white ${vu !== Number(item.valor_unitario) ? 'border-dorado' : ''}`} />
+            )}
+          </td>
           <td className={`${TD} text-right font-semibold ${EDIT}`}>{q ? $(q * vu) : '$ -'}</td>
         </Fragment>
       );
@@ -59,7 +66,7 @@ export default function SabanaCortes({ m, contrato, edicion, onPdf, hrefCorte, p
       <Fragment key={col.id}>
         {SEP}
         <td className={`${TD} text-right`}>{cant(q)}</td>
-        <td className={`${TD} text-right text-neutral-500`}>{$(vu)}</td>
+        <td className={`${TD} text-right ${vu !== Number(item.valor_unitario) ? 'text-[#8a5a1f] font-semibold' : 'text-neutral-500'}`} title={vu !== Number(item.valor_unitario) ? 'Valor unitario distinto al del contrato' : ''}>{$(vu)}</td>
         <td className={`${TD} text-right`}>{q ? $(q * vu) : '$ -'}</td>
       </Fragment>
     );
@@ -86,7 +93,7 @@ export default function SabanaCortes({ m, contrato, edicion, onPdf, hrefCorte, p
         {SEP}
         <td className={`${TD} text-right ${excede ? 'text-red-700 font-bold' : ''}`}>{cant(aq)}</td>
         <td className={`${TD} text-right text-neutral-500`}>{$(item.valor_unitario)}</td>
-        <td className={`${TD} text-right font-semibold`}>{aq ? $(aq * Number(item.valor_unitario)) : '$ -'}</td>
+        <td className={`${TD} text-right font-semibold`}>{aq ? $(m.acumulado.valor(item.id)) : '$ -'}</td>
       </tr>
     );
   }

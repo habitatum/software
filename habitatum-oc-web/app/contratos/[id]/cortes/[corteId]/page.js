@@ -32,6 +32,7 @@ export default function CorteDeObra() {
   const [d, setD] = useState(null);
   const [corte, setCorte] = useState(null);
   const [cantidades, setCantidades] = useState({});
+  const [vus, setVus] = useState({});
   const [nuevos, setNuevos] = useState([]);
   const [form, setForm] = useState({ numero: 1, fecha: hoy(), pctRetencion: '0', tipo_amortizacion: 'NINGUNA', porcentaje_amortizacion: '', valor_amortizacion_fijo: '', notas: '' });
   const [error, setError] = useState('');
@@ -67,7 +68,8 @@ export default function CorteDeObra() {
       if (esNuevo) {
         const { data: todos } = await s.from('cortes').select('numero').eq('contrato_id', contratoId).order('numero', { ascending: false }).limit(1);
         const ultimo = (cortes || []).slice(-1)[0];
-        const saldoAnt = num(ant?.saldo);
+        // Saldos residuales de redondeo (menos de $100) no se proponen para amortizar.
+        const saldoAnt = num(ant?.saldo) >= 100 ? num(ant?.saldo) : 0;
         const pctProp = saldoAnt > 0 && num(contrato?.valor_inicial) > 0 ? r2((num(ant.valor) / num(contrato.valor_inicial)) * 100) : 0;
         setForm((f) => ({
           ...f,
@@ -90,11 +92,12 @@ export default function CorteDeObra() {
         });
         if (c.estado === 'BORRADOR') {
           const cant = {}; const nv = [];
+          const vv = {};
           (ci || []).forEach((x, k) => {
-            if (x.contrato_item_id) cant[x.contrato_item_id] = String(x.cantidad);
+            if (x.contrato_item_id) { cant[x.contrato_item_id] = String(x.cantidad); vv[x.contrato_item_id] = String(x.valor_unitario); }
             else nv.push({ tmpId: k + 1, descripcion: x.descripcion, unidad: x.unidad || '', valor_unitario: String(x.valor_unitario), capitulo_id: x.capitulo_id || '', cantidad: String(x.cantidad) });
           });
-          setCantidades(cant); setNuevos(nv);
+          setCantidades(cant); setNuevos(nv); setVus(vv);
         }
       }
       setD(base);
@@ -108,11 +111,12 @@ export default function CorteDeObra() {
 
   function iniciarEdicion() {
     const cant = {}; const nv = [];
+    const vv = {};
     itemsCorte.forEach((x, k) => {
-      if (x.contrato_item_id) cant[x.contrato_item_id] = String(x.cantidad);
+      if (x.contrato_item_id) { cant[x.contrato_item_id] = String(x.cantidad); vv[x.contrato_item_id] = String(x.valor_unitario); }
       else nv.push({ tmpId: k + 1, descripcion: x.descripcion, unidad: x.unidad || '', valor_unitario: String(x.valor_unitario), capitulo_id: x.capitulo_id || '', cantidad: String(x.cantidad) });
     });
-    setCantidades(cant); setNuevos(nv); setActualizarOC(!!corte.oc_id); setError(''); setEditando(true);
+    setCantidades(cant); setNuevos(nv); setVus(vv); setActualizarOC(!!corte.oc_id); setError(''); setEditando(true);
   }
 
   async function guardarEdicion() {
@@ -133,7 +137,7 @@ export default function CorteDeObra() {
   if (d && modoEdicion) {
     const cortesPrevios = aprobado ? d.cortes.filter((k) => k.id !== corte.id) : d.cortes.filter((k) => k.numero < Number(form.numero));
     const edicionBase = {
-      numero: form.numero, fecha: form.fecha, cantidades, nuevos, pctRetencion: form.pctRetencion, amortizacion: 0,
+      numero: form.numero, fecha: form.fecha, cantidades, vus, nuevos, pctRetencion: form.pctRetencion, amortizacion: 0,
       descuento: aprobado ? Number(corte.descuento || 0) : 0, titulo: aprobado ? 'EDITANDO' : 'NUEVO',
     };
     const m0 = construirSabana({ items: d.items, cortes: cortesPrevios, anticipos: d.anticipos, edicion: edicionBase, valorContrato: d.contrato.valor_inicial });
@@ -175,7 +179,7 @@ export default function CorteDeObra() {
     const filas = [
       ...d.items.filter((i) => num(cantidades[i.id]) !== 0).map((i) => ({
         corte_id: idCorte, contrato_item_id: i.id, descripcion: (i.codigo ? `${i.codigo} · ` : '') + i.descripcion, unidad: i.unidad,
-        cantidad: num(cantidades[i.id]), valor_unitario: num(i.valor_unitario), presupuesto_item_id: i.presupuesto_item_id, capitulo_id: i.capitulo_id,
+        cantidad: num(cantidades[i.id]), valor_unitario: colEdicion.vu(i.id), presupuesto_item_id: i.presupuesto_item_id, capitulo_id: i.capitulo_id,
         orden: i.orden + (i.es_adicional ? 1000 : 0),
       })),
       ...nuevos.filter((x) => num(x.cantidad) !== 0).map((x, k) => ({
@@ -221,6 +225,7 @@ export default function CorteDeObra() {
     pctRetencionTexto: form.pctRetencion,
     onPctRetencion: (v) => setForm({ ...form, pctRetencion: v }),
     onCantidad: (itemId, v) => setCantidades({ ...cantidades, [itemId]: v }),
+    vus, onVU: (itemId, v) => setVus({ ...vus, [itemId]: v }),
     onCantidadNuevo: (tmpId, v) => setNuevos(nuevos.map((x) => (x.tmpId === tmpId ? { ...x, cantidad: v } : x))),
     onAgregarNuevo: (x) => setNuevos([...nuevos, x]),
     onQuitarNuevo: (tmpId) => setNuevos(nuevos.filter((x) => x.tmpId !== tmpId)),

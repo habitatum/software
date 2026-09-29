@@ -92,14 +92,14 @@ export async function construirLibroSabana({ m, contrato, proyecto, logoBase64, 
     cols.forEach((c, k) => {
       const q = c.cantidad(item.id);
       numero(ws.getCell(r, colCorte(k)), q, CANT);
-      numero(ws.getCell(r, colCorte(k) + 1), Number(item.valor_unitario), MONEDA);
-      numero(ws.getCell(r, colCorte(k) + 2), q * Number(item.valor_unitario), MONEDA);
+      numero(ws.getCell(r, colCorte(k) + 1), c.vu(item.id), MONEDA);
+      numero(ws.getCell(r, colCorte(k) + 2), q * c.vu(item.id), MONEDA);
       if (c.editable) [0, 1, 2].forEach((i) => { ws.getCell(r, colCorte(k) + i).fill = relleno('FFF3E9DC'); });
     });
     const aq = m.acumulado.cantidad(item.id);
     numero(ws.getCell(r, colAcum), aq, CANT);
     numero(ws.getCell(r, colAcum + 1), Number(item.valor_unitario), MONEDA);
-    numero(ws.getCell(r, colAcum + 2), aq * Number(item.valor_unitario), MONEDA);
+    numero(ws.getCell(r, colAcum + 2), m.acumulado.valor(item.id), MONEDA);
     if (m.excede(item)) ws.getCell(r, colAcum).font = { bold: true, color: { argb: 'FF9B2C2C' } };
     for (let c = 1; c <= ultimaCol; c++) ws.getCell(r, c).border = borde;
     r++;
