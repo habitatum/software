@@ -1,5 +1,5 @@
 'use client';
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { useUsuarioActual } from '@/lib/useUsuarioActual';
@@ -7,72 +7,20 @@ import { useProyectoActual } from '@/lib/useProyectoActual';
 import { crearClienteSupabase } from '@/lib/supabaseClient';
 import { formatoPesos } from '@/lib/calculosOC';
 import { compartirOAbrirArchivo } from '@/lib/compartirArchivo';
+import { construirSabana } from '@/lib/modeloSabana';
+import SabanaCortes from '@/lib/SabanaCortes';
 import NavBar from '@/components/NavBar';
 
 // ============================================================
-// Corte de obra: cantidades por ítem del contrato + adicionales,
-// retención y amortización del anticipo. Al aprobar (solo admin),
-// la función SQL aprobar_corte genera la OC imputada al presupuesto.
+// Corte de obra: la misma sábana del Excel, con los cortes anteriores a la
+// vista y el corte nuevo como columna editable (como agregar una columna en
+// el Excel). Aprobar (solo admin) → aprobar_corte genera la OC imputada.
 // ============================================================
 
 const hoy = () => new Date().toISOString().slice(0, 10);
 const num = (v) => (v === '' || v === null || v === undefined || isNaN(Number(v)) ? 0 : Number(v));
 const r2 = (n) => Math.round(n * 100) / 100;
-const fmtCant = (n) => (n === null || n === undefined ? '—' : Number(n).toLocaleString('es-CO', { maximumFractionDigits: 3 }));
 const CAMPO = 'border rounded px-2 py-1 text-sm';
-
-function FilaSub({ etiqueta, valor }) {
-  return (
-    <tr className="border-t-2 border-dorado bg-[#b88a52]/[0.12] font-semibold">
-      <td className="p-2 text-xs" colSpan={8}>{etiqueta}</td>
-      <td className="p-2 text-right">{formatoPesos(valor)}</td>
-    </tr>
-  );
-}
-
-function TablaCorte({ titulo, filas, cantidades, setCantidades, puedeEditar, pie, sinMarco }) {
-  const tabla = (
-    <table className="w-full text-sm">
-      <thead className="bg-gris-calido/30 text-left text-xs">
-        <tr>
-          <th className="p-2">Ítem</th><th className="p-2">Und</th>
-          <th className="p-2 text-right">Contratado</th><th className="p-2 text-right">Anterior</th>
-          <th className="p-2 text-right bg-[#b88a52]/[0.18]">Este corte</th>
-          <th className="p-2 text-right">Acumulado</th><th className="p-2 text-right">Saldo</th>
-          <th className="p-2 text-right">Vr. unitario</th><th className="p-2 text-right bg-[#3b5b7a]/[0.14]">Valor corte</th>
-        </tr>
-      </thead>
-      <tbody>
-        {filas.length === 0 && <tr><td colSpan={9} className="p-3 text-xs text-neutral-500">Sin ítems.</td></tr>}
-        {filas.map((f) => (
-          <tr key={f.id} className={`border-t ${f.excede && f.cant > 0 ? 'bg-red-50' : ''}`}>
-            <td className="p-2 text-xs max-w-md">{f.codigo ? <strong>{f.codigo} · </strong> : null}{f.descripcion}</td>
-            <td className="p-2 text-xs">{f.unidad}</td>
-            <td className="p-2 text-right text-xs">{fmtCant(f.cantidad)}</td>
-            <td className="p-2 text-right text-xs">{fmtCant(f.anterior)}</td>
-            <td className="p-1 text-right bg-[#b88a52]/[0.09]">
-              <input type="number" step="any" disabled={!puedeEditar} value={cantidades[f.id] ?? ''} placeholder="0"
-                onChange={(e) => setCantidades({ ...cantidades, [f.id]: e.target.value })}
-                className={`${CAMPO} w-24 text-right`} />
-            </td>
-            <td className={`p-2 text-right text-xs ${f.excede ? 'text-red-700 font-semibold' : ''}`}>{fmtCant(f.acumuladoNuevo)}</td>
-            <td className={`p-2 text-right text-xs ${f.excede ? 'text-red-700' : ''}`}>{f.saldoNuevo == null ? '—' : fmtCant(f.saldoNuevo)}</td>
-            <td className="p-2 text-right text-xs">{formatoPesos(f.valor_unitario)}</td>
-            <td className="p-2 text-right bg-[#3b5b7a]/[0.07]">{f.subtotal ? formatoPesos(f.subtotal) : '—'}</td>
-          </tr>
-        ))}
-        {pie}
-      </tbody>
-    </table>
-  );
-  if (sinMarco) return tabla;
-  return (
-    <div className="bg-white rounded-lg border overflow-x-auto">
-      {titulo && <h2 className="font-semibold text-sm uppercase tracking-wide px-3 pt-3 pb-1">{titulo}</h2>}
-      {tabla}
-    </div>
-  );
-}
 
 export default function CorteDeObra() {
   const { id: contratoId, corteId } = useParams();
@@ -81,51 +29,48 @@ export default function CorteDeObra() {
   const { proyecto, cargando: cargandoProyecto } = useProyectoActual();
   const esNuevo = corteId === 'nuevo';
 
-  const [contrato, setContrato] = useState(null);
-  const [items, setItems] = useState([]);
-  const [capitulos, setCapitulos] = useState([]);
-  const [anticipo, setAnticipo] = useState({});
+  const [d, setD] = useState(null);
   const [corte, setCorte] = useState(null);
   const [cantidades, setCantidades] = useState({});
-  const [adicionales, setAdicionales] = useState([]);
-  const [form, setForm] = useState({ numero: 1, fecha: hoy(), porcentaje_retencion: '', tipo_amortizacion: 'NINGUNA', porcentaje_amortizacion: '', valor_amortizacion_fijo: '', notas: '' });
+  const [nuevos, setNuevos] = useState([]);
+  const [form, setForm] = useState({ numero: 1, fecha: hoy(), pctRetencion: '0', tipo_amortizacion: 'NINGUNA', porcentaje_amortizacion: '', valor_amortizacion_fijo: '', notas: '' });
   const [error, setError] = useState('');
   const [guardando, setGuardando] = useState(false);
-  const [listo, setListo] = useState(false);
-  const [previoPorItem, setPrevioPorItem] = useState({});
 
   const esAdmin = usuario?.rol === 'admin';
-  const puedeEditar = (usuario?.rol === 'admin' || usuario?.rol === 'operativo') && (!corte || corte.estado === 'BORRADOR');
+  const aprobado = corte?.estado === 'APROBADO';
+  const puedeEditar = (usuario?.rol === 'admin' || usuario?.rol === 'operativo') && !aprobado;
 
   useEffect(() => {
     if (!usuario || !proyecto) return;
     (async () => {
       const s = crearClienteSupabase();
-      const [{ data: k }, { data: its }, { data: ant }, { data: pres }] = await Promise.all([
-        s.from('contratos').select('*, proveedores:contratista_id(nombre, nit)').eq('id', contratoId).single(),
-        s.from('v_contrato_items_avance').select('*').eq('contrato_id', contratoId).order('es_adicional').order('orden'),
+      const [{ data: contrato }, { data: items }, { data: cortes }, { data: anticipos }, { data: ant }, { data: pres }] = await Promise.all([
+        s.from('contratos').select('*, proveedores:contratista_id(nombre)').eq('id', contratoId).single(),
+        s.from('contrato_items').select('*').eq('contrato_id', contratoId).order('orden'),
+        s.from('cortes').select('*, ordenes_compra(folio), corte_items(*)').eq('contrato_id', contratoId).eq('estado', 'APROBADO').order('numero'),
+        s.from('v_ordenes_compra_calculadas').select('id, folio, fecha, total').eq('contrato_id', contratoId).eq('tipo_pago', 'ANTICIPO').neq('estado', 'ANULADA').order('fecha'),
         s.rpc('anticipo_contrato', { p_contrato: contratoId }),
         s.from('presupuestos').select('id').eq('proyecto_id', proyecto.id).maybeSingle(),
       ]);
-      setContrato(k);
-      setItems(its || []);
-      setAnticipo(ant || {});
+      let capitulos = [];
       if (pres) {
         const { data: caps } = await s.from('presupuesto_capitulos').select('id, codigo, nombre').eq('presupuesto_id', pres.id).order('orden');
-        setCapitulos(caps || []);
+        capitulos = caps || [];
       }
+      const base = { contrato, items: items || [], cortes: cortes || [], anticipos: anticipos || [], anticipo: ant || {}, capitulos };
 
       if (esNuevo) {
-        const { data: ult } = await s.from('cortes').select('numero').eq('contrato_id', contratoId).order('numero', { ascending: false }).limit(1);
-        const { data: ultOC } = await s.from('ordenes_compra').select('porcentaje_retencion').eq('contrato_id', contratoId).eq('tipo_pago', 'NORMAL').neq('estado', 'ANULADA').order('fecha', { ascending: false }).limit(1);
-        const saldoAnt = Number(ant?.saldo || 0);
-        const pctProporcional = saldoAnt > 0 && Number(k?.valor_inicial) > 0 ? r2((Number(ant.valor) / Number(k.valor_inicial)) * 100) : 0;
+        const { data: todos } = await s.from('cortes').select('numero').eq('contrato_id', contratoId).order('numero', { ascending: false }).limit(1);
+        const ultimo = (cortes || []).slice(-1)[0];
+        const saldoAnt = num(ant?.saldo);
+        const pctProp = saldoAnt > 0 && num(contrato?.valor_inicial) > 0 ? r2((num(ant.valor) / num(contrato.valor_inicial)) * 100) : 0;
         setForm((f) => ({
           ...f,
-          numero: Math.max(ult?.[0]?.numero || 0, k?.cortes_previos || 0) + 1,
-          porcentaje_retencion: String(ultOC?.[0]?.porcentaje_retencion ?? 0),
+          numero: (todos?.[0]?.numero || 0) + 1,
+          pctRetencion: String(ultimo ? num(ultimo.porcentaje_retencion) : 0),
           tipo_amortizacion: saldoAnt > 0 ? 'PORCENTAJE' : 'NINGUNA',
-          porcentaje_amortizacion: saldoAnt > 0 ? String(pctProporcional) : '',
+          porcentaje_amortizacion: saldoAnt > 0 ? String(pctProp) : '',
         }));
       } else {
         const [{ data: c }, { data: ci }] = await Promise.all([
@@ -134,64 +79,52 @@ export default function CorteDeObra() {
         ]);
         setCorte(c);
         setForm({
-          numero: c.numero, fecha: c.fecha, porcentaje_retencion: String(c.porcentaje_retencion ?? 0),
+          numero: c.numero, fecha: c.fecha, pctRetencion: String(num(c.porcentaje_retencion)),
           tipo_amortizacion: c.tipo_amortizacion, porcentaje_amortizacion: String(c.porcentaje_amortizacion || ''),
           valor_amortizacion_fijo: String(c.valor_amortizacion_fijo || ''), notas: c.notas || '',
         });
-        const cant = {};
-        const ads = [];
-        (ci || []).forEach((x) => {
-          const esDelContrato = x.contrato_item_id && (its || []).some((i) => i.id === x.contrato_item_id);
-          if (esDelContrato) cant[x.contrato_item_id] = String(x.cantidad);
-          else ads.push({ descripcion: x.descripcion, unidad: x.unidad || '', cantidad: String(x.cantidad), valor_unitario: String(x.valor_unitario), capitulo_id: x.capitulo_id || '' });
-        });
-        setCantidades(cant);
-        setAdicionales(ads);
+        if (c.estado === 'BORRADOR') {
+          const cant = {}; const nv = [];
+          (ci || []).forEach((x, k) => {
+            if (x.contrato_item_id) cant[x.contrato_item_id] = String(x.cantidad);
+            else nv.push({ tmpId: k + 1, descripcion: x.descripcion, unidad: x.unidad || '', valor_unitario: String(x.valor_unitario), capitulo_id: x.capitulo_id || '', cantidad: String(x.cantidad) });
+          });
+          setCantidades(cant); setNuevos(nv);
+        }
       }
-      // Cantidades de cortes APROBADOS con número menor a este (columna "Anterior").
-      const numeroEste = esNuevo ? null : undefined;
-      const { data: prev } = await s.from('corte_items')
-        .select('contrato_item_id, cantidad, cortes!inner(numero, estado, contrato_id)')
-        .eq('cortes.contrato_id', contratoId).eq('cortes.estado', 'APROBADO');
-      setPrevioPorItem({ lista: prev || [], numeroEste });
-      setListo(true);
+      setD(base);
     })();
   }, [usuario, proyecto, contratoId, corteId]); // eslint-disable-line
 
-  // Acumulado anterior: la vista cuenta solo cortes APROBADOS; si este corte ya está aprobado, se descuenta.
-  const aprobado = corte?.estado === 'APROBADO';
-  const filas = useMemo(() => items.map((i) => {
-    const cant = num(cantidades[i.id]);
-    const previos = (previoPorItem.lista || []).filter((p) => p.contrato_item_id === i.id && p.cortes.numero < Number(form.numero));
-    const anterior = num(i.cantidad_historica) + previos.reduce((a, p) => a + num(p.cantidad), 0);
-    const acumulado = anterior + cant;
-    return { ...i, cant, anterior, acumuladoNuevo: acumulado, saldoNuevo: i.cantidad == null ? null : num(i.cantidad) - acumulado, subtotal: r2(cant * num(i.valor_unitario)), excede: i.cantidad != null && acumulado > num(i.cantidad) + 0.0005 };
-  }), [items, cantidades, previoPorItem, form.numero]);
+  if (cargando || cargandoProyecto || !usuario || !proyecto) return null;
 
-  const subContrato = filas.filter((f) => !f.es_adicional).reduce((a, f) => a + f.subtotal, 0);
-  const subAdicPactados = filas.filter((f) => f.es_adicional).reduce((a, f) => a + f.subtotal, 0);
-  const subAdicionales = adicionales.reduce((a, x) => a + r2(num(x.cantidad) * num(x.valor_unitario)), 0);
-  const subtotal = r2(subContrato + subAdicPactados + subAdicionales);
-  const saldoAnticipo = aprobado ? num(corte.valor_amortizacion) : Math.max(num(anticipo.saldo), 0);
-  let amort = form.tipo_amortizacion === 'PORCENTAJE' ? r2(subtotal * num(form.porcentaje_amortizacion) / 100)
-    : form.tipo_amortizacion === 'SALDO' ? saldoAnticipo
-    : form.tipo_amortizacion === 'VALOR_FIJO' ? num(form.valor_amortizacion_fijo) : 0;
-  amort = aprobado ? num(corte.valor_amortizacion) : Math.min(Math.max(amort, 0), saldoAnticipo, subtotal);
-  const retencion = r2(subtotal * num(form.porcentaje_retencion) / 100);
-  const neto = r2(subtotal - amort - retencion);
-  const excedidos = filas.filter((f) => f.excede && f.cant > 0);
+  // ---------- Cálculos (mismo modelo de la sábana) ----------
+  let m = null; let amort = 0; let excedidos = [];
+  if (d && !aprobado) {
+    const cortesPrevios = d.cortes.filter((k) => k.numero < Number(form.numero));
+    const edicionBase = { numero: form.numero, fecha: form.fecha, cantidades, nuevos, pctRetencion: form.pctRetencion, amortizacion: 0 };
+    const m0 = construirSabana({ items: d.items, cortes: cortesPrevios, anticipos: d.anticipos, edicion: edicionBase, valorContrato: d.contrato.valor_inicial });
+    const total = m0.columnas.slice(-1)[0].total;
+    const saldo = Math.max(num(d.anticipo.saldo), 0);
+    amort = form.tipo_amortizacion === 'PORCENTAJE' ? r2(total * num(form.porcentaje_amortizacion) / 100)
+      : form.tipo_amortizacion === 'SALDO' ? saldo
+      : form.tipo_amortizacion === 'VALOR_FIJO' ? num(form.valor_amortizacion_fijo) : 0;
+    amort = Math.min(Math.max(amort, 0), saldo, total);
+    m = construirSabana({ items: d.items, cortes: cortesPrevios, anticipos: d.anticipos, edicion: { ...edicionBase, amortizacion: amort }, valorContrato: d.contrato.valor_inicial });
+    const colEd = m.columnas.slice(-1)[0];
+    excedidos = m.todos.filter((i) => m.excede(i) && colEd.cantidad(i.id) > 0);
+  } else if (d) {
+    m = construirSabana({ items: d.items, cortes: d.cortes, anticipos: d.anticipos, valorContrato: d.contrato.valor_inicial });
+  }
+  const colEdicion = m && !aprobado ? m.columnas.slice(-1)[0] : null;
 
   async function guardar() {
     setError('');
-    const adicionalesValidos = adicionales.filter((a) => a.descripcion.trim() || num(a.cantidad));
-    if (adicionalesValidos.some((a) => !a.descripcion.trim() || !num(a.cantidad) || !num(a.valor_unitario) || !a.capitulo_id)) {
-      throw new Error('Cada adicional necesita descripción, cantidad, valor unitario y capítulo del presupuesto.');
-    }
-    if (subtotal <= 0) throw new Error('El corte no tiene cantidades.');
+    if (!colEdicion || colEdicion.total <= 0) throw new Error('El corte no tiene cantidades.');
     const s = crearClienteSupabase();
     const cabecera = {
       contrato_id: contratoId, numero: Number(form.numero), fecha: form.fecha,
-      porcentaje_retencion: num(form.porcentaje_retencion), tipo_amortizacion: form.tipo_amortizacion,
+      porcentaje_retencion: num(form.pctRetencion), tipo_amortizacion: form.tipo_amortizacion,
       porcentaje_amortizacion: num(form.porcentaje_amortizacion), valor_amortizacion_fijo: num(form.valor_amortizacion_fijo),
       notas: form.notas.trim() || null,
     };
@@ -199,173 +132,133 @@ export default function CorteDeObra() {
     if (!idCorte) {
       const { data, error: e } = await s.from('cortes').insert({ ...cabecera, creado_por: usuario.id }).select().single();
       if (e) throw new Error(e.message.includes('duplicate') ? `Ya existe el corte No. ${form.numero} en este contrato.` : e.message);
-      idCorte = data.id;
-      setCorte(data);
+      idCorte = data.id; setCorte(data);
     } else {
       const { error: e } = await s.from('cortes').update(cabecera).eq('id', idCorte);
       if (e) throw e;
     }
     await s.from('corte_items').delete().eq('corte_id', idCorte);
-    const filasItems = [
-      ...filas.filter((f) => f.cant !== 0).map((f, k) => ({
-        corte_id: idCorte, contrato_item_id: f.id, descripcion: (f.codigo ? `${f.codigo} · ` : '') + f.descripcion,
-        unidad: f.unidad, cantidad: f.cant, valor_unitario: num(f.valor_unitario),
-        presupuesto_item_id: f.presupuesto_item_id, capitulo_id: f.capitulo_id, orden: k,
+    const filas = [
+      ...d.items.filter((i) => num(cantidades[i.id]) !== 0).map((i) => ({
+        corte_id: idCorte, contrato_item_id: i.id, descripcion: (i.codigo ? `${i.codigo} · ` : '') + i.descripcion, unidad: i.unidad,
+        cantidad: num(cantidades[i.id]), valor_unitario: num(i.valor_unitario), presupuesto_item_id: i.presupuesto_item_id, capitulo_id: i.capitulo_id,
+        orden: i.orden + (i.es_adicional ? 1000 : 0),
       })),
-      ...adicionalesValidos.map((a, k) => ({
-        corte_id: idCorte, contrato_item_id: null, descripcion: a.descripcion.trim(), unidad: a.unidad || null,
-        cantidad: num(a.cantidad), valor_unitario: num(a.valor_unitario), capitulo_id: a.capitulo_id, orden: 1000 + k,
+      ...nuevos.filter((x) => num(x.cantidad) !== 0).map((x, k) => ({
+        corte_id: idCorte, contrato_item_id: null, descripcion: x.descripcion.trim(), unidad: x.unidad || null,
+        cantidad: num(x.cantidad), valor_unitario: num(x.valor_unitario), capitulo_id: x.capitulo_id, orden: 5000 + k,
       })),
     ];
-    if (filasItems.length) {
-      const { error: e } = await s.from('corte_items').insert(filasItems);
-      if (e) throw e;
-    }
+    if (filas.length) { const { error: e } = await s.from('corte_items').insert(filas); if (e) throw e; }
     return idCorte;
   }
 
   async function guardarBorrador() {
     setGuardando(true);
-    try {
-      const idCorte = await guardar();
-      if (esNuevo) router.replace(`/contratos/${contratoId}/cortes/${idCorte}`);
-    } catch (e) { setError(e.message); }
+    try { const idC = await guardar(); if (esNuevo) router.replace(`/contratos/${contratoId}/cortes/${idC}`); }
+    catch (e) { setError(e.message); }
     setGuardando(false);
   }
 
   async function aprobar() {
+    const sinCant = nuevos.filter((x) => !num(x.cantidad));
+    if (sinCant.length) { setError(`Hay ${sinCant.length} adicional(es) nuevo(s) sin cantidad en este corte.`); return; }
     const aviso = excedidos.length ? `\n\n⚠️ ${excedidos.length} ítem(s) superan la cantidad contratada.` : '';
-    if (!window.confirm(`¿Aprobar el corte No. ${form.numero} y generar la Orden de Compra?\n\nSubtotal ${formatoPesos(subtotal)}\nAmortización −${formatoPesos(amort)}\nRetención −${formatoPesos(retencion)}\nNeto a pagar ${formatoPesos(neto)}${aviso}`)) return;
+    if (!window.confirm(`¿Aprobar el corte No. ${form.numero} y generar la Orden de Compra?\n\nTOTAL CORTE ${formatoPesos(colEdicion.total)}\n(-) Retenido ${formatoPesos(colEdicion.retencion)}\n(-) Amortización ${formatoPesos(colEdicion.amortizacion)}\nTOTAL PAGO ${formatoPesos(colEdicion.neto)}${aviso}`)) return;
     setGuardando(true);
     try {
-      const idCorte = await guardar();
-      const s = crearClienteSupabase();
-      const { data, error: e } = await s.rpc('aprobar_corte', { p_corte: idCorte });
+      const idC = await guardar();
+      const { data, error: e } = await crearClienteSupabase().rpc('aprobar_corte', { p_corte: idC });
       if (e) throw e;
       window.alert(`Corte aprobado. Se generó la ${data.folio} por ${formatoPesos(data.neto)}.`);
-      router.push(`/contratos/${contratoId}`);
+      router.push(`/contratos/${contratoId}/cortes`);
     } catch (e) { setError(e.message); }
     setGuardando(false);
   }
 
   async function eliminarBorrador() {
     if (!corte || !window.confirm('¿Eliminar este borrador de corte?')) return;
-    const s = crearClienteSupabase();
-    await s.from('cortes').delete().eq('id', corte.id);
+    await crearClienteSupabase().from('cortes').delete().eq('id', corte.id);
     router.push(`/contratos/${contratoId}`);
   }
 
-  if (cargando || cargandoProyecto || !usuario || !proyecto) return null;
+  const edicion = !aprobado && d ? {
+    puedeEditar, cantidades, nuevos, capitulos: d.capitulos,
+    pctRetencionTexto: form.pctRetencion,
+    onPctRetencion: (v) => setForm({ ...form, pctRetencion: v }),
+    onCantidad: (itemId, v) => setCantidades({ ...cantidades, [itemId]: v }),
+    onCantidadNuevo: (tmpId, v) => setNuevos(nuevos.map((x) => (x.tmpId === tmpId ? { ...x, cantidad: v } : x))),
+    onAgregarNuevo: (x) => setNuevos([...nuevos, x]),
+    onQuitarNuevo: (tmpId) => setNuevos(nuevos.filter((x) => x.tmpId !== tmpId)),
+  } : null;
 
   return (
     <div>
       <NavBar usuario={usuario} proyecto={proyecto} />
-      <main className="p-4 sm:p-8 max-w-7xl mx-auto space-y-5">
-        <Link href={`/contratos/${contratoId}`} className="text-sm text-neutral-500">← Volver al contrato</Link>
-        {!listo || !contrato ? <p className="text-sm text-neutral-500">Cargando…</p> : (
+      <main className="p-4 sm:p-6 space-y-4">
+        <Link href={`/contratos/${contratoId}/cortes`} className="text-sm text-neutral-500">← Volver a los cortes del contrato</Link>
+        {!d ? <p className="text-sm text-neutral-500">Cargando…</p> : (
           <>
             <div className="flex flex-wrap items-end justify-between gap-3">
               <div>
-                <h1 className="text-2xl font-semibold">Corte de obra No. {form.numero}</h1>
-                <p className="text-sm text-neutral-500">
-                  Contrato {contrato.numero_contrato} · {contrato.proveedores?.nombre} · {contrato.concepto}
-                </p>
+                <h1 className="text-2xl font-semibold">{aprobado ? `Corte de obra No. ${corte.numero}` : `Nuevo corte de obra No. ${form.numero}`}</h1>
+                <p className="text-sm text-neutral-500">Contrato {d.contrato.numero_contrato} · {d.contrato.proveedores?.nombre} · {d.contrato.concepto}</p>
               </div>
-              {aprobado && (
+              {aprobado ? (
                 <div className="flex items-center gap-3">
-                  <span className="text-sm text-green-700">Aprobado · {corte.ordenes_compra?.folio}</span>
-                  <button onClick={() => compartirOAbrirArchivo(`/api/cortes/${corte.id}/pdf`, `Corte ${corte.numero} ${contrato.numero_contrato}.pdf`)} className="border border-dorado text-dorado px-4 py-2 rounded text-sm">Descargar corte (PDF)</button>
+                  <span className="text-sm text-green-700">Aprobado · {corte.ordenes_compra?.folio || 'sin OC'}</span>
+                  <button onClick={() => compartirOAbrirArchivo(`/api/cortes/${corte.id}/pdf`, `Corte ${corte.numero} ${d.contrato.numero_contrato}.pdf`)} className="border border-dorado text-dorado px-4 py-2 rounded text-sm">Descargar corte (PDF)</button>
+                </div>
+              ) : (
+                <div className="flex items-end gap-3 text-sm">
+                  <label className="space-y-1"><span className="block text-xs text-neutral-500">Fecha del corte</span>
+                    <input type="date" disabled={!puedeEditar} value={form.fecha} onChange={(e) => setForm({ ...form, fecha: e.target.value })} className={CAMPO} /></label>
+                  <label className="space-y-1"><span className="block text-xs text-neutral-500">No.</span>
+                    <input type="number" disabled={!puedeEditar} value={form.numero} onChange={(e) => setForm({ ...form, numero: e.target.value })} className={`${CAMPO} w-16`} /></label>
                 </div>
               )}
             </div>
 
             {error && <p className="text-red-600 text-sm bg-red-50 border border-red-200 rounded p-3">{error}</p>}
 
-            <div className="bg-white rounded-lg border p-4 grid grid-cols-2 sm:grid-cols-4 gap-3 text-sm">
-              <label className="space-y-1"><span className="text-xs text-neutral-500">Fecha del corte</span>
-                <input type="date" disabled={!puedeEditar} value={form.fecha} onChange={(e) => setForm({ ...form, fecha: e.target.value })} className={`${CAMPO} w-full`} /></label>
-              <label className="space-y-1"><span className="text-xs text-neutral-500">No. de corte</span>
-                <input type="number" disabled={!puedeEditar} value={form.numero} onChange={(e) => setForm({ ...form, numero: e.target.value })} className={`${CAMPO} w-full`} /></label>
-              <div className="space-y-1 col-span-2"><span className="text-xs text-neutral-500">Anticipo del contrato</span>
-                <p>{anticipo.folio ? `${anticipo.folio} · ${formatoPesos(anticipo.valor)} · saldo por amortizar ${formatoPesos(anticipo.saldo)}` : 'Sin anticipo'}</p></div>
-            </div>
+            <SabanaCortes m={m} contrato={d.contrato} edicion={edicion}
+              onPdf={(c) => compartirOAbrirArchivo(`/api/cortes/${c.id}/pdf`, `Corte ${c.numero} ${d.contrato.numero_contrato}.pdf`)} />
 
-            <TablaCorte titulo="Ítems del contrato" filas={filas.filter((f) => !f.es_adicional)} cantidades={cantidades} setCantidades={setCantidades} puedeEditar={puedeEditar}
-              pie={<FilaSub etiqueta="SUBTOTAL ÍTEMS DEL CONTRATO" valor={subContrato} />} />
-
-            <div className="bg-white rounded-lg border overflow-x-auto">
-              <div className="flex items-center justify-between px-3 pt-3">
-                <h2 className="font-semibold text-sm uppercase tracking-wide">Adicionales</h2>
-                {puedeEditar && <button onClick={() => setAdicionales([...adicionales, { descripcion: '', unidad: '', cantidad: '', valor_unitario: '', capitulo_id: '' }])} className="text-sm text-dorado underline">+ Agregar adicional nuevo</button>}
-              </div>
-              <TablaCorte sinMarco filas={filas.filter((f) => f.es_adicional)} cantidades={cantidades} setCantidades={setCantidades} puedeEditar={puedeEditar} />
-              {adicionales.length > 0 && (
-                <div className="px-3 pb-3 space-y-2 border-t pt-3">
-                  <p className="text-xs text-neutral-500">Adicionales nuevos (al aprobar quedan como ítems del contrato para los próximos cortes):</p>
-                  {adicionales.map((a, k) => (
-                    <div key={k} className="grid grid-cols-12 gap-2 items-center">
-                      <input disabled={!puedeEditar} placeholder="Descripción" value={a.descripcion} onChange={(e) => { const x = [...adicionales]; x[k] = { ...a, descripcion: e.target.value }; setAdicionales(x); }} className={`${CAMPO} col-span-12 sm:col-span-4`} />
-                      <input disabled={!puedeEditar} placeholder="Und" value={a.unidad} onChange={(e) => { const x = [...adicionales]; x[k] = { ...a, unidad: e.target.value }; setAdicionales(x); }} className={`${CAMPO} col-span-3 sm:col-span-1`} />
-                      <input disabled={!puedeEditar} type="number" step="any" placeholder="Cant." value={a.cantidad} onChange={(e) => { const x = [...adicionales]; x[k] = { ...a, cantidad: e.target.value }; setAdicionales(x); }} className={`${CAMPO} col-span-3 sm:col-span-1 text-right`} />
-                      <input disabled={!puedeEditar} type="number" placeholder="Vr. unit." value={a.valor_unitario} onChange={(e) => { const x = [...adicionales]; x[k] = { ...a, valor_unitario: e.target.value }; setAdicionales(x); }} className={`${CAMPO} col-span-6 sm:col-span-2 text-right`} />
-                      <select disabled={!puedeEditar} value={a.capitulo_id} onChange={(e) => { const x = [...adicionales]; x[k] = { ...a, capitulo_id: e.target.value }; setAdicionales(x); }} className={`${CAMPO} col-span-9 sm:col-span-3`}>
-                        <option value="">Capítulo del presupuesto…</option>
-                        {capitulos.map((c) => <option key={c.id} value={c.id}>{c.codigo} · {c.nombre}</option>)}
-                      </select>
-                      {puedeEditar && <button onClick={() => setAdicionales(adicionales.filter((_, j2) => j2 !== k))} className="col-span-3 sm:col-span-1 text-xs text-neutral-400 hover:text-red-600">Quitar</button>}
-                    </div>
-                  ))}
-                </div>
-              )}
-              <table className="w-full text-sm"><tbody><FilaSub etiqueta="SUBTOTAL ADICIONALES" valor={subAdicPactados + subAdicionales} /></tbody></table>
-            </div>
-
-            <div className="grid md:grid-cols-2 gap-4">
-              <div className="bg-white rounded-lg border p-4 space-y-3 text-sm">
-                <h2 className="font-medium">Retención y amortización</h2>
-                <label className="flex items-center justify-between gap-3"><span>% de retención</span>
-                  <input type="number" step="any" disabled={!puedeEditar} value={form.porcentaje_retencion} onChange={(e) => setForm({ ...form, porcentaje_retencion: e.target.value })} className={`${CAMPO} w-24 text-right`} /></label>
-                <label className="flex items-center justify-between gap-3"><span>Amortización del anticipo</span>
-                  <select disabled={!puedeEditar || !anticipo.folio} value={form.tipo_amortizacion} onChange={(e) => setForm({ ...form, tipo_amortizacion: e.target.value })} className={CAMPO}>
+            {!aprobado && (
+              <div className="grid md:grid-cols-3 gap-4">
+                <div className="bg-white rounded-lg border p-4 space-y-2 text-sm">
+                  <h2 className="font-medium">Amortización del anticipo</h2>
+                  <p className="text-xs text-neutral-500">{d.anticipo.folio ? `${d.anticipo.folio} · ${formatoPesos(d.anticipo.valor)} · por amortizar ${formatoPesos(d.anticipo.saldo)}` : 'Este contrato no tiene anticipo.'}</p>
+                  <select disabled={!puedeEditar || !d.anticipo.folio} value={form.tipo_amortizacion} onChange={(e) => setForm({ ...form, tipo_amortizacion: e.target.value })} className={`${CAMPO} w-full`}>
                     <option value="NINGUNA">No amortizar</option>
                     <option value="PORCENTAJE">% del corte</option>
                     <option value="SALDO">Saldo completo del anticipo</option>
                     <option value="VALOR_FIJO">Valor fijo</option>
-                  </select></label>
-                {form.tipo_amortizacion === 'PORCENTAJE' && (
-                  <label className="flex items-center justify-between gap-3"><span>% a amortizar</span>
-                    <input type="number" step="any" disabled={!puedeEditar} value={form.porcentaje_amortizacion} onChange={(e) => setForm({ ...form, porcentaje_amortizacion: e.target.value })} className={`${CAMPO} w-24 text-right`} /></label>
-                )}
-                {form.tipo_amortizacion === 'VALOR_FIJO' && (
-                  <label className="flex items-center justify-between gap-3"><span>Valor a amortizar</span>
-                    <input type="number" disabled={!puedeEditar} value={form.valor_amortizacion_fijo} onChange={(e) => setForm({ ...form, valor_amortizacion_fijo: e.target.value })} className={`${CAMPO} w-36 text-right`} /></label>
-                )}
-                <textarea disabled={!puedeEditar} placeholder="Notas del corte (opcional)" value={form.notas} onChange={(e) => setForm({ ...form, notas: e.target.value })} className={`${CAMPO} w-full`} rows={2} />
-              </div>
-
-              <div className="bg-carbon text-hueso rounded-lg p-4 text-sm space-y-1.5">
-                <h2 className="font-medium mb-2">Resumen del corte</h2>
-                <div className="flex justify-between"><span>Subtotal ítems del contrato</span><span>{formatoPesos(subContrato)}</span></div>
-                <div className="flex justify-between"><span>Subtotal adicionales</span><span>{formatoPesos(subAdicPactados + subAdicionales)}</span></div>
-                <div className="flex justify-between font-semibold border-t border-dorado pt-1.5"><span>TOTAL CORTE</span><span>{formatoPesos(subtotal)}</span></div>
-                {aprobado && num(corte.descuento) > 0 && <div className="flex justify-between"><span>(-) Descuento</span><span>{formatoPesos(corte.descuento)}</span></div>}
-                <div className="flex justify-between"><span>(-) Retenido {num(form.porcentaje_retencion)}%</span><span>{formatoPesos(aprobado ? corte.valor_retencion : retencion)}</span></div>
-                <div className="flex justify-between"><span>(-) Amortización anticipo</span><span>{formatoPesos(amort)}</span></div>
-                <div className="flex justify-between text-lg font-semibold border-t border-dorado pt-2 mt-1 text-[#e6c89c]"><span>TOTAL PAGO</span><span>{formatoPesos(aprobado ? corte.neto : neto)}</span></div>
-                {excedidos.length > 0 && (
-                  <p className="text-xs bg-red-900/40 rounded p-2 mt-2">⚠️ {excedidos.length} ítem(s) superan la cantidad contratada: {excedidos.map((f) => f.codigo || f.descripcion.slice(0, 25)).join(', ')}. Verifica la medición o formaliza un otrosí.</p>
-                )}
-              </div>
-            </div>
-
-            {puedeEditar && (
-              <div className="flex flex-wrap gap-3 justify-end">
-                {corte && <button disabled={guardando} onClick={eliminarBorrador} className="text-sm text-neutral-500 underline mr-auto">Eliminar borrador</button>}
-                <button disabled={guardando} onClick={guardarBorrador} className="border border-carbon px-4 py-2 rounded text-sm">{guardando ? 'Guardando…' : 'Guardar borrador'}</button>
-                {esAdmin && <button disabled={guardando} onClick={aprobar} className="bg-carbon text-hueso px-5 py-2 rounded text-sm">Aprobar y generar OC</button>}
+                  </select>
+                  {form.tipo_amortizacion === 'PORCENTAJE' && <input type="number" step="any" disabled={!puedeEditar} value={form.porcentaje_amortizacion} onChange={(e) => setForm({ ...form, porcentaje_amortizacion: e.target.value })} placeholder="% a amortizar" className={`${CAMPO} w-full`} />}
+                  {form.tipo_amortizacion === 'VALOR_FIJO' && <input type="number" disabled={!puedeEditar} value={form.valor_amortizacion_fijo} onChange={(e) => setForm({ ...form, valor_amortizacion_fijo: e.target.value })} placeholder="Valor a amortizar" className={`${CAMPO} w-full`} />}
+                </div>
+                <div className="bg-white rounded-lg border p-4 space-y-2 text-sm">
+                  <h2 className="font-medium">Notas del corte</h2>
+                  <textarea disabled={!puedeEditar} rows={3} value={form.notas} onChange={(e) => setForm({ ...form, notas: e.target.value })} className={`${CAMPO} w-full`} placeholder="Observaciones (opcional)" />
+                  {excedidos.length > 0 && <p className="text-xs text-red-700">⚠️ {excedidos.length} ítem(s) superan la cantidad contratada: verifica la medición o formaliza un otrosí.</p>}
+                </div>
+                <div className="bg-carbon text-hueso rounded-lg p-4 text-sm space-y-1.5">
+                  <div className="flex justify-between"><span>TOTAL CORTE {form.numero}</span><span>{formatoPesos(colEdicion.total)}</span></div>
+                  <div className="flex justify-between"><span>(-) Retenido {num(form.pctRetencion)}%</span><span>{formatoPesos(colEdicion.retencion)}</span></div>
+                  <div className="flex justify-between"><span>(-) Amortización anticipo</span><span>{formatoPesos(colEdicion.amortizacion)}</span></div>
+                  <div className="flex justify-between text-lg font-semibold border-t border-dorado pt-2 text-[#e6c89c]"><span>TOTAL PAGO</span><span>{formatoPesos(colEdicion.neto)}</span></div>
+                  {puedeEditar && (
+                    <div className="flex flex-wrap gap-2 pt-3">
+                      <button disabled={guardando} onClick={guardarBorrador} className="border border-hueso px-3 py-1.5 rounded text-xs">{guardando ? 'Guardando…' : 'Guardar borrador'}</button>
+                      {esAdmin && <button disabled={guardando} onClick={aprobar} className="bg-dorado text-carbon font-semibold px-3 py-1.5 rounded text-xs">Aprobar y generar OC</button>}
+                      {corte && <button disabled={guardando} onClick={eliminarBorrador} className="text-xs underline text-gris-calido ml-auto">Eliminar borrador</button>}
+                    </div>
+                  )}
+                  {puedeEditar && !esAdmin && <p className="text-[11px] text-gris-calido">Queda en borrador hasta que un administrador lo apruebe.</p>}
+                </div>
               </div>
             )}
-            {puedeEditar && !esAdmin && <p className="text-xs text-neutral-500 text-right">El corte queda en borrador hasta que un administrador lo apruebe.</p>}
           </>
         )}
       </main>
