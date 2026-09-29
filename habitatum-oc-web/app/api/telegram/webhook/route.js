@@ -58,7 +58,7 @@ async function procesarUpdate(update) {
   // ¿Es el grupo de FINANZAS de un proyecto? (facturas → OC, caja menor)
   const { data: proyectoFinanzas } = await supabase
     .from('proyectos')
-    .select('id, nombre, tope_caja_menor')
+    .select('id, nombre, tope_caja_menor, modelo_contratacion')
     .eq('telegram_chat_id_finanzas', chatId)
     .maybeSingle();
   if (proyectoFinanzas) {

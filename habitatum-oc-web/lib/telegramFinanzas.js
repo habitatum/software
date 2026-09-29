@@ -19,13 +19,14 @@ import {
 import * as comun from './telegramComun';
 
 const RE_CAJA_MENOR = /caja\s*menor/i;
-const RE_CAPITULO = /\bcap(?:[íi]tulo)?\.?\s*(\d{1,2}(?:\.\d{1,2})?)/i;
+// "cap 7", "capítulo 7", "cap 19.09" o "ítem 19.09"
+const RE_CAPITULO = /(?:\bcap(?:[íi]tulo)?|[íi]tem)\.?\s*(\d{1,2}(?:\.\d{1,2})?)/i;
 
 const AYUDA =
   '<b>Residente C · Finanzas</b>\n' +
   '• Envía la <b>foto o PDF de la factura</b> y creo la Orden de Compra.\n' +
   '• Si es un gasto pequeño o sin factura, escribe <b>CAJA MENOR</b> en la nota de la foto (o un mensaje como <i>CAJA MENOR 25000 transporte cap 7</i>).\n' +
-  '• Para indicar el capítulo escribe <b>cap 7</b> en la nota. Si no, lo sugiero yo.\n' +
+  '• Para indicar el capítulo escribe <b>cap 7</b> (o el ítem: <b>ítem 19.09</b>) en la nota. Si no, lo sugiero yo.\n' +
   '• /estado → caja menor acumulada · /cerrarcaja → legalizar la caja menor ya.';
 
 async function capitulosDelProyecto(supabase, proyectoId) {
@@ -35,6 +36,44 @@ async function capitulosDelProyecto(supabase, proyectoId) {
   return data || [];
 }
 
+// En ADMINISTRACIÓN DELEGADA el control presupuestal solo cuenta OC imputadas a un ÍTEM del presupuesto,
+// así que el bot trabaja por ítem; en TODO COSTO basta el capítulo.
+async function contextoPresupuesto(supabase, proyectoId, modelo) {
+  const capitulos = await capitulosDelProyecto(supabase, proyectoId);
+  const porItem = modelo === 'ADMINISTRACION_DELEGADA';
+  let items = [];
+  if (porItem && capitulos.length) {
+    const { data } = await supabase.from('presupuesto_items').select('id, codigo, descripcion, capitulo_id')
+      .in('capitulo_id', capitulos.map((c) => c.id)).order('orden');
+    items = data || [];
+  }
+  return { capitulos, items, porItem };
+}
+
+function listaPresupuesto(ctx) {
+  if (ctx.porItem && ctx.items.length) {
+    return 'ítems del presupuesto (código = descripción):\n' +
+      ctx.items.map((i) => `${i.codigo} = ${String(i.descripcion).slice(0, 70)}`).join('\n');
+  }
+  return 'capítulos del presupuesto:\n' + ctx.capitulos.map((c) => `${c.codigo} = ${c.nombre}`).join('\n');
+}
+
+// Destino presupuestal: la nota del usuario ("cap 7" / "19.09") manda; si no, la sugerencia de la IA.
+function destinoPresupuesto(ctx, codigoNota, lectura) {
+  if (ctx.porItem) {
+    const cod = (codigoNota && codigoNota.includes('.')) ? codigoNota : (lectura?.item_codigo || '');
+    const it = ctx.items.find((i) => i.codigo === String(cod).trim());
+    if (it) {
+      const cap = ctx.capitulos.find((c) => c.id === it.capitulo_id);
+      return { capitulo_id: cap?.id || null, capitulo_codigo: cap?.codigo || null, capitulo_nombre: cap?.nombre || null,
+               presupuesto_item_id: it.id, item_codigo: it.codigo, item_descripcion: String(it.descripcion).slice(0, 80) };
+    }
+  }
+  const cap = capituloPorCodigo(ctx.capitulos, codigoNota || lectura?.capitulo_codigo || lectura?.item_codigo);
+  return { capitulo_id: cap?.id || null, capitulo_codigo: cap?.codigo || null, capitulo_nombre: cap?.nombre || null,
+           presupuesto_item_id: null, item_codigo: null, item_descripcion: null };
+}
+
 function capituloPorCodigo(capitulos, codigo) {
   if (!codigo) return null;
   const c = String(codigo).trim().split('.')[0].replace(/^0+(?=\d)/, '');
@@ -42,32 +81,32 @@ function capituloPorCodigo(capitulos, codigo) {
 }
 
 // ---------- Lectura con IA ----------
-function promptFactura(capitulos, nota) {
+function promptFactura(ctx, nota) {
   return (
     'Eres el residente de obra de una constructora colombiana y debes convertir una factura, recibo o comprobante ' +
     'de pago en una Orden de Compra. Lee el documento y responde SOLO un JSON con esta forma exacta:\n' +
     '{"es_documento_de_pago":true,"tipo_orden":"COMPRA|SERVICIO","proveedor_nombre":"","proveedor_nit":"",' +
     '"numero_factura":"","fecha":"YYYY-MM-DD","items":[{"descripcion":"","unidad":"","cantidad":1,"valor_unitario":0}],' +
-    '"precios_incluyen_iva":false,"descuento":0,"iva_porcentaje":0,"total":0,"capitulo_codigo":"","concepto":""}\n' +
+    '"precios_incluyen_iva":false,"descuento":0,"iva_porcentaje":0,"total":0,"capitulo_codigo":"","item_codigo":"","concepto":""}\n' +
     `Hoy es ${new Date().toISOString().slice(0, 10)}; si la fecha trae el año en dos dígitos (ej. 29/09/26), es 20xx. ` +
     'Reglas: valores numéricos sin puntos ni signos. "valor_unitario" tal como aparece en la factura. Si la factura ' +
     'discrimina IVA, pon iva_porcentaje (normalmente 19) y precios_incluyen_iva=false; si es un tiquete/recibo donde ' +
     'el precio ya trae el IVA incluido o no hay IVA, pon precios_incluyen_iva=true e iva_porcentaje=0. "total" es el ' +
     'valor final pagado. "tipo_orden": SERVICIO si es mano de obra, transporte, alquiler o servicio; si no, COMPRA. ' +
-    '"concepto": resumen de 3 a 8 palabras. "capitulo_codigo": el código del capítulo del presupuesto que mejor ' +
-    'corresponde, elegido de esta lista:\n' +
-    capitulos.map((c) => `${c.codigo} = ${c.nombre}`).join('\n') +
+    '"concepto": resumen de 3 a 8 palabras. ' +
+    (ctx.porItem ? '"item_codigo": el código del ÍTEM del presupuesto que mejor corresponde (y "capitulo_codigo" su capítulo), elegido de estos ' : '"capitulo_codigo": el código del capítulo del presupuesto que mejor corresponde, elegido de estos ') +
+    listaPresupuesto(ctx) +
     '\nSi el documento no es una factura/recibo/comprobante de pago, pon es_documento_de_pago=false.' +
     (nota ? `\nNota de quien lo envió: "${nota}"` : '')
   );
 }
 
-function promptCajaMenor(capitulos, texto) {
+function promptCajaMenor(ctx, texto) {
   return (
     'Registra un gasto de CAJA MENOR de una obra en Colombia. Responde SOLO un JSON: ' +
-    '{"valor":0,"concepto":"","fecha":"YYYY-MM-DD","capitulo_codigo":""}. "valor" es el total pagado (número sin ' +
-    'puntos). Hoy es ' + new Date().toISOString().slice(0, 10) + '; un año de dos dígitos (26) es 2026. "concepto": 3 a 8 palabras (qué se compró y a quién si se ve). "capitulo_codigo" de esta lista:\n' +
-    capitulos.map((c) => `${c.codigo} = ${c.nombre}`).join('\n') +
+    '{"valor":0,"concepto":"","fecha":"YYYY-MM-DD","capitulo_codigo":"","item_codigo":""}. "valor" es el total pagado (número sin ' +
+    'puntos). Hoy es ' + new Date().toISOString().slice(0, 10) + '; un año de dos dígitos (26) es 2026. "concepto": 3 a 8 palabras (qué se compró y a quién si se ve). "capitulo_codigo"' + (ctx.porItem ? ' e "item_codigo"' : '') + ' de estos ' +
+    listaPresupuesto(ctx) +
     (texto ? `\nTexto de quien lo envió: "${texto}"` : '')
   );
 }
@@ -125,9 +164,20 @@ function tecladoCapitulos(id, capitulos) {
   return { inline_keyboard: filas };
 }
 
+function tecladoItems(id, items) {
+  const filas = items.slice(0, 40).map((i) => [{
+    text: `${i.codigo} · ${String(i.descripcion)}`.slice(0, 40),
+    callback_data: `i:${id}:${i.codigo}`,
+  }]);
+  filas.push([{ text: '↩️ Capítulos', callback_data: `k:${id}` }]);
+  return { inline_keyboard: filas };
+}
+
 function resumenBorrador(b) {
   const d = b.datos;
-  const cap = d.capitulo_codigo ? `${d.capitulo_codigo} · ${escaparHTML(d.capitulo_nombre || '')}` : '⚠️ <b>sin capítulo</b> (toca 📂)';
+  let cap = d.capitulo_codigo ? `${d.capitulo_codigo} · ${escaparHTML(d.capitulo_nombre || '')}` : '⚠️ <b>sin capítulo</b> (toca 📂)';
+  if (d.item_codigo) cap += `\nÍtem: <b>${escaparHTML(d.item_codigo)}</b> · ${escaparHTML(d.item_descripcion || '')}`;
+  else if (b.por_item) cap += '\n⚠️ <b>sin ítem del presupuesto</b> (toca 📂)';
   if (b.tipo === 'CAJA_MENOR') {
     return (
       '🧾 <b>Gasto de CAJA MENOR</b>\n' +
@@ -168,7 +218,7 @@ function tecladoReintentar(id) {
 }
 
 // Lee el documento con la IA y arma el borrador. No toca Telegram ni la base de datos.
-async function leerDocumento(capitulos, { texto, esCajaMenor, parteArchivo, fecha }) {
+async function leerDocumento(ctx, { texto, esCajaMenor, parteArchivo, fecha }) {
   const capNota = texto.match(RE_CAPITULO)?.[1] || null;
   const fallaIA = () => ({
     ok: false,
@@ -187,13 +237,13 @@ async function leerDocumento(capitulos, { texto, esCajaMenor, parteArchivo, fech
   };
 
   if (esCajaMenor) {
-    const respuesta = await llamarGemini([{ text: promptCajaMenor(capitulos, texto) }, ...(parteArchivo ? [parteArchivo] : [])], { json: true });
+    const respuesta = await llamarGemini([{ text: promptCajaMenor(ctx, texto) }, ...(parteArchivo ? [parteArchivo] : [])], { json: true });
     if (!respuesta) return fallaIA();
     const lectura = parsearJSON(respuesta);
     if (!lectura || !(Number(lectura.valor) > 0)) {
       return { ok: false, mensaje: '❌ No pude identificar el valor del gasto. Escribe por ejemplo: <i>CAJA MENOR 25000 transporte cap 7</i>.' };
     }
-    const cap = capituloPorCodigo(capitulos, capNota || lectura.capitulo_codigo);
+    const destino = destinoPresupuesto(ctx, capNota, lectura);
     return {
       ok: true,
       tipo: 'CAJA_MENOR',
@@ -201,12 +251,12 @@ async function leerDocumento(capitulos, { texto, esCajaMenor, parteArchivo, fech
         valor: Math.round(Number(lectura.valor)),
         concepto: String(lectura.concepto || 'Gasto de caja menor').slice(0, 200),
         fecha: fechaValida(lectura.fecha),
-        capitulo_id: cap?.id || null, capitulo_codigo: cap?.codigo || null, capitulo_nombre: cap?.nombre || null,
+        ...destino,
       },
     };
   }
 
-  const respuesta = await llamarGemini([{ text: promptFactura(capitulos, texto) }, parteArchivo], { json: true });
+  const respuesta = await llamarGemini([{ text: promptFactura(ctx, texto) }, parteArchivo], { json: true });
   if (!respuesta) return fallaIA();
   const lectura = parsearJSON(respuesta);
   if (!lectura) return { ok: false, mensaje: '❌ La IA respondió, pero no en el formato esperado. Intenta reenviar el documento.' };
@@ -214,7 +264,7 @@ async function leerDocumento(capitulos, { texto, esCajaMenor, parteArchivo, fech
     return { ok: false, mensaje: '🤔 Esto no parece una factura o comprobante de pago. Si es un gasto sin factura, reenvíalo con la nota <b>CAJA MENOR</b>.' };
   }
   const cuadre = cuadrarConTotal(lectura);
-  const cap = capituloPorCodigo(capitulos, capNota || lectura.capitulo_codigo);
+  const destino = destinoPresupuesto(ctx, capNota, lectura);
   return {
     ok: true,
     tipo: 'OC',
@@ -231,7 +281,7 @@ async function leerDocumento(capitulos, { texto, esCajaMenor, parteArchivo, fech
       total_factura: Number(lectura.total) || null,
       total_calculado: cuadre.total_calculado,
       nota: cuadre.nota || null,
-      capitulo_id: cap?.id || null, capitulo_codigo: cap?.codigo || null, capitulo_nombre: cap?.nombre || null,
+      ...destino,
     },
   };
 }
@@ -280,7 +330,7 @@ export async function procesarMensajeFinanzas(supabase, mensaje, proyecto) {
     telegramFetch('editMessageText', { chat_id: chatId, message_id: avisoId, text: html, parse_mode: 'HTML', ...(markup ? { reply_markup: markup } : {}) });
 
   try {
-    const capitulos = await capitulosDelProyecto(supabase, proyecto.id);
+    const ctx = await contextoPresupuesto(supabase, proyecto.id, proyecto.modelo_contratacion);
     const fecha = fechaColombia(mensaje.date);
 
     // Soporte (foto o PDF) a Storage privado.
@@ -298,7 +348,7 @@ export async function procesarMensajeFinanzas(supabase, mensaje, proyecto) {
       }
     }
 
-    const r = await leerDocumento(capitulos, { texto, esCajaMenor, parteArchivo, fecha });
+    const r = await leerDocumento(ctx, { texto, esCajaMenor, parteArchivo, fecha });
     if (!r.ok && !r.reintentable) return editar(r.mensaje);
     if (!r.ok) {
       // Gemini saturado: se guarda la foto y se ofrece reintentar con un toque.
@@ -316,7 +366,7 @@ export async function procesarMensajeFinanzas(supabase, mensaje, proyecto) {
       mensaje_id: mensaje.message_id, bot_mensaje_id: avisoId,
     }).select().single();
     if (error) throw error;
-    await editar(resumenBorrador(borrador), tecladoPrincipal(borrador.id));
+    await editar(resumenBorrador({ ...borrador, por_item: ctx.porItem }), tecladoPrincipal(borrador.id));
   } catch (e) {
     console.error('Bot finanzas:', e);
     await editar('❌ Ocurrió un error procesando el documento: ' + escaparHTML(e.message || String(e)));
@@ -352,8 +402,9 @@ export async function procesarCallbackFinanzas(supabase, cb) {
       const { data: blob } = await supabase.storage.from('soportes-oc').download(b.soporte_path);
       if (blob) parteArchivo = { inline_data: { mime_type: b.datos.mime || blob.type || 'image/jpeg', data: Buffer.from(await blob.arrayBuffer()).toString('base64') } };
     }
-    const capitulosR = await capitulosDelProyecto(supabase, b.proyecto_id);
-    const r = await leerDocumento(capitulosR, {
+    const { data: pr } = await supabase.from('proyectos').select('modelo_contratacion').eq('id', b.proyecto_id).single();
+    const ctxR = await contextoPresupuesto(supabase, b.proyecto_id, pr?.modelo_contratacion);
+    const r = await leerDocumento(ctxR, {
       texto: b.datos.texto || '', esCajaMenor: b.tipo === 'CAJA_MENOR', parteArchivo, fecha: b.datos.fecha || fechaColombia(),
     });
     if (!r.ok && r.reintentable) return editar(MENSAJE_SATURADO(r.mensaje), tecladoReintentar(id));
@@ -363,10 +414,12 @@ export async function procesarCallbackFinanzas(supabase, cb) {
     }
     const actualizado = { ...b, tipo: r.tipo, datos: r.datos };
     await supabase.from('telegram_borradores').update({ tipo: r.tipo, datos: r.datos }).eq('id', id);
-    return editar(resumenBorrador(actualizado), tecladoPrincipal(id));
+    return editar(resumenBorrador({ ...actualizado, por_item: ctxR.porItem }), tecladoPrincipal(id));
   }
-  const { data: proyecto } = await supabase.from('proyectos').select('id, tope_caja_menor').eq('id', b.proyecto_id).single();
-  const capitulos = await capitulosDelProyecto(supabase, b.proyecto_id);
+  const { data: proyecto } = await supabase.from('proyectos').select('id, tope_caja_menor, modelo_contratacion').eq('id', b.proyecto_id).single();
+  const ctx = await contextoPresupuesto(supabase, b.proyecto_id, proyecto?.modelo_contratacion);
+  const capitulos = ctx.capitulos;
+  b.por_item = ctx.porItem;
 
   if (accion === 'x') {
     await supabase.from('telegram_borradores').update({ estado: 'DESCARTADO' }).eq('id', id);
@@ -379,14 +432,35 @@ export async function procesarCallbackFinanzas(supabase, cb) {
     const cap = capituloPorCodigo(capitulos, extra);
     if (!cap) return contestar('Capítulo no encontrado');
     const datos = { ...b.datos, capitulo_id: cap.id, capitulo_codigo: cap.codigo, capitulo_nombre: cap.nombre };
+    if (ctx.porItem) {
+      // Administración delegada: después del capítulo se elige el ítem.
+      Object.assign(datos, { presupuesto_item_id: null, item_codigo: null, item_descripcion: null });
+      await supabase.from('telegram_borradores').update({ datos }).eq('id', id);
+      await contestar(`Capítulo ${cap.codigo}`);
+      return editar(resumenBorrador({ ...b, datos }) + '\n\n📌 Elige el ítem del presupuesto:', tecladoItems(id, ctx.items.filter((i) => i.capitulo_id === cap.id)));
+    }
     await supabase.from('telegram_borradores').update({ datos }).eq('id', id);
     await contestar(`Capítulo ${cap.codigo}`);
+    return editar(resumenBorrador({ ...b, datos }), tecladoPrincipal(id));
+  }
+  if (accion === 'i') {
+    const it = ctx.items.find((x) => x.codigo === extra);
+    if (!it) return contestar('Ítem no encontrado');
+    const cap = capitulos.find((c) => c.id === it.capitulo_id);
+    const datos = { ...b.datos, capitulo_id: cap?.id || null, capitulo_codigo: cap?.codigo || null, capitulo_nombre: cap?.nombre || null,
+                    presupuesto_item_id: it.id, item_codigo: it.codigo, item_descripcion: String(it.descripcion).slice(0, 80) };
+    await supabase.from('telegram_borradores').update({ datos }).eq('id', id);
+    await contestar(`Ítem ${it.codigo}`);
     return editar(resumenBorrador({ ...b, datos }), tecladoPrincipal(id));
   }
   if (accion === 'c') {
     if (!b.datos.capitulo_id) {
       await contestar('Primero elige el capítulo');
       return editar(resumenBorrador(b) + '\n\n📂 Elige el capítulo:', tecladoCapitulos(id, capitulos));
+    }
+    if (ctx.porItem && !b.datos.presupuesto_item_id) {
+      await contestar('Primero elige el ítem del presupuesto');
+      return editar(resumenBorrador(b) + '\n\n📌 Elige el ítem del presupuesto:', tecladoItems(id, ctx.items.filter((i) => i.capitulo_id === b.datos.capitulo_id)));
     }
     const base = resumenBorrador(b).replace(/\n\n¿(Creo la OC|Lo registro)\?$/, '');
     if (b.tipo === 'OC') {

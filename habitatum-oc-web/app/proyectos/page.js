@@ -541,7 +541,7 @@ export default function SeleccionarProyecto() {
                       ) : (
                         <p className="text-xs text-neutral-400 mt-2">Sin grupo de Telegram vinculado</p>
                       )}
-                      {p.modelo_contratacion === 'TODO_COSTO' && (p.telegram_chat_id_finanzas ? (
+                      {(p.telegram_chat_id_finanzas ? (
                         <div className="flex items-center gap-2 mt-1">
                           <p className="text-xs text-green-700">Grupo de finanzas vinculado (facturas → OC)</p>
                           {usuario.rol === 'admin' && (
@@ -570,7 +570,7 @@ export default function SeleccionarProyecto() {
             <p className="text-xs text-neutral-500 mb-3">
               Estos grupos le escribieron al bot pero todavía no están asignados. Elige el proyecto y el uso:
               <strong> Bitácora</strong> (fotos de avance) o <strong>Finanzas</strong> (facturas que se convierten en Órdenes de Compra
-              y gastos de caja menor; solo proyectos todo costo).
+              y gastos de caja menor).
             </p>
             <div className="space-y-2">
               {gruposPendientes.map((g) => (
@@ -587,7 +587,7 @@ export default function SeleccionarProyecto() {
                       {proyectos.map((p) => <option key={p.id + 'b'} value={`${p.id}|BITACORA`}>{p.nombre}</option>)}
                     </optgroup>
                     <optgroup label="Finanzas (facturas → OC)">
-                      {proyectos.filter((p) => p.modelo_contratacion === 'TODO_COSTO').map((p) => (
+                      {proyectos.map((p) => (
                         <option key={p.id + 'f'} value={`${p.id}|FINANZAS`}>{p.nombre}</option>
                       ))}
                     </optgroup>
