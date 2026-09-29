@@ -66,7 +66,7 @@ function promptCajaMenor(capitulos, texto) {
   return (
     'Registra un gasto de CAJA MENOR de una obra en Colombia. Responde SOLO un JSON: ' +
     '{"valor":0,"concepto":"","fecha":"YYYY-MM-DD","capitulo_codigo":""}. "valor" es el total pagado (número sin ' +
-    `puntos). Hoy es ${new Date().toISOString().slice(0, 10)}; un año de dos dígitos (26) es 2026. "concepto": 3 a 8 palabras (qué se compró y a quién si se ve). "capitulo_codigo" de esta lista:\n' +
+    'puntos). Hoy es ' + new Date().toISOString().slice(0, 10) + '; un año de dos dígitos (26) es 2026. "concepto": 3 a 8 palabras (qué se compró y a quién si se ve). "capitulo_codigo" de esta lista:\n' +
     capitulos.map((c) => `${c.codigo} = ${c.nombre}`).join('\n') +
     (texto ? `\nTexto de quien lo envió: "${texto}"` : '')
   );
