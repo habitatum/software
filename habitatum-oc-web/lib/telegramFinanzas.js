@@ -49,6 +49,7 @@ function promptFactura(capitulos, nota) {
     '{"es_documento_de_pago":true,"tipo_orden":"COMPRA|SERVICIO","proveedor_nombre":"","proveedor_nit":"",' +
     '"numero_factura":"","fecha":"YYYY-MM-DD","items":[{"descripcion":"","unidad":"","cantidad":1,"valor_unitario":0}],' +
     '"precios_incluyen_iva":false,"descuento":0,"iva_porcentaje":0,"total":0,"capitulo_codigo":"","concepto":""}\n' +
+    `Hoy es ${new Date().toISOString().slice(0, 10)}; si la fecha trae el año en dos dígitos (ej. 29/09/26), es 20xx. ` +
     'Reglas: valores numéricos sin puntos ni signos. "valor_unitario" tal como aparece en la factura. Si la factura ' +
     'discrimina IVA, pon iva_porcentaje (normalmente 19) y precios_incluyen_iva=false; si es un tiquete/recibo donde ' +
     'el precio ya trae el IVA incluido o no hay IVA, pon precios_incluyen_iva=true e iva_porcentaje=0. "total" es el ' +
@@ -65,7 +66,7 @@ function promptCajaMenor(capitulos, texto) {
   return (
     'Registra un gasto de CAJA MENOR de una obra en Colombia. Responde SOLO un JSON: ' +
     '{"valor":0,"concepto":"","fecha":"YYYY-MM-DD","capitulo_codigo":""}. "valor" es el total pagado (número sin ' +
-    'puntos). "concepto": 3 a 8 palabras (qué se compró y a quién si se ve). "capitulo_codigo" de esta lista:\n' +
+    `puntos). Hoy es ${new Date().toISOString().slice(0, 10)}; un año de dos dígitos (26) es 2026. "concepto": 3 a 8 palabras (qué se compró y a quién si se ve). "capitulo_codigo" de esta lista:\n' +
     capitulos.map((c) => `${c.codigo} = ${c.nombre}`).join('\n') +
     (texto ? `\nTexto de quien lo envió: "${texto}"` : '')
   );
@@ -176,7 +177,14 @@ async function leerDocumento(capitulos, { texto, esCajaMenor, parteArchivo, fech
       ? (comun.ultimoErrorGemini || '')
       : '❌ No pude leer el documento con la IA.\n<i>Detalle técnico: ' + escaparHTML(comun.ultimoErrorGemini || 'respuesta no válida') + '</i>',
   });
-  const fechaValida = (f) => (/^\d{4}-\d{2}-\d{2}$/.test(f || '') ? f : fecha);
+  // Fecha leída por la IA: se acepta solo si es coherente con la fecha del mensaje. Los recibos con
+  // año de dos dígitos ("29/09/26") a veces se leen como otro año; si la fecha leída queda a más de
+  // 90 días del envío (o en el futuro), se usa la fecha en que se envió el mensaje.
+  const fechaValida = (f) => {
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(f || '')) return fecha;
+    const dias = (new Date(fecha) - new Date(f)) / 86400000;
+    return dias >= -1 && dias <= 90 ? f : fecha;
+  };
 
   if (esCajaMenor) {
     const respuesta = await llamarGemini([{ text: promptCajaMenor(capitulos, texto) }, ...(parteArchivo ? [parteArchivo] : [])], { json: true });
