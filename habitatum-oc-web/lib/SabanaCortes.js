@@ -19,7 +19,8 @@ const cant = (v) => (v ? Number(v).toLocaleString('es-CO', { maximumFractionDigi
 const $ = (v) => (Number(v) ? formatoPesos(Math.round(Number(v) * 100) / 100) : '$ -');
 const fecha = (f) => { if (!f) return ''; const p = String(f).slice(0, 10).split('-'); return `${p[2]}/${p[1]}/${p[0]}`; };
 const TD = 'px-2 py-1.5 text-xs whitespace-nowrap';
-const SEP = <td className="w-2 bg-white" />;
+const LINEA = 'w-2 bg-white border-r border-[#cec5ba]';
+const SEP = <td className={LINEA} />;
 
 export default function SabanaCortes({ m, contrato, edicion, onPdf }) {
   const cols = m.columnas;
@@ -122,7 +123,13 @@ export default function SabanaCortes({ m, contrato, edicion, onPdf }) {
       <td className={`${TD} font-bold ${GRIS}`} colSpan={3}>{titulo}</td>
     </tr>
   );
-  const filaVacia = <tr><td colSpan={7 + cols.length * 4 + 3} className="h-3" /></tr>;
+  const filaVacia = (
+    <tr className="h-3">
+      <td colSpan={6} />
+      {cols.map((c) => <Fragment key={c.id}>{SEP}<td colSpan={3} /></Fragment>)}
+      {SEP}<td colSpan={3} />
+    </tr>
+  );
 
   return (
     <div className="bg-white rounded-lg border overflow-x-auto">
@@ -132,7 +139,7 @@ export default function SabanaCortes({ m, contrato, edicion, onPdf }) {
             <th className={`${TD} ${GRIS} text-left`} colSpan={6}>ITEMS Y ELEMENTOS CONTRACTUALES (APROBADOS)</th>
             {cols.map((c) => (
               <Fragment key={c.id}>
-                <th className="w-2" />
+                <th className={LINEA} />
                 <th className={`${TD} text-center ${c.editable ? 'bg-carbon text-hueso' : GRIS}`} colSpan={3}>
                   CORTE {c.numero}{c.editable ? ' · NUEVO' : ''}
                   <div className="font-normal text-[10px]">
@@ -142,7 +149,7 @@ export default function SabanaCortes({ m, contrato, edicion, onPdf }) {
                 </th>
               </Fragment>
             ))}
-            <th className="w-2" />
+            <th className={LINEA} />
             <th className={`${TD} ${GRIS} text-center`} colSpan={3}>ACUMULADOS TOTALES CORTES</th>
           </tr>
           <tr className={`${GRIS} text-left`}>
@@ -152,13 +159,13 @@ export default function SabanaCortes({ m, contrato, edicion, onPdf }) {
             <th className={`${TD} text-right`}>Valor Unit</th><th className={`${TD} text-right`}>SUBTOTAL</th>
             {cols.map((c) => (
               <Fragment key={c.id}>
-                <th className="bg-white" />
+                <th className={LINEA} />
                 <th className={`${TD} text-right ${c.editable ? 'bg-carbon text-hueso' : ''}`}>Cantidad</th>
                 <th className={`${TD} text-right ${c.editable ? 'bg-carbon text-hueso' : ''}`}>Valor Unit</th>
                 <th className={`${TD} text-right ${c.editable ? 'bg-carbon text-hueso' : ''}`}>SUBTOTAL</th>
               </Fragment>
             ))}
-            <th className="bg-white" />
+            <th className={LINEA} />
             <th className={`${TD} text-right`}>Cantidad</th><th className={`${TD} text-right`}>Valor Unit</th><th className={`${TD} text-right`}>SUBTOTAL</th>
           </tr>
         </thead>

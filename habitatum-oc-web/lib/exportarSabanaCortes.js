@@ -143,6 +143,12 @@ export async function construirLibroSabana({ m, contrato, proyecto, logoBase64, 
   });
   cierre({ etq: (c) => `TOTAL PAGO CORTE ${c.numero}`, valor: (c) => c.neto, etqAcum: 'TOTAL PAGADO', valorAcum: m.acumulado.pagado, gris: true });
 
+  // Línea tenue entre bloques de cortes (columna separadora), desde los encabezados hasta el final.
+  const lineaSep = { right: { style: 'thin', color: { argb: GRIS } } };
+  [...cols.map((c, k) => colCorte(k) - 1), colAcum - 1].forEach((col) => {
+    for (let fila = r1; fila < r; fila++) ws.getCell(fila, col).border = lineaSep;
+  });
+
   // Pie de marca
   r += 1;
   ws.getCell(r, 2).value = `HABITATUM · Documento generado desde la plataforma el ${new Date().toLocaleString('es-CO')}`;
