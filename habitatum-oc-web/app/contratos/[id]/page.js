@@ -10,6 +10,7 @@ import { TIPOS_CONTRATO, NOMBRES_TIPO_CONTRATO, plantillaClausulas, clausulasDel
 import { parseItemsExcel } from '@/lib/parseItemsContrato';
 import NavBar from '@/components/NavBar';
 import { compartirOAbrirArchivo } from '@/lib/compartirArchivo';
+import SeccionCortes from '@/lib/SeccionCortes';
 
 function campoFormEdicion(contrato) {
   return {
@@ -277,6 +278,8 @@ export default function DetalleContrato() {
                 </table>
               </div>
             )}
+
+            <SeccionCortes contrato={contrato} usuario={usuario} />
 
             <div className="bg-white rounded-lg shadow-sm border p-5 text-sm space-y-1">
               <h2 className="font-medium mb-2">Acumulados del contrato</h2>
