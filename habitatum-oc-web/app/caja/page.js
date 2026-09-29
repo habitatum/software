@@ -1,5 +1,6 @@
 'use client';
 import { useEffect, useState } from 'react';
+import Link from 'next/link';
 import { useUsuarioActual } from '@/lib/useUsuarioActual';
 import { useProyectoActual } from '@/lib/useProyectoActual';
 import { crearClienteSupabase } from '@/lib/supabaseClient';
@@ -161,11 +162,14 @@ export default function Caja() {
     <div>
       <NavBar usuario={usuario} proyecto={proyecto} />
       <main className="p-4 sm:p-8 max-w-6xl mx-auto space-y-6">
-        <div>
+        <div className="flex flex-wrap items-end justify-between gap-3">
+          <div>
           <h1 className="text-2xl font-semibold">Caja del proyecto</h1>
           <p className="text-sm text-neutral-500">
             {proyecto.nombre} · Cuenta {d?.finanzas?.cuenta_receptora === 'PERSONAL' ? 'personal' : 'HABITATUM'} · Solo visible para administradores
           </p>
+          </div>
+          <Link href="/caja/directa" className="bg-carbon text-hueso px-4 py-2 rounded text-sm">Ver caja directa (movimientos)</Link>
         </div>
 
         {error && <p className="text-red-600 text-sm bg-red-50 border border-red-200 rounded p-3">{error}</p>}

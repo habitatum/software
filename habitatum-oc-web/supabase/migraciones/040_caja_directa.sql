@@ -1,0 +1,6 @@
+-- 040 · CAJA DIRECTA (aplicada el 29/09/2026)
+-- caja_directa(proyecto): libro de movimientos del proyecto, como la hoja CAJA-DIRECTA de la V1.
+-- Une ingresos del cliente / retiros / ajustes, egresos históricos (V1), OC pagadas desde la caja de
+-- HABITATUM (sin las pagadas por el cliente ni las ya incluidas en el histórico) y caja menor por legalizar.
+-- Solo administradores. Su saldo coincide con caja_proyecto().saldo_libros.
+-- (Definición completa aplicada en Supabase.)
