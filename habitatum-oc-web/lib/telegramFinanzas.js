@@ -39,8 +39,10 @@ async function capitulosDelProyecto(supabase, proyectoId) {
 // En ADMINISTRACIÓN DELEGADA el control presupuestal solo cuenta OC imputadas a un ÍTEM del presupuesto,
 // así que el bot trabaja por ítem; en TODO COSTO basta el capítulo.
 async function contextoPresupuesto(supabase, proyectoId, modelo) {
+  // ADMINISTRACIÓN DELEGADA: el bot NO imputa al presupuesto; el administrador imputa cada OC manualmente.
+  if (modelo === 'ADMINISTRACION_DELEGADA') return { capitulos: [], items: [], porItem: false, sinImputacion: true };
   const capitulos = await capitulosDelProyecto(supabase, proyectoId);
-  const porItem = modelo === 'ADMINISTRACION_DELEGADA';
+  const porItem = false;
   let items = [];
   if (porItem && capitulos.length) {
     const { data } = await supabase.from('presupuesto_items').select('id, codigo, descripcion, capitulo_id')
@@ -51,6 +53,7 @@ async function contextoPresupuesto(supabase, proyectoId, modelo) {
 }
 
 function listaPresupuesto(ctx) {
+  if (ctx.sinImputacion) return 'capítulos: (no aplica, deja capitulo_codigo e item_codigo vacíos)';
   if (ctx.porItem && ctx.items.length) {
     return 'ítems del presupuesto (código = descripción):\n' +
       ctx.items.map((i) => `${i.codigo} = ${String(i.descripcion).slice(0, 70)}`).join('\n');
@@ -60,6 +63,9 @@ function listaPresupuesto(ctx) {
 
 // Destino presupuestal: la nota del usuario ("cap 7" / "19.09") manda; si no, la sugerencia de la IA.
 function destinoPresupuesto(ctx, codigoNota, lectura) {
+  if (ctx.sinImputacion) {
+    return { capitulo_id: null, capitulo_codigo: null, capitulo_nombre: null, presupuesto_item_id: null, item_codigo: null, item_descripcion: null, sin_imputacion: true };
+  }
   if (ctx.porItem) {
     const cod = (codigoNota && codigoNota.includes('.')) ? codigoNota : (lectura?.item_codigo || '');
     const it = ctx.items.find((i) => i.codigo === String(cod).trim());
@@ -144,12 +150,11 @@ function cuadrarConTotal(l) {
 }
 
 // ---------- Resúmenes y botones ----------
-function tecladoPrincipal(id) {
-  return { inline_keyboard: [[
-    { text: '✅ Confirmar', callback_data: `c:${id}` },
-    { text: '📂 Capítulo', callback_data: `k:${id}` },
-    { text: '❌ Descartar', callback_data: `x:${id}` },
-  ]] };
+function tecladoPrincipal(id, sinImputacion = false) {
+  const botones = [{ text: '✅ Confirmar', callback_data: `c:${id}` }];
+  if (!sinImputacion) botones.push({ text: '📂 Capítulo', callback_data: `k:${id}` });
+  botones.push({ text: '❌ Descartar', callback_data: `x:${id}` });
+  return { inline_keyboard: [botones] };
 }
 
 function tecladoCapitulos(id, capitulos) {
@@ -175,7 +180,8 @@ function tecladoItems(id, items) {
 
 function resumenBorrador(b) {
   const d = b.datos;
-  let cap = d.capitulo_codigo ? `${d.capitulo_codigo} · ${escaparHTML(d.capitulo_nombre || '')}` : '⚠️ <b>sin capítulo</b> (toca 📂)';
+  let cap = d.sin_imputacion ? 'la asigna el administrador en la app'
+    : d.capitulo_codigo ? `${d.capitulo_codigo} · ${escaparHTML(d.capitulo_nombre || '')}` : '⚠️ <b>sin capítulo</b> (toca 📂)';
   if (d.item_codigo) cap += `\nÍtem: <b>${escaparHTML(d.item_codigo)}</b> · ${escaparHTML(d.item_descripcion || '')}`;
   else if (b.por_item) cap += '\n⚠️ <b>sin ítem del presupuesto</b> (toca 📂)';
   if (b.tipo === 'CAJA_MENOR') {
@@ -366,7 +372,7 @@ export async function procesarMensajeFinanzas(supabase, mensaje, proyecto) {
       mensaje_id: mensaje.message_id, bot_mensaje_id: avisoId,
     }).select().single();
     if (error) throw error;
-    await editar(resumenBorrador({ ...borrador, por_item: ctx.porItem }), tecladoPrincipal(borrador.id));
+    await editar(resumenBorrador({ ...borrador, por_item: ctx.porItem }), tecladoPrincipal(borrador.id, ctx.sinImputacion));
   } catch (e) {
     console.error('Bot finanzas:', e);
     await editar('❌ Ocurrió un error procesando el documento: ' + escaparHTML(e.message || String(e)));
@@ -414,7 +420,7 @@ export async function procesarCallbackFinanzas(supabase, cb) {
     }
     const actualizado = { ...b, tipo: r.tipo, datos: r.datos };
     await supabase.from('telegram_borradores').update({ tipo: r.tipo, datos: r.datos }).eq('id', id);
-    return editar(resumenBorrador({ ...actualizado, por_item: ctxR.porItem }), tecladoPrincipal(id));
+    return editar(resumenBorrador({ ...actualizado, por_item: ctxR.porItem }), tecladoPrincipal(id, ctxR.sinImputacion));
   }
   const { data: proyecto } = await supabase.from('proyectos').select('id, tope_caja_menor, modelo_contratacion').eq('id', b.proyecto_id).single();
   const ctx = await contextoPresupuesto(supabase, b.proyecto_id, proyecto?.modelo_contratacion);
@@ -427,7 +433,7 @@ export async function procesarCallbackFinanzas(supabase, cb) {
     return editar(resumenBorrador(b).replace(/\n\n¿(Creo la OC|Lo registro)\?$/, '') + `\n\n❌ <i>Descartado por ${escaparHTML(quien)}</i>`);
   }
   if (accion === 'k') { await contestar(); return editar(resumenBorrador(b) + '\n\n📂 Elige el capítulo:', tecladoCapitulos(id, capitulos)); }
-  if (accion === 'v') { await contestar(); return editar(resumenBorrador(b), tecladoPrincipal(id)); }
+  if (accion === 'v') { await contestar(); return editar(resumenBorrador(b), tecladoPrincipal(id, ctx.sinImputacion)); }
   if (accion === 's') {
     const cap = capituloPorCodigo(capitulos, extra);
     if (!cap) return contestar('Capítulo no encontrado');
@@ -454,7 +460,7 @@ export async function procesarCallbackFinanzas(supabase, cb) {
     return editar(resumenBorrador({ ...b, datos }), tecladoPrincipal(id));
   }
   if (accion === 'c') {
-    if (!b.datos.capitulo_id) {
+    if (!b.datos.capitulo_id && !ctx.sinImputacion) {
       await contestar('Primero elige el capítulo');
       return editar(resumenBorrador(b) + '\n\n📂 Elige el capítulo:', tecladoCapitulos(id, capitulos));
     }
