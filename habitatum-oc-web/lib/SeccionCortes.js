@@ -131,7 +131,7 @@ export default function SeccionCortes({ contrato, usuario }) {
                       : <span className="text-xs text-amber-700">Borrador</span>}
                   </td>
                   <td className="p-3 text-right whitespace-nowrap space-x-3">
-                    <Link href={`/contratos/${contrato.id}/cortes/${c.id}`} className="text-xs underline text-neutral-600">{c.estado === 'BORRADOR' ? 'Editar' : 'Ver'}</Link>
+                    <Link href={`/contratos/${contrato.id}/cortes/${c.id}`} className="text-xs underline text-neutral-600">{c.estado === 'BORRADOR' || usuario?.rol === 'admin' || (usuario?.rol === 'operativo' && c.estado === 'APROBADO' && c.numero === Math.max(...cortes.filter((x) => x.estado === 'APROBADO').map((x) => x.numero))) ? 'Ver / Editar' : 'Ver'}</Link>
                     <button
                       onClick={() => compartirOAbrirArchivo(`/api/cortes/${c.id}/pdf`, `Corte ${c.numero} ${contrato.numero_contrato}.pdf`)}
                       className="text-xs underline text-dorado"

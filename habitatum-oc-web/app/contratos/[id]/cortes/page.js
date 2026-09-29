@@ -69,6 +69,8 @@ export default function SabanaDeCortes() {
               <p className="text-sm text-neutral-500 bg-white border rounded-lg p-6 text-center">Este contrato no tiene ítems cargados. Cárgalos desde el detalle del contrato para empezar a hacer cortes.</p>
             ) : (
               <SabanaCortes m={m} contrato={d.contrato}
+                hrefCorte={(c) => `/contratos/${id}/cortes/${c.id}`}
+                puedeEditarCorte={(c) => usuario.rol === 'admin' || (usuario.rol === 'operativo' && c.numero === Math.max(...d.cortes.map((k) => k.numero)))}
                 onPdf={(c) => compartirOAbrirArchivo(`/api/cortes/${c.id}/pdf`, `Corte ${c.numero} ${d.contrato.numero_contrato}.pdf`)} />
             )}
             {d.cortes.some((k) => k.notas) && (

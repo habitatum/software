@@ -22,7 +22,7 @@ const TD = 'px-2 py-1.5 text-xs whitespace-nowrap';
 const LINEA = 'w-2 bg-white border-r border-[#cec5ba]';
 const SEP = <td className={LINEA} />;
 
-export default function SabanaCortes({ m, contrato, edicion, onPdf }) {
+export default function SabanaCortes({ m, contrato, edicion, onPdf, hrefCorte, puedeEditarCorte }) {
   const cols = m.columnas;
   const [nuevo, setNuevo] = useState({ descripcion: '', unidad: '', valor_unitario: '', capitulo_id: '', cantidad: '' });
 
@@ -145,6 +145,13 @@ export default function SabanaCortes({ m, contrato, edicion, onPdf }) {
                   <div className="font-normal text-[10px]">
                     {fecha(c.fecha)}{c.folio ? ` · ${c.folio}` : c.editable ? '' : ' · sin OC'}
                     {!c.editable && onPdf && <> · <button onClick={() => onPdf(c)} className="underline">PDF</button></>}
+                  </div>
+                  {!c.editable && hrefCorte && (
+                    <a href={hrefCorte(c)} className="inline-block mt-1 px-2 py-0.5 rounded bg-carbon text-hueso text-[10px] font-semibold">
+                      {puedeEditarCorte && puedeEditarCorte(c) ? 'Abrir / Editar' : 'Abrir'}
+                    </a>
+                  )}
+                  <div className="hidden">
                   </div>
                 </th>
               </Fragment>
