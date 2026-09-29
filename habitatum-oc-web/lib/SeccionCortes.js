@@ -25,6 +25,10 @@ export default function SeccionCortes({ contrato, usuario }) {
   const [items, setItems] = useState([]);
   const [cortes, setCortes] = useState([]);
   const [verItems, setVerItems] = useState(false);
+  const [anticipos, setAnticipos] = useState([]);
+  const [formAnt, setFormAnt] = useState(null);
+  const [guardandoAnt, setGuardandoAnt] = useState(false);
+  const esAdmin = usuario?.rol === 'admin';
   const puedeCrear = usuario?.rol === 'admin' || usuario?.rol === 'operativo';
 
   async function cargar() {
@@ -35,6 +39,24 @@ export default function SeccionCortes({ contrato, usuario }) {
     ]);
     setItems(its || []);
     setCortes(cs || []);
+    const { data: ants } = await supabase.from('v_ordenes_compra_calculadas')
+      .select('id, folio, fecha, total, saldo_anticipo_por_amortizar').eq('contrato_id', contrato.id)
+      .eq('tipo_pago', 'ANTICIPO').neq('estado', 'ANULADA').order('fecha');
+    setAnticipos(ants || []);
+  }
+
+  async function registrarAnticipo() {
+    const valor = Number(formAnt?.valor);
+    if (!(valor > 0)) { window.alert('Escribe el valor del anticipo.'); return; }
+    if (!window.confirm(`¿Registrar un anticipo de ${formatoPesos(valor)} para el contrato ${contrato.numero_contrato}?\n\nSe crea como Orden de Compra tipo Anticipo y los próximos cortes lo amortizan.`)) return;
+    setGuardandoAnt(true);
+    const supabase = crearClienteSupabase();
+    const { data, error } = await supabase.rpc('crear_anticipo_contrato', { p_contrato: contrato.id, p_valor: valor, p_fecha: formAnt.fecha, p_notas: formAnt.notas || null });
+    setGuardandoAnt(false);
+    if (error) { window.alert(error.message); return; }
+    window.alert(`Anticipo registrado en la ${data.folio}.`);
+    setFormAnt(null);
+    cargar();
   }
   useEffect(() => { cargar(); }, [contrato.id]); // eslint-disable-line
 
@@ -54,18 +76,41 @@ export default function SeccionCortes({ contrato, usuario }) {
               : `Ejecutado ${formatoPesos(ejecutado)} de ${formatoPesos(contratado)} contratados (${avance}%)`}
           </p>
         </div>
-        {puedeCrear && items.length > 0 && contrato.estado !== 'ANULADO' && (
-          borrador ? (
-            <Link href={`/contratos/${contrato.id}/cortes/${borrador.id}`} className="bg-carbon text-hueso px-4 py-2 rounded text-sm">
-              Continuar corte No. {borrador.numero} (borrador)
-            </Link>
-          ) : (
-            <Link href={`/contratos/${contrato.id}/cortes/nuevo`} className="bg-carbon text-hueso px-4 py-2 rounded text-sm">
-              + Nuevo corte
-            </Link>
-          )
-        )}
+        <div className="flex flex-wrap gap-2">
+          {items.length > 0 && <Link href={`/contratos/${contrato.id}/cortes`} className="border border-carbon px-3 py-2 rounded text-sm">Ver cortes (sábana)</Link>}
+          {puedeCrear && <Link href={`/contratos/${contrato.id}/items`} className="border border-neutral-300 px-3 py-2 rounded text-sm">{items.length ? 'Ítems del contrato' : 'Cargar ítems del contrato'}</Link>}
+          {esAdmin && contrato.estado !== 'ANULADO' && (
+            <button onClick={() => setFormAnt(formAnt ? null : { valor: '', fecha: new Date().toISOString().slice(0, 10), notas: '' })} className="border border-dorado text-dorado px-3 py-2 rounded text-sm">+ Anticipo</button>
+          )}
+          {puedeCrear && items.length > 0 && contrato.estado !== 'ANULADO' && (
+            borrador ? (
+              <Link href={`/contratos/${contrato.id}/cortes/${borrador.id}`} className="bg-carbon text-hueso px-4 py-2 rounded text-sm">Continuar corte No. {borrador.numero}</Link>
+            ) : (
+              <Link href={`/contratos/${contrato.id}/cortes/nuevo`} className="bg-carbon text-hueso px-4 py-2 rounded text-sm">+ Nuevo corte</Link>
+            )
+          )}
+        </div>
       </div>
+
+      {formAnt && (
+        <div className="mx-4 mb-4 p-3 bg-hueso rounded border border-dorado/40 grid sm:grid-cols-4 gap-2 items-end text-sm">
+          <label className="space-y-1"><span className="text-xs text-neutral-600">Valor del anticipo</span>
+            <input type="number" value={formAnt.valor} onChange={(e) => setFormAnt({ ...formAnt, valor: e.target.value })} className="border rounded px-2 py-1 w-full" /></label>
+          <label className="space-y-1"><span className="text-xs text-neutral-600">Fecha</span>
+            <input type="date" value={formAnt.fecha} onChange={(e) => setFormAnt({ ...formAnt, fecha: e.target.value })} className="border rounded px-2 py-1 w-full" /></label>
+          <label className="space-y-1"><span className="text-xs text-neutral-600">Nota (opcional)</span>
+            <input value={formAnt.notas} onChange={(e) => setFormAnt({ ...formAnt, notas: e.target.value })} className="border rounded px-2 py-1 w-full" /></label>
+          <button disabled={guardandoAnt} onClick={registrarAnticipo} className="bg-carbon text-hueso px-3 py-1.5 rounded">{guardandoAnt ? 'Registrando…' : 'Registrar anticipo'}</button>
+          {Number(contrato.valor_inicial) > 0 && Number(formAnt.valor) > 0 && (
+            <p className="sm:col-span-4 text-xs text-neutral-500">Equivale al {Math.round(Number(formAnt.valor) / Number(contrato.valor_inicial) * 1000) / 10}% del valor del contrato.</p>
+          )}
+        </div>
+      )}
+      {anticipos.length > 0 && (
+        <p className="px-4 pb-3 text-xs text-neutral-600">
+          Anticipos: {anticipos.map((a) => `${a.folio} (${formatoPesos(a.total)}, por amortizar ${formatoPesos(a.saldo_anticipo_por_amortizar)})`).join(' · ')}
+        </p>
+      )}
 
       {cortes.length > 0 && (
         <div className="overflow-x-auto">

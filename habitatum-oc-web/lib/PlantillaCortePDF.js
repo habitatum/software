@@ -71,7 +71,7 @@ function Tabla({ filas, titulo }) {
         </View>
       ))}
       <View style={e.tt} wrap={false}>
-        <Text style={{ width: '80%' }}>Subtotal {titulo.toLowerCase()}</Text>
+        <Text style={{ width: '80%' }}>SUBTOTAL {titulo.toUpperCase()}</Text>
         <Text style={{ width: '20%', textAlign: 'right' }}>{pesos(total)}</Text>
       </View>
     </View>
@@ -136,10 +136,13 @@ export default function PlantillaCortePDF({ d }) {
             </Text>
           </View>
           <View style={[e.bloque, { flex: 1 }]}>
-            <View style={e.resFila}><Text>Subtotal del corte</Text><Text>{pesos(corte.subtotal_calc)}</Text></View>
-            <View style={e.resFila}><Text>(-) Amortización del anticipo</Text><Text>{pesos(corte.amort_calc)}</Text></View>
-            <View style={e.resFila}><Text>(-) Retención {Number(corte.porcentaje_retencion)}%</Text><Text>{pesos(corte.ret_calc)}</Text></View>
-            <View style={e.resNeto}><Text>Neto a pagar</Text><Text>{pesos(corte.neto_calc)}</Text></View>
+            <View style={e.resFila}><Text>Subtotal ítems del contrato</Text><Text>{pesos(delContrato.reduce((a, f) => a + f.valor, 0))}</Text></View>
+            <View style={e.resFila}><Text>Subtotal adicionales</Text><Text>{pesos(adicionales.reduce((a, f) => a + f.valor, 0))}</Text></View>
+            <View style={[e.resFila, { fontFamily: 'Helvetica-Bold', borderTopWidth: 1, borderTopColor: COLOR_DORADO }]}><Text>TOTAL CORTE</Text><Text>{pesos(corte.subtotal_calc)}</Text></View>
+            {Number(corte.descuento) > 0 && <View style={e.resFila}><Text>(-) Descuento</Text><Text>{pesos(corte.descuento)}</Text></View>}
+            <View style={e.resFila}><Text>(-) Retenido {Number(corte.porcentaje_retencion)}%</Text><Text>{pesos(corte.ret_calc)}</Text></View>
+            <View style={e.resFila}><Text>(-) Amortización anticipo</Text><Text>{pesos(corte.amort_calc)}</Text></View>
+            <View style={e.resNeto}><Text>TOTAL PAGO</Text><Text>{pesos(corte.neto_calc)}</Text></View>
           </View>
         </View>
 

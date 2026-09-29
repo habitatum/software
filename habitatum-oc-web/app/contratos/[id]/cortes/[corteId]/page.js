@@ -1,5 +1,5 @@
 'use client';
-import { Fragment, useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { useUsuarioActual } from '@/lib/useUsuarioActual';
@@ -21,6 +21,59 @@ const r2 = (n) => Math.round(n * 100) / 100;
 const fmtCant = (n) => (n === null || n === undefined ? '—' : Number(n).toLocaleString('es-CO', { maximumFractionDigits: 3 }));
 const CAMPO = 'border rounded px-2 py-1 text-sm';
 
+function FilaSub({ etiqueta, valor }) {
+  return (
+    <tr className="border-t-2 border-dorado bg-[#b88a52]/[0.12] font-semibold">
+      <td className="p-2 text-xs" colSpan={8}>{etiqueta}</td>
+      <td className="p-2 text-right">{formatoPesos(valor)}</td>
+    </tr>
+  );
+}
+
+function TablaCorte({ titulo, filas, cantidades, setCantidades, puedeEditar, pie, sinMarco }) {
+  const tabla = (
+    <table className="w-full text-sm">
+      <thead className="bg-gris-calido/30 text-left text-xs">
+        <tr>
+          <th className="p-2">Ítem</th><th className="p-2">Und</th>
+          <th className="p-2 text-right">Contratado</th><th className="p-2 text-right">Anterior</th>
+          <th className="p-2 text-right bg-[#b88a52]/[0.18]">Este corte</th>
+          <th className="p-2 text-right">Acumulado</th><th className="p-2 text-right">Saldo</th>
+          <th className="p-2 text-right">Vr. unitario</th><th className="p-2 text-right bg-[#3b5b7a]/[0.14]">Valor corte</th>
+        </tr>
+      </thead>
+      <tbody>
+        {filas.length === 0 && <tr><td colSpan={9} className="p-3 text-xs text-neutral-500">Sin ítems.</td></tr>}
+        {filas.map((f) => (
+          <tr key={f.id} className={`border-t ${f.excede && f.cant > 0 ? 'bg-red-50' : ''}`}>
+            <td className="p-2 text-xs max-w-md">{f.codigo ? <strong>{f.codigo} · </strong> : null}{f.descripcion}</td>
+            <td className="p-2 text-xs">{f.unidad}</td>
+            <td className="p-2 text-right text-xs">{fmtCant(f.cantidad)}</td>
+            <td className="p-2 text-right text-xs">{fmtCant(f.anterior)}</td>
+            <td className="p-1 text-right bg-[#b88a52]/[0.09]">
+              <input type="number" step="any" disabled={!puedeEditar} value={cantidades[f.id] ?? ''} placeholder="0"
+                onChange={(e) => setCantidades({ ...cantidades, [f.id]: e.target.value })}
+                className={`${CAMPO} w-24 text-right`} />
+            </td>
+            <td className={`p-2 text-right text-xs ${f.excede ? 'text-red-700 font-semibold' : ''}`}>{fmtCant(f.acumuladoNuevo)}</td>
+            <td className={`p-2 text-right text-xs ${f.excede ? 'text-red-700' : ''}`}>{f.saldoNuevo == null ? '—' : fmtCant(f.saldoNuevo)}</td>
+            <td className="p-2 text-right text-xs">{formatoPesos(f.valor_unitario)}</td>
+            <td className="p-2 text-right bg-[#3b5b7a]/[0.07]">{f.subtotal ? formatoPesos(f.subtotal) : '—'}</td>
+          </tr>
+        ))}
+        {pie}
+      </tbody>
+    </table>
+  );
+  if (sinMarco) return tabla;
+  return (
+    <div className="bg-white rounded-lg border overflow-x-auto">
+      {titulo && <h2 className="font-semibold text-sm uppercase tracking-wide px-3 pt-3 pb-1">{titulo}</h2>}
+      {tabla}
+    </div>
+  );
+}
+
 export default function CorteDeObra() {
   const { id: contratoId, corteId } = useParams();
   const router = useRouter();
@@ -39,6 +92,7 @@ export default function CorteDeObra() {
   const [error, setError] = useState('');
   const [guardando, setGuardando] = useState(false);
   const [listo, setListo] = useState(false);
+  const [previoPorItem, setPrevioPorItem] = useState({});
 
   const esAdmin = usuario?.rol === 'admin';
   const puedeEditar = (usuario?.rol === 'admin' || usuario?.rol === 'operativo') && (!corte || corte.estado === 'BORRADOR');
@@ -94,6 +148,12 @@ export default function CorteDeObra() {
         setCantidades(cant);
         setAdicionales(ads);
       }
+      // Cantidades de cortes APROBADOS con número menor a este (columna "Anterior").
+      const numeroEste = esNuevo ? null : undefined;
+      const { data: prev } = await s.from('corte_items')
+        .select('contrato_item_id, cantidad, cortes!inner(numero, estado, contrato_id)')
+        .eq('cortes.contrato_id', contratoId).eq('cortes.estado', 'APROBADO');
+      setPrevioPorItem({ lista: prev || [], numeroEste });
       setListo(true);
     })();
   }, [usuario, proyecto, contratoId, corteId]); // eslint-disable-line
@@ -102,14 +162,16 @@ export default function CorteDeObra() {
   const aprobado = corte?.estado === 'APROBADO';
   const filas = useMemo(() => items.map((i) => {
     const cant = num(cantidades[i.id]);
-    const anterior = num(i.acumulado) - (aprobado ? cant : 0);
+    const previos = (previoPorItem.lista || []).filter((p) => p.contrato_item_id === i.id && p.cortes.numero < Number(form.numero));
+    const anterior = num(i.cantidad_historica) + previos.reduce((a, p) => a + num(p.cantidad), 0);
     const acumulado = anterior + cant;
     return { ...i, cant, anterior, acumuladoNuevo: acumulado, saldoNuevo: i.cantidad == null ? null : num(i.cantidad) - acumulado, subtotal: r2(cant * num(i.valor_unitario)), excede: i.cantidad != null && acumulado > num(i.cantidad) + 0.0005 };
-  }), [items, cantidades, aprobado]);
+  }), [items, cantidades, previoPorItem, form.numero]);
 
-  const subContrato = filas.reduce((a, f) => a + f.subtotal, 0);
+  const subContrato = filas.filter((f) => !f.es_adicional).reduce((a, f) => a + f.subtotal, 0);
+  const subAdicPactados = filas.filter((f) => f.es_adicional).reduce((a, f) => a + f.subtotal, 0);
   const subAdicionales = adicionales.reduce((a, x) => a + r2(num(x.cantidad) * num(x.valor_unitario)), 0);
-  const subtotal = r2(subContrato + subAdicionales);
+  const subtotal = r2(subContrato + subAdicPactados + subAdicionales);
   const saldoAnticipo = aprobado ? num(corte.valor_amortizacion) : Math.max(num(anticipo.saldo), 0);
   let amort = form.tipo_amortizacion === 'PORCENTAJE' ? r2(subtotal * num(form.porcentaje_amortizacion) / 100)
     : form.tipo_amortizacion === 'SALDO' ? saldoAnticipo
@@ -228,64 +290,34 @@ export default function CorteDeObra() {
                 <p>{anticipo.folio ? `${anticipo.folio} · ${formatoPesos(anticipo.valor)} · saldo por amortizar ${formatoPesos(anticipo.saldo)}` : 'Sin anticipo'}</p></div>
             </div>
 
-            <div className="bg-white rounded-lg border overflow-x-auto">
-              <table className="w-full text-sm">
-                <thead className="bg-gris-calido/30 text-left text-xs">
-                  <tr>
-                    <th className="p-2">Ítem</th><th className="p-2">Und</th>
-                    <th className="p-2 text-right">Contratado</th><th className="p-2 text-right">Anterior</th>
-                    <th className="p-2 text-right bg-[#b88a52]/[0.18]">Este corte</th>
-                    <th className="p-2 text-right">Acumulado</th><th className="p-2 text-right">Saldo</th>
-                    <th className="p-2 text-right">Vr. unitario</th><th className="p-2 text-right bg-[#3b5b7a]/[0.14]">Valor corte</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {filas.map((f, idx) => (
-                    <Fragment key={f.id}>
-                      {f.es_adicional && (idx === 0 || !filas[idx - 1].es_adicional) && (
-                        <tr><td colSpan={9} className="p-2 pt-3 text-xs font-semibold text-neutral-600 border-t bg-hueso/50">Adicionales ya pactados</td></tr>
-                      )}
-                      <tr className={`border-t ${f.excede && f.cant > 0 ? 'bg-red-50' : ''}`}>
-                        <td className="p-2 text-xs max-w-md">{f.codigo ? <strong>{f.codigo} · </strong> : null}{f.descripcion}</td>
-                        <td className="p-2 text-xs">{f.unidad}</td>
-                        <td className="p-2 text-right text-xs">{fmtCant(f.cantidad)}</td>
-                        <td className="p-2 text-right text-xs">{fmtCant(f.anterior)}</td>
-                        <td className="p-1 text-right bg-[#b88a52]/[0.09]">
-                          <input type="number" step="any" disabled={!puedeEditar} value={cantidades[f.id] ?? ''} placeholder="0"
-                            onChange={(e) => setCantidades({ ...cantidades, [f.id]: e.target.value })}
-                            className={`${CAMPO} w-24 text-right`} />
-                        </td>
-                        <td className={`p-2 text-right text-xs ${f.excede ? 'text-red-700 font-semibold' : ''}`}>{fmtCant(f.acumuladoNuevo)}</td>
-                        <td className={`p-2 text-right text-xs ${f.excede ? 'text-red-700' : ''}`}>{f.saldoNuevo == null ? '—' : fmtCant(f.saldoNuevo)}</td>
-                        <td className="p-2 text-right text-xs">{formatoPesos(f.valor_unitario)}</td>
-                        <td className="p-2 text-right bg-[#3b5b7a]/[0.07]">{f.subtotal ? formatoPesos(f.subtotal) : '—'}</td>
-                      </tr>
-                    </Fragment>
-                  ))}
-                </tbody>
-              </table>
-            </div>
+            <TablaCorte titulo="Ítems del contrato" filas={filas.filter((f) => !f.es_adicional)} cantidades={cantidades} setCantidades={setCantidades} puedeEditar={puedeEditar}
+              pie={<FilaSub etiqueta="SUBTOTAL ÍTEMS DEL CONTRATO" valor={subContrato} />} />
 
-            <div className="bg-white rounded-lg border p-4 space-y-2">
-              <div className="flex items-center justify-between">
-                <h2 className="font-medium text-sm">Adicionales nuevos en este corte</h2>
-                {puedeEditar && <button onClick={() => setAdicionales([...adicionales, { descripcion: '', unidad: '', cantidad: '', valor_unitario: '', capitulo_id: '' }])} className="text-sm text-dorado underline">+ Agregar adicional</button>}
+            <div className="bg-white rounded-lg border overflow-x-auto">
+              <div className="flex items-center justify-between px-3 pt-3">
+                <h2 className="font-semibold text-sm uppercase tracking-wide">Adicionales</h2>
+                {puedeEditar && <button onClick={() => setAdicionales([...adicionales, { descripcion: '', unidad: '', cantidad: '', valor_unitario: '', capitulo_id: '' }])} className="text-sm text-dorado underline">+ Agregar adicional nuevo</button>}
               </div>
-              {adicionales.length === 0 ? <p className="text-xs text-neutral-500">Sin adicionales nuevos. Al aprobar, cada adicional queda como ítem del contrato para los próximos cortes.</p> : (
-                adicionales.map((a, k) => (
-                  <div key={k} className="grid grid-cols-12 gap-2 items-center">
-                    <input disabled={!puedeEditar} placeholder="Descripción" value={a.descripcion} onChange={(e) => { const x = [...adicionales]; x[k] = { ...a, descripcion: e.target.value }; setAdicionales(x); }} className={`${CAMPO} col-span-12 sm:col-span-4`} />
-                    <input disabled={!puedeEditar} placeholder="Und" value={a.unidad} onChange={(e) => { const x = [...adicionales]; x[k] = { ...a, unidad: e.target.value }; setAdicionales(x); }} className={`${CAMPO} col-span-3 sm:col-span-1`} />
-                    <input disabled={!puedeEditar} type="number" step="any" placeholder="Cant." value={a.cantidad} onChange={(e) => { const x = [...adicionales]; x[k] = { ...a, cantidad: e.target.value }; setAdicionales(x); }} className={`${CAMPO} col-span-3 sm:col-span-1 text-right`} />
-                    <input disabled={!puedeEditar} type="number" placeholder="Vr. unit." value={a.valor_unitario} onChange={(e) => { const x = [...adicionales]; x[k] = { ...a, valor_unitario: e.target.value }; setAdicionales(x); }} className={`${CAMPO} col-span-6 sm:col-span-2 text-right`} />
-                    <select disabled={!puedeEditar} value={a.capitulo_id} onChange={(e) => { const x = [...adicionales]; x[k] = { ...a, capitulo_id: e.target.value }; setAdicionales(x); }} className={`${CAMPO} col-span-9 sm:col-span-3`}>
-                      <option value="">Capítulo del presupuesto…</option>
-                      {capitulos.map((c) => <option key={c.id} value={c.id}>{c.codigo} · {c.nombre}</option>)}
-                    </select>
-                    {puedeEditar && <button onClick={() => setAdicionales(adicionales.filter((_, j) => j !== k))} className="col-span-3 sm:col-span-1 text-xs text-neutral-400 hover:text-red-600">Quitar</button>}
-                  </div>
-                ))
+              <TablaCorte sinMarco filas={filas.filter((f) => f.es_adicional)} cantidades={cantidades} setCantidades={setCantidades} puedeEditar={puedeEditar} />
+              {adicionales.length > 0 && (
+                <div className="px-3 pb-3 space-y-2 border-t pt-3">
+                  <p className="text-xs text-neutral-500">Adicionales nuevos (al aprobar quedan como ítems del contrato para los próximos cortes):</p>
+                  {adicionales.map((a, k) => (
+                    <div key={k} className="grid grid-cols-12 gap-2 items-center">
+                      <input disabled={!puedeEditar} placeholder="Descripción" value={a.descripcion} onChange={(e) => { const x = [...adicionales]; x[k] = { ...a, descripcion: e.target.value }; setAdicionales(x); }} className={`${CAMPO} col-span-12 sm:col-span-4`} />
+                      <input disabled={!puedeEditar} placeholder="Und" value={a.unidad} onChange={(e) => { const x = [...adicionales]; x[k] = { ...a, unidad: e.target.value }; setAdicionales(x); }} className={`${CAMPO} col-span-3 sm:col-span-1`} />
+                      <input disabled={!puedeEditar} type="number" step="any" placeholder="Cant." value={a.cantidad} onChange={(e) => { const x = [...adicionales]; x[k] = { ...a, cantidad: e.target.value }; setAdicionales(x); }} className={`${CAMPO} col-span-3 sm:col-span-1 text-right`} />
+                      <input disabled={!puedeEditar} type="number" placeholder="Vr. unit." value={a.valor_unitario} onChange={(e) => { const x = [...adicionales]; x[k] = { ...a, valor_unitario: e.target.value }; setAdicionales(x); }} className={`${CAMPO} col-span-6 sm:col-span-2 text-right`} />
+                      <select disabled={!puedeEditar} value={a.capitulo_id} onChange={(e) => { const x = [...adicionales]; x[k] = { ...a, capitulo_id: e.target.value }; setAdicionales(x); }} className={`${CAMPO} col-span-9 sm:col-span-3`}>
+                        <option value="">Capítulo del presupuesto…</option>
+                        {capitulos.map((c) => <option key={c.id} value={c.id}>{c.codigo} · {c.nombre}</option>)}
+                      </select>
+                      {puedeEditar && <button onClick={() => setAdicionales(adicionales.filter((_, j2) => j2 !== k))} className="col-span-3 sm:col-span-1 text-xs text-neutral-400 hover:text-red-600">Quitar</button>}
+                    </div>
+                  ))}
+                </div>
               )}
+              <table className="w-full text-sm"><tbody><FilaSub etiqueta="SUBTOTAL ADICIONALES" valor={subAdicPactados + subAdicionales} /></tbody></table>
             </div>
 
             <div className="grid md:grid-cols-2 gap-4">
@@ -313,12 +345,13 @@ export default function CorteDeObra() {
 
               <div className="bg-carbon text-hueso rounded-lg p-4 text-sm space-y-1.5">
                 <h2 className="font-medium mb-2">Resumen del corte</h2>
-                <div className="flex justify-between"><span>Ítems del contrato</span><span>{formatoPesos(subContrato)}</span></div>
-                <div className="flex justify-between"><span>Adicionales nuevos</span><span>{formatoPesos(subAdicionales)}</span></div>
-                <div className="flex justify-between font-semibold border-t border-dorado pt-1.5"><span>Subtotal del corte</span><span>{formatoPesos(subtotal)}</span></div>
-                <div className="flex justify-between"><span>(−) Amortización anticipo</span><span>{formatoPesos(amort)}</span></div>
-                <div className="flex justify-between"><span>(−) Retención {num(form.porcentaje_retencion)}%</span><span>{formatoPesos(retencion)}</span></div>
-                <div className="flex justify-between text-lg font-semibold border-t border-dorado pt-2 mt-1 text-[#e6c89c]"><span>Neto a pagar</span><span>{formatoPesos(neto)}</span></div>
+                <div className="flex justify-between"><span>Subtotal ítems del contrato</span><span>{formatoPesos(subContrato)}</span></div>
+                <div className="flex justify-between"><span>Subtotal adicionales</span><span>{formatoPesos(subAdicPactados + subAdicionales)}</span></div>
+                <div className="flex justify-between font-semibold border-t border-dorado pt-1.5"><span>TOTAL CORTE</span><span>{formatoPesos(subtotal)}</span></div>
+                {aprobado && num(corte.descuento) > 0 && <div className="flex justify-between"><span>(-) Descuento</span><span>{formatoPesos(corte.descuento)}</span></div>}
+                <div className="flex justify-between"><span>(-) Retenido {num(form.porcentaje_retencion)}%</span><span>{formatoPesos(aprobado ? corte.valor_retencion : retencion)}</span></div>
+                <div className="flex justify-between"><span>(-) Amortización anticipo</span><span>{formatoPesos(amort)}</span></div>
+                <div className="flex justify-between text-lg font-semibold border-t border-dorado pt-2 mt-1 text-[#e6c89c]"><span>TOTAL PAGO</span><span>{formatoPesos(aprobado ? corte.neto : neto)}</span></div>
                 {excedidos.length > 0 && (
                   <p className="text-xs bg-red-900/40 rounded p-2 mt-2">⚠️ {excedidos.length} ítem(s) superan la cantidad contratada: {excedidos.map((f) => f.codigo || f.descripcion.slice(0, 25)).join(', ')}. Verifica la medición o formaliza un otrosí.</p>
                 )}

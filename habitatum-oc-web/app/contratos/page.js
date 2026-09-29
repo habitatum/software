@@ -418,6 +418,11 @@ export default function Contratos() {
                   <td className="p-3">{c.proveedores?.nombre}</td>
                   <td className="p-3 text-right">{formatoPesos(c.valor_inicial)}</td>
                   <td className="p-3 text-right whitespace-nowrap">
+                    {infoCortes[c.id]?.conItems && (
+                      <Link href={`/contratos/${c.id}/cortes`} className="inline-block border border-carbon text-carbon px-3 py-1.5 rounded text-xs whitespace-nowrap mr-2 align-middle hover:bg-hueso">
+                        Ver cortes
+                      </Link>
+                    )}
                     {(usuario.rol === 'admin' || usuario.rol === 'operativo') && infoCortes[c.id]?.conItems && c.estado !== 'ANULADO' && (
                       <Link
                         href={infoCortes[c.id]?.borrador ? `/contratos/${c.id}/cortes/${infoCortes[c.id].borrador.id}` : `/contratos/${c.id}/cortes/nuevo`}
