@@ -141,7 +141,7 @@ export default function SabanaCortes({ m, contrato, edicion, onPdf }) {
               <Fragment key={c.id}>
                 <th className={LINEA} />
                 <th className={`${TD} text-center ${c.editable ? 'bg-carbon text-hueso' : GRIS}`} colSpan={3}>
-                  CORTE {c.numero}{c.editable ? ' · NUEVO' : ''}
+                  CORTE {c.numero}{c.editable ? ` · ${c.titulo}` : ''}
                   <div className="font-normal text-[10px]">
                     {fecha(c.fecha)}{c.folio ? ` · ${c.folio}` : c.editable ? '' : ' · sin OC'}
                     {!c.editable && onPdf && <> · <button onClick={() => onPdf(c)} className="underline">PDF</button></>}

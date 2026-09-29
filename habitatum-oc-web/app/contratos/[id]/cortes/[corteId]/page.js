@@ -36,10 +36,14 @@ export default function CorteDeObra() {
   const [form, setForm] = useState({ numero: 1, fecha: hoy(), pctRetencion: '0', tipo_amortizacion: 'NINGUNA', porcentaje_amortizacion: '', valor_amortizacion_fijo: '', notas: '' });
   const [error, setError] = useState('');
   const [guardando, setGuardando] = useState(false);
+  const [editando, setEditando] = useState(false);
+  const [actualizarOC, setActualizarOC] = useState(true);
+  const [itemsCorte, setItemsCorte] = useState([]);
 
   const esAdmin = usuario?.rol === 'admin';
   const aprobado = corte?.estado === 'APROBADO';
-  const puedeEditar = (usuario?.rol === 'admin' || usuario?.rol === 'operativo') && !aprobado;
+  const modoEdicion = !aprobado || editando;
+  const puedeEditar = (usuario?.rol === 'admin' || usuario?.rol === 'operativo') && modoEdicion;
 
   useEffect(() => {
     if (!usuario || !proyecto) return;
@@ -78,6 +82,7 @@ export default function CorteDeObra() {
           s.from('corte_items').select('*').eq('corte_id', corteId).order('orden'),
         ]);
         setCorte(c);
+        setItemsCorte(ci || []);
         setForm({
           numero: c.numero, fecha: c.fecha, pctRetencion: String(num(c.porcentaje_retencion)),
           tipo_amortizacion: c.tipo_amortizacion, porcentaje_amortizacion: String(c.porcentaje_amortizacion || ''),
@@ -98,25 +103,54 @@ export default function CorteDeObra() {
 
   if (cargando || cargandoProyecto || !usuario || !proyecto) return null;
 
+  const ultimoAprobado = d ? Math.max(0, ...d.cortes.map((k) => k.numero)) : 0;
+  const puedeEditarAprobado = aprobado && (esAdmin || (usuario.rol === 'operativo' && corte.numero === ultimoAprobado));
+
+  function iniciarEdicion() {
+    const cant = {}; const nv = [];
+    itemsCorte.forEach((x, k) => {
+      if (x.contrato_item_id) cant[x.contrato_item_id] = String(x.cantidad);
+      else nv.push({ tmpId: k + 1, descripcion: x.descripcion, unidad: x.unidad || '', valor_unitario: String(x.valor_unitario), capitulo_id: x.capitulo_id || '', cantidad: String(x.cantidad) });
+    });
+    setCantidades(cant); setNuevos(nv); setActualizarOC(!!corte.oc_id); setError(''); setEditando(true);
+  }
+
+  async function guardarEdicion() {
+    if (!window.confirm(`¿Guardar los cambios del corte No. ${corte.numero}?${actualizarOC && corte.oc_id ? `\n\nTambién se actualizará la ${corte.ordenes_compra?.folio} con las nuevas cantidades y valores.` : corte.oc_id ? '\n\nLa OC NO se actualizará y el corte quedará marcado como "OC desactualizada".' : ''}`)) return;
+    setGuardando(true);
+    try {
+      await guardar();
+      const { data, error: e } = await crearClienteSupabase().rpc('actualizar_corte', { p_corte: corte.id, p_actualizar_oc: actualizarOC });
+      if (e) throw e;
+      window.alert(`Corte No. ${corte.numero} actualizado. TOTAL PAGO ${formatoPesos(data.neto)}${data.oc_actualizada ? ` · ${data.oc} actualizada` : ''}.`);
+      window.location.reload();
+    } catch (e) { setError(e.message); }
+    setGuardando(false);
+  }
+
   // ---------- Cálculos (mismo modelo de la sábana) ----------
   let m = null; let amort = 0; let excedidos = [];
-  if (d && !aprobado) {
-    const cortesPrevios = d.cortes.filter((k) => k.numero < Number(form.numero));
-    const edicionBase = { numero: form.numero, fecha: form.fecha, cantidades, nuevos, pctRetencion: form.pctRetencion, amortizacion: 0 };
+  if (d && modoEdicion) {
+    const cortesPrevios = aprobado ? d.cortes.filter((k) => k.id !== corte.id) : d.cortes.filter((k) => k.numero < Number(form.numero));
+    const edicionBase = {
+      numero: form.numero, fecha: form.fecha, cantidades, nuevos, pctRetencion: form.pctRetencion, amortizacion: 0,
+      descuento: aprobado ? Number(corte.descuento || 0) : 0, titulo: aprobado ? 'EDITANDO' : 'NUEVO',
+    };
     const m0 = construirSabana({ items: d.items, cortes: cortesPrevios, anticipos: d.anticipos, edicion: edicionBase, valorContrato: d.contrato.valor_inicial });
-    const total = m0.columnas.slice(-1)[0].total;
-    const saldo = Math.max(num(d.anticipo.saldo), 0);
+    const total = m0.columnas.find((c) => c.editable).total;
+    // Al editar un corte aprobado, su propia amortización vuelve a estar disponible.
+    const saldo = Math.max(num(d.anticipo.saldo), 0) + (aprobado ? num(corte.valor_amortizacion) : 0);
     amort = form.tipo_amortizacion === 'PORCENTAJE' ? r2(total * num(form.porcentaje_amortizacion) / 100)
       : form.tipo_amortizacion === 'SALDO' ? saldo
       : form.tipo_amortizacion === 'VALOR_FIJO' ? num(form.valor_amortizacion_fijo) : 0;
     amort = Math.min(Math.max(amort, 0), saldo, total);
     m = construirSabana({ items: d.items, cortes: cortesPrevios, anticipos: d.anticipos, edicion: { ...edicionBase, amortizacion: amort }, valorContrato: d.contrato.valor_inicial });
-    const colEd = m.columnas.slice(-1)[0];
+    const colEd = m.columnas.find((c) => c.editable);
     excedidos = m.todos.filter((i) => m.excede(i) && colEd.cantidad(i.id) > 0);
   } else if (d) {
     m = construirSabana({ items: d.items, cortes: d.cortes, anticipos: d.anticipos, valorContrato: d.contrato.valor_inicial });
   }
-  const colEdicion = m && !aprobado ? m.columnas.slice(-1)[0] : null;
+  const colEdicion = m && modoEdicion ? m.columnas.find((c) => c.editable) : null;
 
   async function guardar() {
     setError('');
@@ -182,7 +216,7 @@ export default function CorteDeObra() {
     router.push(`/contratos/${contratoId}`);
   }
 
-  const edicion = !aprobado && d ? {
+  const edicion = modoEdicion && d ? {
     puedeEditar, cantidades, nuevos, capitulos: d.capitulos,
     pctRetencionTexto: form.pctRetencion,
     onPctRetencion: (v) => setForm({ ...form, pctRetencion: v }),
@@ -201,12 +235,15 @@ export default function CorteDeObra() {
           <>
             <div className="flex flex-wrap items-end justify-between gap-3">
               <div>
-                <h1 className="text-2xl font-semibold">{aprobado ? `Corte de obra No. ${corte.numero}` : `Nuevo corte de obra No. ${form.numero}`}</h1>
+                <h1 className="text-2xl font-semibold">{editando ? `Editando corte de obra No. ${corte.numero}` : aprobado ? `Corte de obra No. ${corte.numero}` : `Nuevo corte de obra No. ${form.numero}`}</h1>
                 <p className="text-sm text-neutral-500">Contrato {d.contrato.numero_contrato} · {d.contrato.proveedores?.nombre} · {d.contrato.concepto}</p>
               </div>
-              {aprobado ? (
-                <div className="flex items-center gap-3">
+              {aprobado && !editando ? (
+                <div className="flex items-center gap-3 flex-wrap">
                   <span className="text-sm text-green-700">Aprobado · {corte.ordenes_compra?.folio || 'sin OC'}</span>
+                  {corte.oc_desactualizada && <span className="text-xs bg-amber-100 text-amber-800 rounded px-2 py-1">⚠️ La OC no refleja la última edición del corte</span>}
+                  {puedeEditarAprobado && !editando && <button onClick={iniciarEdicion} className="bg-carbon text-hueso px-4 py-2 rounded text-sm">Editar corte</button>}
+                  {aprobado && !puedeEditarAprobado && usuario.rol === 'operativo' && <span className="text-xs text-neutral-500">Solo un administrador puede editar cortes anteriores al último.</span>}
                   <button onClick={() => compartirOAbrirArchivo(`/api/cortes/${corte.id}/pdf`, `Corte ${corte.numero} ${d.contrato.numero_contrato}.pdf`)} className="border border-dorado text-dorado px-4 py-2 rounded text-sm">Descargar corte (PDF)</button>
                 </div>
               ) : (
@@ -214,7 +251,7 @@ export default function CorteDeObra() {
                   <label className="space-y-1"><span className="block text-xs text-neutral-500">Fecha del corte</span>
                     <input type="date" disabled={!puedeEditar} value={form.fecha} onChange={(e) => setForm({ ...form, fecha: e.target.value })} className={CAMPO} /></label>
                   <label className="space-y-1"><span className="block text-xs text-neutral-500">No.</span>
-                    <input type="number" disabled={!puedeEditar} value={form.numero} onChange={(e) => setForm({ ...form, numero: e.target.value })} className={`${CAMPO} w-16`} /></label>
+                    <input type="number" disabled={!puedeEditar || aprobado} value={form.numero} onChange={(e) => setForm({ ...form, numero: e.target.value })} className={`${CAMPO} w-16`} /></label>
                 </div>
               )}
             </div>
@@ -224,7 +261,7 @@ export default function CorteDeObra() {
             <SabanaCortes m={m} contrato={d.contrato} edicion={edicion}
               onPdf={(c) => compartirOAbrirArchivo(`/api/cortes/${c.id}/pdf`, `Corte ${c.numero} ${d.contrato.numero_contrato}.pdf`)} />
 
-            {!aprobado && (
+            {modoEdicion && (
               <div className="grid md:grid-cols-3 gap-4">
                 <div className="bg-white rounded-lg border p-4 space-y-2 text-sm">
                   <h2 className="font-medium">Amortización del anticipo</h2>
@@ -248,7 +285,21 @@ export default function CorteDeObra() {
                   <div className="flex justify-between"><span>(-) Retenido {num(form.pctRetencion)}%</span><span>{formatoPesos(colEdicion.retencion)}</span></div>
                   <div className="flex justify-between"><span>(-) Amortización anticipo</span><span>{formatoPesos(colEdicion.amortizacion)}</span></div>
                   <div className="flex justify-between text-lg font-semibold border-t border-dorado pt-2 text-[#e6c89c]"><span>TOTAL PAGO</span><span>{formatoPesos(colEdicion.neto)}</span></div>
-                  {puedeEditar && (
+                  {editando && (
+                    <div className="pt-3 space-y-2">
+                      {corte.oc_id && (
+                        <label className="flex items-center gap-2 text-xs">
+                          <input type="checkbox" checked={actualizarOC} onChange={(e) => setActualizarOC(e.target.checked)} />
+                          Actualizar también la {corte.ordenes_compra?.folio} ligada a este corte
+                        </label>
+                      )}
+                      <div className="flex gap-2">
+                        <button disabled={guardando} onClick={guardarEdicion} className="bg-dorado text-carbon font-semibold px-3 py-1.5 rounded text-xs">{guardando ? 'Guardando…' : 'Guardar cambios'}</button>
+                        <button disabled={guardando} onClick={() => { setEditando(false); setError(''); }} className="border border-hueso px-3 py-1.5 rounded text-xs">Cancelar</button>
+                      </div>
+                    </div>
+                  )}
+                  {puedeEditar && !editando && (
                     <div className="flex flex-wrap gap-2 pt-3">
                       <button disabled={guardando} onClick={guardarBorrador} className="border border-hueso px-3 py-1.5 rounded text-xs">{guardando ? 'Guardando…' : 'Guardar borrador'}</button>
                       {esAdmin && <button disabled={guardando} onClick={aprobar} className="bg-dorado text-carbon font-semibold px-3 py-1.5 rounded text-xs">Aprobar y generar OC</button>}

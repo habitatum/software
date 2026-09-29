@@ -41,8 +41,10 @@ export function construirSabana({ items = [], cortes = [], anticipos = [], edici
       cantidad: (itemId) => (String(itemId).startsWith('nuevo:')
         ? n((edicion.nuevos || []).find((x) => `nuevo:${x.tmpId}` === itemId)?.cantidad)
         : n(edicion.cantidades?.[itemId])),
-      pctRetencion: n(edicion.pctRetencion), amortizacion: n(edicion.amortizacion), descuento: 0,
+      pctRetencion: n(edicion.pctRetencion), amortizacion: n(edicion.amortizacion), descuento: n(edicion.descuento),
+      titulo: edicion.titulo || 'NUEVO',
     });
+    columnas.sort((a, b) => Number(a.numero) - Number(b.numero));
   }
 
   // Subtotales por columna
@@ -51,8 +53,8 @@ export function construirSabana({ items = [], cortes = [], anticipos = [], edici
     col.subAdicionales = r2(adicionales.reduce((a, i) => a + col.cantidad(i.id) * n(i.valor_unitario), 0));
     col.total = r2(col.subContrato + col.subAdicionales);
     if (col.editable) {
-      col.retencion = r2(col.total * col.pctRetencion / 100);
-      col.neto = r2(col.total - col.retencion - col.amortizacion);
+      col.retencion = r2((col.total - col.descuento) * col.pctRetencion / 100);
+      col.neto = r2(col.total - col.descuento - col.retencion - col.amortizacion);
     }
     col.pctAmortizacion = col.total > 0 ? Math.round((col.amortizacion / col.total) * 10000) / 100 : 0;
   });
