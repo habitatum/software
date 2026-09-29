@@ -1,5 +1,5 @@
 'use client';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useUsuarioActual } from '@/lib/useUsuarioActual';
 import { crearClienteSupabase } from '@/lib/supabaseClient';
 import NavBar from '@/components/NavBar';
@@ -15,6 +15,14 @@ export default function Proveedores() {
   const [guardando, setGuardando] = useState(false);
   const [eliminandoId, setEliminandoId] = useState(null);
   const [error, setError] = useState('');
+  const [busqueda, setBusqueda] = useState('');
+  const formRef = useRef(null);
+
+  // Al abrir el formulario (sobre todo al editar un proveedor de abajo en la lista),
+  // la página se desplaza hasta él; antes se abría arriba, fuera de la pantalla.
+  useEffect(() => {
+    if (mostrarForm && formRef.current) formRef.current.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }, [mostrarForm, editandoId]);
 
   async function cargar() {
     const supabase = crearClienteSupabase();
@@ -109,9 +117,9 @@ export default function Proveedores() {
         </div>
 
         {mostrarForm && (
-          <form onSubmit={guardar} className="bg-white border rounded-lg p-5 grid grid-cols-2 gap-3 mb-6">
-            <p className="col-span-2 text-xs text-neutral-500 -mb-1">
-              {editandoId ? 'Editando proveedor' : 'Nuevo proveedor'}
+          <form ref={formRef} onSubmit={guardar} className={`bg-white border rounded-lg p-5 grid grid-cols-2 gap-3 mb-6 scroll-mt-4 ${editandoId ? 'border-dorado ring-1 ring-dorado' : ''}`}>
+            <p className="col-span-2 text-sm font-medium -mb-1">
+              {editandoId ? `Editando: ${proveedores.find((x) => x.id === editandoId)?.nombre || 'proveedor'}` : 'Nuevo proveedor'}
             </p>
             <input required placeholder="Nombre" value={form.nombre} onChange={(e) => setForm({ ...form, nombre: e.target.value })} className="border rounded px-3 py-2 text-sm" />
             <input placeholder="NIT" value={form.nit} onChange={(e) => setForm({ ...form, nit: e.target.value })} className="border rounded px-3 py-2 text-sm" />
@@ -133,6 +141,12 @@ export default function Proveedores() {
           </form>
         )}
 
+        <input
+          value={busqueda}
+          onChange={(e) => setBusqueda(e.target.value)}
+          placeholder="Buscar proveedor por nombre, NIT o cuenta…"
+          className="border rounded px-3 py-2 text-sm w-full mb-3 bg-white"
+        />
         <div className="bg-white rounded-lg shadow-sm border overflow-x-auto">
           <table className="w-full text-sm">
             <thead className="bg-gris-calido/30 text-left">
@@ -142,8 +156,10 @@ export default function Proveedores() {
               </tr>
             </thead>
             <tbody>
-              {proveedores.map((p) => (
-                <tr key={p.id} className="border-t">
+              {proveedores
+                .filter((p) => !busqueda || `${p.nombre} ${p.nit || ''} ${p.numero_cuenta || ''}`.toLowerCase().includes(busqueda.toLowerCase()))
+                .map((p) => (
+                <tr key={p.id} className={`border-t ${editandoId === p.id ? 'bg-[#b88a52]/[0.12]' : ''}`}>
                   <td className="p-3">{p.nombre}</td><td className="p-3">{p.nit}</td>
                   <td className="p-3">{p.representante_legal}</td>
                   <td className="p-3">{p.banco}</td><td className="p-3">{p.tipo_cuenta} {p.numero_cuenta}</td>
