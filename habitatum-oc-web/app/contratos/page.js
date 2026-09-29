@@ -35,6 +35,8 @@ export default function Contratos() {
   const { usuario, cargando } = useUsuarioActual();
   const { proyecto, cargando: cargandoProyecto } = useProyectoActual();
   const [contratos, setContratos] = useState([]);
+  // Estado de cortes por contrato: ¿tiene ítems cargados? ¿tiene un corte en borrador?
+  const [infoCortes, setInfoCortes] = useState({});
   const [generandoEstadoId, setGenerandoEstadoId] = useState(null);
   const [proveedores, setProveedores] = useState([]);
   const [form, setForm] = useState(VACIO);
@@ -54,6 +56,17 @@ export default function Contratos() {
     const { data: prov } = await supabase.from('proveedores').select('id, nombre').order('nombre');
     setContratos(cont || []);
     setProveedores(prov || []);
+    const ids = (cont || []).map((c) => c.id);
+    if (ids.length) {
+      const [{ data: its }, { data: borr }] = await Promise.all([
+        supabase.from('contrato_items').select('contrato_id').in('contrato_id', ids),
+        supabase.from('cortes').select('id, contrato_id, numero').in('contrato_id', ids).eq('estado', 'BORRADOR'),
+      ]);
+      const info = {};
+      (its || []).forEach((x) => { info[x.contrato_id] = { ...(info[x.contrato_id] || {}), conItems: true }; });
+      (borr || []).forEach((b) => { info[b.contrato_id] = { ...(info[b.contrato_id] || {}), borrador: b }; });
+      setInfoCortes(info);
+    }
   }
   useEffect(() => { if (usuario && proyecto) cargar(); }, [usuario, proyecto]); // eslint-disable-line
 
@@ -404,7 +417,16 @@ export default function Contratos() {
                   </td>
                   <td className="p-3">{c.proveedores?.nombre}</td>
                   <td className="p-3 text-right">{formatoPesos(c.valor_inicial)}</td>
-                  <td className="p-3 text-right">
+                  <td className="p-3 text-right whitespace-nowrap">
+                    {(usuario.rol === 'admin' || usuario.rol === 'operativo') && infoCortes[c.id]?.conItems && c.estado !== 'ANULADO' && (
+                      <Link
+                        href={infoCortes[c.id]?.borrador ? `/contratos/${c.id}/cortes/${infoCortes[c.id].borrador.id}` : `/contratos/${c.id}/cortes/nuevo`}
+                        onClick={(e) => e.stopPropagation()}
+                        className="inline-block bg-carbon text-hueso px-3 py-1.5 rounded text-xs whitespace-nowrap mr-2 align-middle"
+                      >
+                        {infoCortes[c.id]?.borrador ? `Continuar corte ${infoCortes[c.id].borrador.numero}` : '+ Nuevo corte'}
+                      </Link>
+                    )}
                     <button
                       onClick={() => descargarEstadoCuenta(c)}
                       disabled={generandoEstadoId === c.id}
