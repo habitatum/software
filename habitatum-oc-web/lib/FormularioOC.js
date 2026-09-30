@@ -1,6 +1,6 @@
 'use client';
 import { useState } from 'react';
-import { formatoPesos } from '@/lib/calculosOC';
+import { formatoPesos, anticiposElegibles, amortizacionConfigurada, validarAnticipoOC } from '@/lib/calculosOC';
 
 // Antes esto vivía como .input dentro de <style jsx global> con @apply, pero
 // styled-jsx no pasa ese bloque por el pipeline de Tailwind: la clase nunca se
@@ -18,10 +18,39 @@ export default function FormularioOC({
   presupuestoCapitulos = [],
   ejecutadosPresupuesto = {},
   calculo,
+  referenciaAnticipoOriginalId = '',
+  valorAmortizacionGuardada = 0,
+  // true en una orden nueva; al editar, solo si cambió algo de la amortización.
+  exigirAnticipo = true,
   onSubmit, guardando, error, tituloBoton,
 }) {
   const esAnticipo = oc.tipo_pago === 'ANTICIPO';
   const [modalImputacionIndex, setModalImputacionIndex] = useState(null);
+
+  // Amortización exige anticipo (migración 044): solo se ofrecen anticipos del
+  // mismo contratista (y del mismo contrato si la orden tiene contrato) con
+  // saldo. Si la orden ya tenía un anticipo enlazado que no cumple, se sigue
+  // mostrando para que se vea qué tiene guardado.
+  const elegibles = anticiposElegibles(oc, anticipos, referenciaAnticipoOriginalId);
+  const anticipoActual = anticipos.find((a) => String(a.id) === String(oc.referencia_anticipo_id));
+  const opcionesAnticipo = anticipoActual && !elegibles.some((a) => a.id === anticipoActual.id)
+    ? [anticipoActual, ...elegibles]
+    : elegibles;
+  const amortiza = amortizacionConfigurada(oc);
+  const validacionAnticipo = validarAnticipoOC({
+    oc, anticipos, valorAmortizacion: calculo.valor_amortizacion,
+    referenciaOriginalId: referenciaAnticipoOriginalId, valorAmortizacionGuardada,
+    exigir: exigirAnticipo,
+  });
+
+  // Al cambiar de contratista o de contrato, el anticipo elegido se quita si
+  // ya no le corresponde a la orden.
+  function conAnticipoValido(nueva) {
+    if (!nueva.referencia_anticipo_id) return nueva;
+    const sigue = anticiposElegibles(nueva, anticipos, referenciaAnticipoOriginalId)
+      .some((a) => String(a.id) === String(nueva.referencia_anticipo_id));
+    return sigue ? nueva : { ...nueva, referencia_anticipo_id: '' };
+  }
 
   function actualizarItem(i, campo, valor) {
     setItems((prev) => prev.map((it, idx) => (idx === i ? { ...it, [campo]: valor } : it)));
@@ -46,7 +75,7 @@ export default function FormularioOC({
             </select>
           </Campo>
           <Campo label="Contrato (opcional)">
-            <select value={oc.contrato_id} onChange={(e) => { const contratoId = e.target.value; const c = contratos.find((x) => x.id === contratoId); setOc({ ...oc, contrato_id: contratoId, proveedor_id: c ? c.contratista_id : oc.proveedor_id, descripcion: c ? (c.concepto || oc.descripcion) : oc.descripcion }); }} className={INPUT}>
+            <select value={oc.contrato_id} onChange={(e) => { const contratoId = e.target.value; const c = contratos.find((x) => x.id === contratoId); setOc(conAnticipoValido({ ...oc, contrato_id: contratoId, proveedor_id: c ? c.contratista_id : oc.proveedor_id, descripcion: c ? (c.concepto || oc.descripcion) : oc.descripcion })); }} className={INPUT}>
               <option value="">— Sin contrato —</option>
               {contratos.map((c) => (
                 <option key={c.id} value={c.id}>
@@ -56,7 +85,7 @@ export default function FormularioOC({
             </select>
           </Campo>
           <Campo label="Proveedor">
-            <select required value={oc.proveedor_id} onChange={(e) => setOc({ ...oc, proveedor_id: e.target.value })} className={INPUT}>
+            <select required value={oc.proveedor_id} onChange={(e) => setOc(conAnticipoValido({ ...oc, proveedor_id: e.target.value }))} className={INPUT}>
               <option value="">Selecciona...</option>
               {proveedores.map((p) => <option key={p.id} value={p.id}>{p.nombre}</option>)}
             </select>
@@ -244,19 +273,29 @@ export default function FormularioOC({
         </div>
         {oc.tipo_pago === 'NORMAL' && (
           <div className="grid grid-cols-2 gap-4">
-            <Campo label="Referencia a anticipo (opcional)">
-              <select value={oc.referencia_anticipo_id} onChange={(e) => setOc({ ...oc, referencia_anticipo_id: e.target.value })} className={INPUT}>
-                <option value="">— Ninguna —</option>
-                {anticipos.map((a) => <option key={a.id} value={a.id}>{a.folio}</option>)}
+            <Campo label={amortiza ? 'Anticipo que se amortiza (obligatorio)' : 'Anticipo que se amortiza'}>
+              <select
+                value={oc.referencia_anticipo_id || ''}
+                onChange={(e) => setOc({ ...oc, referencia_anticipo_id: e.target.value })}
+                className={`${INPUT} ${!validacionAnticipo.ok ? 'border-red-300' : ''}`}
+                aria-invalid={!validacionAnticipo.ok}
+              >
+                <option value="">{oc.proveedor_id ? 'Sin anticipo' : 'Elija primero el proveedor'}</option>
+                {opcionesAnticipo.map((a) => (
+                  <option key={a.id} value={a.id}>
+                    {a.folio} (saldo {formatoPesos(Number(a.saldo_anticipo_por_amortizar) || 0)})
+                  </option>
+                ))}
               </select>
-              {oc.referencia_anticipo_id && (() => {
-                const anticipoRef = anticipos.find((a) => String(a.id) === String(oc.referencia_anticipo_id));
-                return anticipoRef ? (
-                  <p className="text-xs text-neutral-500 mt-1">
-                    Saldo pendiente por amortizar de {anticipoRef.folio}: {formatoPesos(Number(anticipoRef.saldo_anticipo_por_amortizar) || 0)}
-                  </p>
-                ) : null;
-              })()}
+              {!validacionAnticipo.ok ? (
+                <p className="text-xs text-red-600 mt-1">{validacionAnticipo.mensaje}</p>
+              ) : oc.referencia_anticipo_id && anticipoActual ? (
+                <p className="text-xs text-neutral-500 mt-1">
+                  Saldo pendiente por amortizar de {anticipoActual.folio}: {formatoPesos(Number(anticipoActual.saldo_anticipo_por_amortizar) || 0)}
+                </p>
+              ) : oc.proveedor_id && elegibles.length === 0 ? (
+                <p className="text-xs text-neutral-500 mt-1">Este contratista no tiene anticipos con saldo en esta obra.</p>
+              ) : null}
             </Campo>
             <Campo label="Amortización de este anticipo">
               <div className="flex gap-4 mb-1.5 text-xs text-neutral-600">
@@ -359,8 +398,11 @@ export default function FormularioOC({
       </div>
 
       {error && <p className="text-red-600 text-sm">{error}</p>}
+      {!validacionAnticipo.ok && !error && (
+        <p className="text-red-600 text-sm">Revise la sección Anticipo y amortización: {validacionAnticipo.mensaje}</p>
+      )}
 
-      <button type="submit" disabled={guardando} className="bg-carbon text-hueso px-6 py-3 rounded font-medium disabled:opacity-50">
+      <button type="submit" disabled={guardando || !validacionAnticipo.ok} className="bg-carbon text-hueso px-6 py-3 rounded font-medium disabled:opacity-50">
         {guardando ? 'Guardando...' : tituloBoton}
       </button>
       {modalImputacionIndex !== null && items[modalImputacionIndex] && (

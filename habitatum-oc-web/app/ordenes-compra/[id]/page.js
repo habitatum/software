@@ -22,6 +22,9 @@ export default function DetalleOrdenCompra() {
   const [anulando, setAnulando] = useState(false);
   const [eliminando, setEliminando] = useState(false);
   const [generandoPDF, setGenerandoPDF] = useState(false);
+  // Alertas de amortización de esta orden (vista v_alertas_amortizacion,
+  // migración 044). Solo informan: la corrección se hace en el chat de la obra.
+  const [alertasAmortizacion, setAlertasAmortizacion] = useState([]);
 
   async function cargar() {
     const supabase = crearClienteSupabase();
@@ -35,6 +38,11 @@ export default function DetalleOrdenCompra() {
       .eq('orden_compra_id', id).order('orden').order('id');
     setOc(ocData);
     setItems(itemsData || []);
+    const { data: alertas } = await supabase
+      .from('v_alertas_amortizacion')
+      .select('problema, anticipo_folio, valor_amortizacion')
+      .eq('oc_id', id);
+    setAlertasAmortizacion(alertas || []);
     if (ocData?.contrato_id) {
       const { data: acum } = await supabase.from('v_acumulados_contrato').select('*').eq('contrato_id', ocData.contrato_id).single();
       setAcumulados(acum);
@@ -137,6 +145,18 @@ export default function DetalleOrdenCompra() {
             </button>
           </div>
         </div>
+
+        {alertasAmortizacion.map((a) => (
+          <div key={a.problema} role="status" className="bg-amber-50 border border-amber-300 text-amber-900 rounded-lg p-4 text-sm">
+            {a.problema === 'Anticipo sobreamortizado' ? (
+              <p>Este anticipo está sobreamortizado en {formatoPesos(a.valor_amortizacion)}: las órdenes que lo amortizan suman más que su valor. Revíselo desde el chat de la obra.</p>
+            ) : a.problema === 'Amortiza sin anticipo enlazado' ? (
+              <p>Esta orden amortiza {formatoPesos(a.valor_amortizacion)} pero no tiene anticipo enlazado, así que ese valor no se descuenta del saldo de ningún anticipo. Corríjala desde el chat de la obra.</p>
+            ) : (
+              <p>Amortización con problema: {a.problema.toLowerCase()}{a.anticipo_folio ? ` (${a.anticipo_folio})` : ''}. Corríjala desde el chat de la obra.</p>
+            )}
+          </div>
+        ))}
 
         {usuario.rol === 'admin' && auditoria && (
           <div className="bg-neutral-50 border border-neutral-200 rounded-lg p-3 text-xs text-neutral-500 space-y-0.5">

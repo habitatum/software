@@ -166,3 +166,98 @@ export function formatoPesos(valor) {
   return new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', maximumFractionDigits: 0 })
     .format(Number(valor) || 0);
 }
+
+// ============================================================
+// Amortización exige anticipo (migración 044)
+// Espejo en el formulario de la validación de la base de datos
+// (_validar_amortizacion_oc). La base de datos es la que manda: esto solo
+// avisa antes de guardar y explica el error con las mismas palabras.
+//   R1: si la orden amortiza, debe tener anticipo enlazado.
+//   R2: el anticipo debe ser del mismo contratista y, si la orden tiene
+//       contrato, del mismo contrato (y no estar anulado).
+//   R3: la amortización no puede superar el saldo del anticipo.
+// Exentas: órdenes tipo Anticipo y órdenes con excluir_control.
+// ============================================================
+
+// La orden tiene amortización configurada (% > 0 o monto fijo > 0).
+export function amortizacionConfigurada(oc) {
+  if (!oc || oc.tipo_pago === 'ANTICIPO') return false;
+  return oc.tipo_amortizacion === 'VALOR_FIJO'
+    ? Number(oc.valor_amortizacion_manual) > 0
+    : Number(oc.porcentaje_amortizacion) > 0;
+}
+
+// Campos que, si cambian al editar, obligan a revalidar R1 y R2 (igual que el
+// trigger). Así una orden antigua con el problema se puede seguir editando
+// (notas, fecha, ítems) sin que la app la bloquee.
+const CAMPOS_AMORTIZACION = [
+  'tipo_amortizacion', 'porcentaje_amortizacion', 'valor_amortizacion_manual',
+  'referencia_anticipo_id', 'proveedor_id', 'contrato_id', 'tipo_pago',
+];
+
+function normalizarCampo(v) {
+  if (v === null || v === undefined || v === '') return '';
+  const n = Number(v);
+  return Number.isFinite(n) ? String(n) : String(v);
+}
+
+export function cambioAmortizacion(original, actual) {
+  if (!original) return true;
+  return CAMPOS_AMORTIZACION.some((c) => normalizarCampo(original[c]) !== normalizarCampo(actual[c]));
+}
+
+// Anticipos que esta orden puede amortizar: no anulados, del mismo
+// contratista, del mismo contrato si la orden tiene contrato, y con saldo.
+// El anticipo que la orden ya tenía enlazado se conserva aunque su saldo esté
+// en cero (al editar, su propia amortización se libera al validar).
+export function anticiposElegibles(oc, anticipos, referenciaOriginalId = '') {
+  return (anticipos || []).filter((a) => {
+    if (a.estado === 'ANULADA') return false;
+    if (!oc?.proveedor_id || a.proveedor_id !== oc.proveedor_id) return false;
+    if (oc.contrato_id && a.contrato_id !== oc.contrato_id) return false;
+    if (referenciaOriginalId && String(a.id) === String(referenciaOriginalId)) return true;
+    return Number(a.saldo_anticipo_por_amortizar || 0) > 0.01;
+  });
+}
+
+// `exigir` = aplicar R1 y R2 (en una orden nueva siempre; al editar, solo si
+// cambió algo de la amortización). R3 (saldo) se revisa siempre que haya
+// anticipo enlazado, igual que en la base de datos.
+export function validarAnticipoOC({
+  oc, anticipos, valorAmortizacion, referenciaOriginalId = '', valorAmortizacionGuardada = 0, exigir = true,
+}) {
+  if (!amortizacionConfigurada(oc) || oc.excluir_control) return { ok: true, mensaje: '' };
+  const ref = oc.referencia_anticipo_id;
+
+  if (!ref) {
+    if (!exigir) return { ok: true, mensaje: '' };
+    const hayElegibles = anticiposElegibles(oc, anticipos, referenciaOriginalId).length > 0;
+    return {
+      ok: false,
+      mensaje: hayElegibles
+        ? 'Esta orden amortiza: elija el anticipo que se amortiza o deje la amortización en 0.'
+        : `Este contratista no tiene anticipos con saldo en esta obra${oc.contrato_id ? ' para este contrato' : ''}. Registre primero el anticipo o deje la amortización en 0.`,
+    };
+  }
+
+  const anticipo = (anticipos || []).find((a) => String(a.id) === String(ref));
+  if (exigir) {
+    if (!anticipo) return { ok: false, mensaje: 'El anticipo elegido no está disponible en esta obra. Elija otro.' };
+    if (anticipo.estado === 'ANULADA') return { ok: false, mensaje: `El anticipo ${anticipo.folio} está anulado. Elija otro.` };
+    if (anticipo.proveedor_id !== oc.proveedor_id) {
+      return { ok: false, mensaje: `El anticipo ${anticipo.folio} es de otro contratista. Elija un anticipo del mismo contratista.` };
+    }
+    if (oc.contrato_id && anticipo.contrato_id !== oc.contrato_id) {
+      return { ok: false, mensaje: `El anticipo ${anticipo.folio} no es del contrato de esta orden. Elija un anticipo del mismo contrato.` };
+    }
+  }
+  if (!anticipo) return { ok: true, mensaje: '' };
+  return validarAmortizacion({ anticipo, valorAmortizacion, referenciaId: ref, referenciaOriginalId, valorAmortizacionGuardada });
+}
+
+// Los errores de la base de datos de esta regla llegan con el prefijo
+// "AMORTIZACION: "; se quita para mostrar solo el mensaje.
+export function mensajeErrorBD(mensaje) {
+  const m = String(mensaje || '');
+  return m.startsWith('AMORTIZACION: ') ? m.slice('AMORTIZACION: '.length) : m;
+}
