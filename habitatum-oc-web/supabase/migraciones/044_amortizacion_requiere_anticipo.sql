@@ -1,4 +1,4 @@
--- 044 · Amortización exige anticipo válido (PENDIENTE DE APLICAR; se actualiza esta línea al aplicarla)
+-- 044 · Amortización exige anticipo válido (aplicada el 30/09/2026, registro Supabase: amortizacion_requiere_anticipo)
 -- R1: una OC que amortiza (% > 0 o valor fijo > 0) debe tener anticipo enlazado.
 -- R2: el anticipo debe existir, ser tipo ANTICIPO, estar VIGENTE y ser de la misma obra,
 --     del mismo contratista y, si la OC tiene contrato, del mismo contrato.
