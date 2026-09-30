@@ -432,6 +432,16 @@ export default function Contratos() {
                         {infoCortes[c.id]?.borrador ? `Continuar corte ${infoCortes[c.id].borrador.numero}` : '+ Nuevo corte'}
                       </Link>
                     )}
+                    {/* Sin ítems no hay cortes: se ofrece cargarlos (se pueden importar del
+                        cuadro del contrato). Antes no se mostraba ningún botón. */}
+                    {(usuario.rol === 'admin' || usuario.rol === 'operativo') && !infoCortes[c.id]?.conItems && c.estado !== 'ANULADO' && (
+                      <Link
+                        href={`/contratos/${c.id}/items`}
+                        className="inline-block border border-carbon text-carbon px-3 py-1.5 rounded text-xs whitespace-nowrap mr-2 align-middle hover:bg-hueso"
+                      >
+                        Cargar ítems para cortes
+                      </Link>
+                    )}
                     <button
                       onClick={() => descargarEstadoCuenta(c)}
                       disabled={generandoEstadoId === c.id}

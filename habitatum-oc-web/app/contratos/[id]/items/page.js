@@ -31,6 +31,7 @@ export default function ItemsContrato() {
   const [ppto, setPpto] = useState({ caps: [], items: [] });
   const [error, setError] = useState('');
   const [guardando, setGuardando] = useState(false);
+  const [avisoImportacion, setAvisoImportacion] = useState('');
   const puedeEditar = usuario?.rol === 'admin' || usuario?.rol === 'operativo';
 
   useEffect(() => {
@@ -60,7 +61,14 @@ export default function ItemsContrato() {
   function importarDelCuadro() {
     const cuadro = contrato?.items_excel || [];
     if (!cuadro.length) return;
-    setFilas([...filas, ...cuadro.map((x) => ({
+    // El cuadro trae títulos de capítulo (sin cantidad ni valor) e ítems en $0
+    // (ej. "incluido"): no se pueden cortar ni pagar, así que no se importan.
+    const conValor = cuadro.filter((x) => Number(x.valorUnitario ?? x.valor_unitario ?? 0) > 0);
+    const omitidos = cuadro.length - conValor.length;
+    setAvisoImportacion(omitidos > 0
+      ? `Se importaron ${conValor.length} ítems. Se omitieron ${omitidos} filas sin valor unitario (títulos de capítulo o ítems en $0). Escribe el código del presupuesto de cada ítem antes de guardar.`
+      : `Se importaron ${conValor.length} ítems. Escribe el código del presupuesto de cada ítem antes de guardar.`);
+    setFilas([...filas, ...conValor.map((x) => ({
       ...nuevaFila(false), descripcion: x.descripcion || '', unidad: x.unidad || '',
       cantidad: x.cantidad ?? '', valor_unitario: x.valorUnitario ?? x.valor_unitario ?? '',
     }))]);
@@ -133,6 +141,7 @@ export default function ItemsContrato() {
               Estos ítems son la base de los cortes de obra: en cada corte solo se escriben las cantidades ejecutadas.
               En <strong>Código ppto</strong> escribe el código del ítem del presupuesto (ej. <em>7.04</em>) o el del capítulo (ej. <em>7</em>) para que cada corte se impute solo al control presupuestal.
             </div>
+            {avisoImportacion && <p role="status" className="text-amber-900 text-sm bg-amber-50 border border-amber-200 rounded p-3">{avisoImportacion}</p>}
             {error && <p className="text-red-600 text-sm bg-red-50 border border-red-200 rounded p-3">{error}</p>}
             {filas.length === 0 && (contrato.items_excel || []).length > 0 && puedeEditar && (
               <button onClick={importarDelCuadro} className="border border-dorado text-dorado px-4 py-2 rounded text-sm">
