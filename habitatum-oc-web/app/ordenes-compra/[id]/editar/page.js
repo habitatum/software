@@ -164,6 +164,9 @@ export default function EditarOrdenCompra() {
       orden_compra_id: id,
       // Conserva la imputación a capítulo (OC creadas por el bot / caja menor).
       capitulo_id: it.capitulo_id || null,
+      // Conserva el vínculo con la línea del corte que la generó (045): así la
+      // imputación manual no se pierde si luego se actualiza el corte.
+      corte_item_id: it.corte_item_id || null,
     }));
 
     // Reemplaza los ítems: se borran los anteriores (esto también borra en

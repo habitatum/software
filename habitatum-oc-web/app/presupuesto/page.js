@@ -9,6 +9,7 @@ import { calcularPendientePorCortar, cerrarCorte, mapaItemsPresupuesto, construi
 import { exportarControlPresupuestal, prepararCortesParaExportar } from '@/lib/exportarControlPresupuestal';
 import NavBar from '@/components/NavBar';
 import PresupuestoTodoCosto from '@/lib/PresupuestoTodoCosto';
+import SinImputar from '@/lib/SinImputar';
 
 export default function Presupuesto() {
   const { usuario, cargando } = useUsuarioActual();
@@ -466,6 +467,9 @@ function abrirAgregarItem() {
                 </div>
               )}
             </div>
+
+            {/* Lo pagado que no está cargado a ningún ítem del presupuesto (045). */}
+            <SinImputar proyecto={proyecto} usuario={usuario} capitulos={capitulos} onCambio={cargar} />
 
             <div className="bg-white rounded-lg shadow-sm border p-5 space-y-4">
               <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
