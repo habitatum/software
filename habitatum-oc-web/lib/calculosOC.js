@@ -259,5 +259,8 @@ export function validarAnticipoOC({
 // "AMORTIZACION: "; se quita para mostrar solo el mensaje.
 export function mensajeErrorBD(mensaje) {
   const m = String(mensaje || '');
-  return m.startsWith('AMORTIZACION: ') ? m.slice('AMORTIZACION: '.length) : m;
+  if (m.startsWith('AMORTIZACION: ')) return m.slice('AMORTIZACION: '.length);
+  // 046: OC de un corte de cobro cerrado.
+  if (m.startsWith('CORTE_CERRADO: ')) return `🔒 ${m.slice('CORTE_CERRADO: '.length)}`;
+  return m;
 }

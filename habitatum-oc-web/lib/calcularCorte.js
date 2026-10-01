@@ -6,8 +6,15 @@
 // fecha_hasta = fecha de cierre elegida por el usuario.
 //
 // Una vez cerrado, un corte NO se recalcula: sus valores (presupuesto_corte_items,
-// presupuesto_corte_ocs y anticipos_pendientes) quedan fijos para siempre,
-// aunque después se edite o anule la Orden de Compra original.
+// presupuesto_corte_ocs y anticipos_pendientes) quedan fijos para siempre.
+//
+// Desde la migración 046 el corte en curso lo calcula la base de datos
+// (corte_control_en_curso) como "lo vivo − lo ya congelado", línea por línea:
+//   · NUEVO: líneas que nunca entraron a un corte (OC con fecha ≤ cierre).
+//   · AJUSTE: líneas de OC ya cortadas cuyo valor cambió (con su motivo).
+// Así la suma de los cortes siempre cuadra con el ejecutado vivo. El cierre lo
+// hace cerrar_corte_control() en una sola transacción (solo admin), y las OC
+// de un corte cerrado quedan blindadas en la base de datos.
 
 // Construye, a partir de los capítulos/ítems ya cargados en la página, un
 // mapa presupuesto_item_id -> { codigo, descripcion, capituloCodigo } para
@@ -76,44 +83,6 @@ async function calcularImputacionCompleta(supabase, ordenIds) {
     });
   });
   return mapa;
-}
-
-// Trae los ítems de OC (vinculados a un ítem de presupuesto) de una lista de
-// Órdenes de Compra.
-async function obtenerItemsDeOrdenes(supabase, ordenIds) {
-  if (ordenIds.length === 0) return [];
-  const { data: itemsOC, error: errItemsOC } = await supabase
-    .from('items_oc')
-    .select('id, orden_compra_id, descripcion, cantidad, valor_unitario')
-    .in('orden_compra_id', ordenIds);
-  if (errItemsOC) throw errItemsOC;
-  const idsItems = (itemsOC || []).map((it) => it.id);
-  if (idsItems.length === 0) return [];
-  // Desde la migración 028, un ítem de OC puede estar imputado a VARIOS
-  // ítems del presupuesto (por porcentaje), en items_oc_presupuesto. Se
-  // arma una fila "virtual" por cada asignación, con la cantidad ya
-  // prorrateada por su porcentaje — así valorEjecutadoItem() y el resto de
-  // este archivo no necesitan cambiar: siguen viendo una fila por ítem de
-  // presupuesto, igual que antes (cuando la relación era 1 a 1 al 100%).
-  const { data: asignaciones, error: errAsig } = await supabase
-    .from('items_oc_presupuesto')
-    .select('item_oc_id, presupuesto_item_id, porcentaje')
-    .in('item_oc_id', idsItems);
-  if (errAsig) throw errAsig;
-  const itemPorId = {};
-  itemsOC.forEach((it) => { itemPorId[it.id] = it; });
-  return (asignaciones || []).map((a) => {
-    const it = itemPorId[a.item_oc_id] || {};
-    const pct = Number(a.porcentaje || 0) / 100;
-    return {
-      id: it.id,
-      orden_compra_id: it.orden_compra_id,
-      descripcion: it.descripcion,
-      cantidad: Number(it.cantidad || 0) * pct,
-      valor_unitario: Number(it.valor_unitario || 0),
-      presupuesto_item_id: a.presupuesto_item_id,
-    };
-  });
 }
 
 // Valor realmente ejecutado de un ítem de OC: su subtotal (cantidad × valor
@@ -200,82 +169,41 @@ export async function calcularAnticiposPendientes(supabase, proyectoId, fechaHas
   }, 0);
 }
 
-// Calcula lo ejecutado (aún sin cortar) desde el fin del último corte hasta
-// hoy: se usa para la vista previa en pantalla antes de cerrar el corte.
-// anticiposPendientes es siempre "a hoy" (no depende del periodo del corte:
-// es un saldo acumulado, no un flujo del periodo).
-export async function calcularPendientePorCortar(supabase, proyectoId, ultimoCorte) {
+// Corte en curso (vista previa): líneas NUEVO + AJUSTE calculadas en la base de
+// datos (corte_control_en_curso, migración 046) a la fecha de hoy.
+// anticiposPendientes es siempre "a hoy" (saldo acumulado, no flujo del periodo).
+export async function calcularPendientePorCortar(supabase, proyectoId, ultimoCorte, presupuestoId) {
   const fechaDesde = ultimoCorte?.fecha_hasta || null;
   const fechaHasta = new Date().toISOString().slice(0, 10);
+  const { data: lineas, error } = await supabase.rpc('corte_control_en_curso', {
+    p_presupuesto: presupuestoId, p_fecha_hasta: fechaHasta,
+  });
+  if (error) throw error;
+  const filas = lineas || [];
+  const porItem = {};
+  filas.forEach((l) => {
+    if (!porItem[l.presupuesto_item_id]) porItem[l.presupuesto_item_id] = { cantidad: 0, valor: 0 };
+    porItem[l.presupuesto_item_id].cantidad += Number(l.cantidad || 0);
+    porItem[l.presupuesto_item_id].valor += Number(l.valor || 0);
+  });
+  const ajustes = filas.filter((l) => l.tipo === 'AJUSTE');
+  const totalNuevo = filas.filter((l) => l.tipo === 'NUEVO').reduce((a, l) => a + Number(l.valor || 0), 0);
+  const totalAjustes = ajustes.reduce((a, l) => a + Number(l.valor || 0), 0);
+  // Resumen de Órdenes de Compra del periodo (pestaña "Órdenes de Compra" del Excel).
   const ocs = await obtenerOCsEnRango(supabase, proyectoId, fechaDesde, fechaHasta);
-  const ocPorId = {};
-  ocs.forEach((o) => { ocPorId[o.id] = o; });
-  const items = await obtenerItemsDeOrdenes(supabase, ocs.map((o) => o.id));
   const anticiposPendientes = await calcularAnticiposPendientes(supabase, proyectoId, fechaHasta);
-  return { ocs, items, porItem: agruparPorItemPresupuesto(items, ocPorId), fechaDesde, fechaHasta, anticiposPendientes };
+  return { ocs, lineas: filas, porItem, ajustes, totalNuevo, totalAjustes, fechaDesde, fechaHasta, anticiposPendientes };
 }
 
-// Cierra un corte nuevo: congela en BD lo ejecutado en el periodo, el
-// detalle de Órdenes de Compra que lo componen, y el saldo de anticipos
-// pendientes de amortizar a la fecha de cierre. Devuelve el corte creado.
-export async function cerrarCorte(supabase, { presupuestoId, proyectoId, numero, ultimoCorte, fechaHasta, usuarioId, mapaItems }) {
-  const fechaDesde = ultimoCorte?.fecha_hasta || null;
-
-  const ocs = await obtenerOCsEnRango(supabase, proyectoId, fechaDesde, fechaHasta);
-  const ocPorId = {};
-  ocs.forEach((o) => { ocPorId[o.id] = o; });
-  const items = await obtenerItemsDeOrdenes(supabase, ocs.map((o) => o.id));
-  const porItem = agruparPorItemPresupuesto(items, ocPorId);
-  const anticiposPendientes = await calcularAnticiposPendientes(supabase, proyectoId, fechaHasta);
-
-  const { data: corte, error: errCorte } = await supabase
-    .from('presupuesto_cortes')
-    .insert({
-      presupuesto_id: presupuestoId, numero, fecha_desde: fechaDesde, fecha_hasta: fechaHasta,
-      creado_por: usuarioId, anticipos_pendientes: anticiposPendientes,
-    })
-    .select()
-    .single();
-  if (errCorte) throw errCorte;
-
-  const filasCorteItems = Object.entries(porItem).map(([presupuesto_item_id, v]) => ({
-    corte_id: corte.id,
-    presupuesto_item_id,
-    cantidad_ejecutada: v.cantidad,
-    valor_ejecutado: v.valor,
-  }));
-  if (filasCorteItems.length > 0) {
-    const { error } = await supabase.from('presupuesto_corte_items').insert(filasCorteItems);
-    if (error) throw error;
-  }
-
-  const filasCorteOCs = items.map((it) => {
-    const oc = ocPorId[it.orden_compra_id];
-    const infoItem = mapaItems[it.presupuesto_item_id] || {};
-    return {
-      corte_id: corte.id,
-      orden_compra_id: it.orden_compra_id,
-      folio: oc?.folio || null,
-      fecha: oc?.fecha || null,
-      proveedor: oc?.proveedores?.nombre || null,
-      capitulo_codigo: infoItem.capituloCodigo || null,
-      item_codigo: infoItem.codigo || null,
-      item_descripcion: infoItem.descripcion || null,
-      descripcion: it.descripcion,
-      cantidad: Number(it.cantidad || 0),
-      valor_unitario: Number(it.valor_unitario || 0),
-      // Incluye la parte proporcional de IVA/AIU/Descuento/Retención neta
-      // de la orden (ver valorEjecutadoItem), así que puede diferir de
-      // cantidad × valor_unitario.
-      valor: valorEjecutadoItem(it, oc),
-    };
+// Cierra un corte nuevo en una sola transacción en la base de datos
+// (cerrar_corte_control, solo admin): congela las líneas NUEVO y AJUSTE, el
+// ejecutado por ítem y el saldo de anticipos pendientes a la fecha de cierre.
+export async function cerrarCorte(supabase, { presupuestoId, fechaHasta }) {
+  const { data, error } = await supabase.rpc('cerrar_corte_control', {
+    p_presupuesto: presupuestoId, p_fecha_hasta: fechaHasta,
   });
-  if (filasCorteOCs.length > 0) {
-    const { error } = await supabase.from('presupuesto_corte_ocs').insert(filasCorteOCs);
-    if (error) throw error;
-  }
-
-  return { ...corte, items: filasCorteItems, ocs: filasCorteOCs, ordenesResumen: ocs };
+  if (error) throw error;
+  return data;
 }
 
 // Construye el mismo "shape" que produce cerrarCorte (items + ocs), pero a
@@ -284,33 +212,28 @@ export async function cerrarCorte(supabase, { presupuestoId, proyectoId, numero,
 // para poder exportar el Control Presupuestal "a hoy" — con el mismo formato
 // del Excel de un corte — sin necesidad de cerrar oficialmente el corte.
 export function construirCorteVirtual(pendiente, mapaItems, numero) {
-  const ocPorId = {};
-  (pendiente.ocs || []).forEach((o) => { ocPorId[o.id] = o; });
-
   const items = Object.entries(pendiente.porItem || {}).map(([presupuesto_item_id, v]) => ({
     presupuesto_item_id,
     cantidad_ejecutada: v.cantidad,
     valor_ejecutado: v.valor,
   }));
-
-  const ocs = (pendiente.items || []).map((it) => {
-    const oc = ocPorId[it.orden_compra_id];
-    const infoItem = mapaItems[it.presupuesto_item_id] || {};
-    return {
-      orden_compra_id: it.orden_compra_id,
-      folio: oc?.folio || null,
-      fecha: oc?.fecha || null,
-      proveedor: oc?.proveedores?.nombre || null,
-      capitulo_codigo: infoItem.capituloCodigo || null,
-      item_codigo: infoItem.codigo || null,
-      item_descripcion: infoItem.descripcion || null,
-      descripcion: it.descripcion,
-      cantidad: Number(it.cantidad || 0),
-      valor_unitario: Number(it.valor_unitario || 0),
-      valor: valorEjecutadoItem(it, oc),
-    };
-  });
-
+  // Las líneas ya vienen calculadas por la base de datos (NUEVO y AJUSTE).
+  const ocs = (pendiente.lineas || []).map((l) => ({
+    orden_compra_id: l.orden_compra_id,
+    folio: l.folio,
+    fecha: l.fecha,
+    proveedor: l.proveedor,
+    capitulo_codigo: l.capitulo_codigo,
+    item_codigo: l.item_codigo,
+    item_descripcion: l.item_descripcion,
+    descripcion: l.descripcion,
+    cantidad: Number(l.cantidad || 0),
+    valor_unitario: Number(l.valor_unitario || 0),
+    valor: Number(l.valor || 0),
+    tipo: l.tipo === 'AJUSTE' ? 'AJUSTE' : 'NORMAL',
+    corte_origen: l.corte_origen,
+    motivo: l.motivo,
+  }));
   return {
     numero,
     fecha_desde: pendiente.fechaDesde,

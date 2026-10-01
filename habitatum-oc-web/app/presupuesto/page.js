@@ -78,7 +78,7 @@ export default function Presupuesto() {
       setCortes(cortesNormalizados);
 
       const ultimoCorte = cortesNormalizados[cortesNormalizados.length - 1] || null;
-      const pend = await calcularPendientePorCortar(supabase, proyecto.id, ultimoCorte);
+      const pend = await calcularPendientePorCortar(supabase, proyecto.id, ultimoCorte, p.id);
       setPendiente(pend);
     } else {
       setCapitulos([]);
@@ -97,17 +97,8 @@ export default function Presupuesto() {
     setError('');
     try {
       const supabase = crearClienteSupabase();
-      const { data: { session } } = await supabase.auth.getSession();
-      const ultimoCorte = cortes[cortes.length - 1] || null;
-      await cerrarCorte(supabase, {
-        presupuestoId: presupuesto.id,
-        proyectoId: proyecto.id,
-        numero: cortes.length + 1,
-        ultimoCorte,
-        fechaHasta: fechaCierre,
-        usuarioId: session?.user?.id || null,
-        mapaItems: mapaItemsPresupuesto(capitulos),
-      });
+      // Cierre en una sola transacción en la base de datos (solo admin, 046).
+      await cerrarCorte(supabase, { presupuestoId: presupuesto.id, fechaHasta: fechaCierre });
       await cargar();
     } catch (err) {
       setError(err.message || 'No se pudo cerrar el corte.');
@@ -531,6 +522,23 @@ function abrirAgregarItem() {
                     <p className="font-semibold text-base">
                       {formatoPesos(Object.values(pendiente.porItem).reduce((acc, v) => acc + v.valor, 0))}
                     </p>
+                    {pendiente.ajustes && pendiente.ajustes.length > 0 && (
+                      <div className="mt-2 text-xs space-y-1">
+                        <p className="text-neutral-500">
+                          Nuevo del periodo {formatoPesos(pendiente.totalNuevo)} · Ajustes a cortes cerrados{' '}
+                          <span className={pendiente.totalAjustes < 0 ? 'text-red-700' : 'text-carbon'}>{formatoPesos(pendiente.totalAjustes)}</span>
+                        </p>
+                        <ul className="border-l-2 border-amber-300 pl-2 space-y-0.5">
+                          {pendiente.ajustes.map((a) => (
+                            <li key={`${a.orden_compra_id}-${a.presupuesto_item_id}`}>
+                              <span className="font-medium">{a.folio}</span> · ítem {a.item_codigo} · Corte {a.corte_origen}:{' '}
+                              <span className={Number(a.valor) < 0 ? 'text-red-700' : ''}>{formatoPesos(a.valor)}</span>
+                              {a.motivo && <span className="block text-neutral-400">{a.motivo}</span>}
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
+                    )}
                     <p className="text-neutral-500 mt-2">Anticipos pendientes de amortizar (a hoy):</p>
                     <p className="font-semibold text-base">{formatoPesos(pendiente.anticiposPendientes)}</p>
                   </div>
@@ -542,15 +550,20 @@ function abrirAgregarItem() {
                     >
                       {exportando === 'preview' ? 'Exportando...' : 'Descargar Control Pptal sin hacer corte'}
                     </button>
-                    <label className="text-xs text-neutral-500">Fecha de cierre</label>
-                    <input type="date" value={fechaCierre} onChange={(e) => setFechaCierre(e.target.value)} className="border rounded px-2 py-1 text-sm" />
-                    <button
-                      onClick={confirmarCierreCorte}
-                      disabled={cerrando}
-                      className="bg-carbon text-hueso px-4 py-1.5 rounded text-sm disabled:opacity-50"
-                    >
-                      {cerrando ? 'Cerrando...' : `Cerrar Corte ${cortes.length + 1}`}
-                    </button>
+                    {/* Cerrar un corte de cobro: solo admin (la base de datos ya lo exige, 046). */}
+                    {usuario.rol === 'admin' && (
+                      <>
+                        <label className="text-xs text-neutral-500">Fecha de cierre</label>
+                        <input type="date" value={fechaCierre} onChange={(e) => setFechaCierre(e.target.value)} className="border rounded px-2 py-1 text-sm" />
+                        <button
+                          onClick={confirmarCierreCorte}
+                          disabled={cerrando}
+                          className="bg-carbon text-hueso px-4 py-1.5 rounded text-sm disabled:opacity-50"
+                        >
+                          {cerrando ? 'Cerrando...' : `Cerrar Corte ${cortes.length + 1}`}
+                        </button>
+                      </>
+                    )}
                   </div>
                 </div>
               )}

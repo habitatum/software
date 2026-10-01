@@ -520,6 +520,10 @@ export async function exportarControlPresupuestal({ proyecto, presupuesto, capit
       { header: 'Cantidad', key: 'cantidad', width: 11 },
       { header: 'Vr Unitario', key: 'vr_unitario', width: 14 },
       { header: 'Valor', key: 'valor', width: 15 },
+      // Desde la 046: las correcciones a OC de cortes ya cerrados entran como
+      // ajuste identificado en el corte siguiente (no cambian el corte cerrado).
+      { header: 'Tipo', key: 'tipo', width: 18 },
+      { header: 'Motivo', key: 'motivo', width: 40 },
     ];
     hojaDet.getRow(1).eachCell((celda) => {
       celda.font = { bold: true, color: { argb: HUESO } };
@@ -530,6 +534,8 @@ export async function exportarControlPresupuestal({ proyecto, presupuesto, capit
         folio: oc.folio, fecha: oc.fecha, proveedor: oc.proveedor,
         capitulo: oc.capitulo_codigo, item: oc.item_codigo, descripcion: oc.descripcion || oc.item_descripcion,
         cantidad: Number(oc.cantidad || 0), vr_unitario: Number(oc.valor_unitario || 0), valor: Number(oc.valor || 0),
+        tipo: oc.tipo === 'AJUSTE' ? `Ajuste a Corte ${oc.corte_origen ?? ''}`.trim() : '',
+        motivo: oc.tipo === 'AJUSTE' ? (oc.motivo || '') : '',
       });
     });
     hojaDet.getColumn('vr_unitario').numFmt = '#,##0';

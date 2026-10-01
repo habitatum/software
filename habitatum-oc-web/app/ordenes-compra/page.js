@@ -11,6 +11,8 @@ export default function ListadoOrdenesCompra() {
   const { usuario, cargando } = useUsuarioActual();
   const { proyecto, cargando: cargandoProyecto } = useProyectoActual();
   const [ordenes, setOrdenes] = useState([]);
+  // OC incluidas en un corte de cobro cerrado (046): folio → número de corte.
+  const [corteDeOC, setCorteDeOC] = useState({});
   const [filtroEstado, setFiltroEstado] = useState('TODAS');
   const [busqueda, setBusqueda] = useState('');
 const [imputacionCompleta, setImputacionCompleta] = useState({});
@@ -25,6 +27,15 @@ const [imputacionCompleta, setImputacionCompleta] = useState({});
         .eq('proyecto_id', proyecto.id)
         .order('creado_en', { ascending: false });
       setOrdenes(data || []);
+      if ((data || []).length > 0) {
+        const { data: enCortes } = await supabase
+          .from('v_oc_corte_cerrado')
+          .select('orden_compra_id, corte_numero')
+          .in('orden_compra_id', data.map((o) => o.id));
+        const mapaCortes = {};
+        (enCortes || []).forEach((r) => { mapaCortes[r.orden_compra_id] = r.corte_numero; });
+        setCorteDeOC(mapaCortes);
+      }
 
 // Una OC queda "totalmente imputada" cuando CADA uno de sus ítems
 // tiene asignaciones al presupuesto cuyo porcentaje suma 100%. Se
@@ -127,6 +138,12 @@ setImputacionCompleta({});
                     <Link href={`/ordenes-compra/${o.id}`} className="text-blue-700 hover:underline">{o.folio}</Link>
                     {o.tipo_pago === 'ANTICIPO' && (
                       <span className="ml-2 bg-amber-100 text-amber-700 text-[10px] font-semibold px-1.5 py-0.5 rounded align-middle">ANTICIPO</span>
+                    )}
+                    {corteDeOC[o.id] && (
+                      <span className="ml-2 bg-neutral-200 text-neutral-700 text-[10px] font-semibold px-1.5 py-0.5 rounded align-middle whitespace-nowrap"
+                        title="Incluida en un corte de cobro ya presentado: no se puede modificar sin autorización del administrador">
+                        🔒 Corte de cobro {corteDeOC[o.id]}
+                      </span>
                     )}
 {imputacionCompleta[o.id] && (
 <span className="ml-2 inline-flex items-center justify-center w-4 h-4 bg-green-100 text-green-700 rounded-full align-middle text-[10px] font-bold" title="Todos los ítems de esta orden están imputados al presupuesto">

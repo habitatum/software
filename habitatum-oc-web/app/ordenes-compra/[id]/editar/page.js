@@ -44,6 +44,12 @@ export default function EditarOrdenCompra() {
   const [ejecutadosPresupuesto, setEjecutadosPresupuesto] = useState({});
   const [guardando, setGuardando] = useState(false);
   const [error, setError] = useState('');
+  // 046: si la orden está en un corte de cobro cerrado, solo el admin la puede
+  // corregir, con motivo; la diferencia entra como ajuste en el corte en curso.
+  const [corteCerrado, setCorteCerrado] = useState(null);
+  const [motivoCorreccion, setMotivoCorreccion] = useState('');
+  const [autorizacion, setAutorizacion] = useState(null);
+  const [autorizando, setAutorizando] = useState(false);
 
   // Snapshot de lo que esta MISMA orden ya tenía guardado al cargarla (antes
   // de cualquier edición del usuario). Sirve para "liberar" su propia
@@ -77,6 +83,12 @@ export default function EditarOrdenCompra() {
       const ocCargada = ocData ? { ...ocData, excluir_control: !!ocBase?.excluir_control } : ocData;
       setOc(ocCargada);
       setOcOriginal(ocCargada);
+      const { data: enCorte } = await supabase
+        .from('v_oc_corte_cerrado')
+        .select('corte_numero')
+        .eq('orden_compra_id', id)
+        .maybeSingle();
+      setCorteCerrado(enCorte || null);
       setReferenciaAnticipoOriginalId(ocData?.referencia_anticipo_id || '');
       setValorAmortizacionGuardada(Number(ocData?.valor_amortizacion || 0));
       const idsItemsData = (itemsData || []).map((it) => it.id);
@@ -201,6 +213,17 @@ export default function EditarOrdenCompra() {
 
   if (cargando || !usuario || !oc || !calculo) return null;
 
+  async function autorizarCorreccion() {
+    setError('');
+    if (motivoCorreccion.trim().length < 5) { setError('Escriba el motivo de la corrección.'); return; }
+    setAutorizando(true);
+    const supabase = crearClienteSupabase();
+    const { data, error: e } = await supabase.rpc('autorizar_correccion_oc', { p_oc: id, p_motivo: motivoCorreccion.trim() });
+    setAutorizando(false);
+    if (e) { setError(mensajeErrorBD(e.message)); return; }
+    setAutorizacion(data);
+  }
+
   return (
     <div>
       <NavBar usuario={usuario} proyecto={proyecto} />
@@ -208,6 +231,36 @@ export default function EditarOrdenCompra() {
         <h1 className="text-2xl font-semibold mb-1">Editar {folio}</h1>
         <p className="text-sm text-neutral-500 mb-6">{proyecto?.nombre}</p>
 
+        {corteCerrado && !autorizacion && (
+          <div className="bg-neutral-100 border border-neutral-300 rounded-lg p-4 mb-4 text-sm space-y-3">
+            <p className="font-medium">🔒 Esta orden está en el corte de cobro {corteCerrado.corte_numero}, ya presentado al cliente.</p>
+            {usuario.rol === 'admin' ? (
+              <>
+                <p className="text-neutral-600">
+                  Para corregirla escriba el motivo. Tendrá 30 minutos para guardar; la diferencia entrará como ajuste
+                  identificado en el corte en curso y el corte {corteCerrado.corte_numero} no cambia.
+                </p>
+                <textarea value={motivoCorreccion} onChange={(e) => setMotivoCorreccion(e.target.value)} rows={2}
+                  placeholder="Motivo de la corrección (ej. retención acordada en el contrato)"
+                  className="w-full border rounded px-3 py-2 bg-white" aria-label="Motivo de la corrección" />
+                <button type="button" onClick={autorizarCorreccion} disabled={autorizando}
+                  className="bg-carbon text-hueso px-4 py-2 rounded disabled:opacity-50">
+                  {autorizando ? 'Autorizando...' : 'Corregir con ajuste'}
+                </button>
+                {error && <p className="text-red-600">{error}</p>}
+              </>
+            ) : (
+              <p className="text-neutral-600">Solo el administrador puede corregirla.</p>
+            )}
+          </div>
+        )}
+        {corteCerrado && autorizacion && (
+          <p className="bg-amber-50 border border-amber-300 text-amber-900 rounded p-3 mb-4 text-sm">
+            Corrección autorizada hasta las {new Date(autorizacion.expira_en).toLocaleTimeString('es-CO', { hour: '2-digit', minute: '2-digit' })}.
+            Al guardar, la diferencia aparecerá como ajuste en el corte en curso.
+          </p>
+        )}
+        {(!corteCerrado || autorizacion) && (
         <FormularioOC
           oc={oc} setOc={setOc}
           items={items} setItems={setItems}
@@ -223,6 +276,7 @@ export default function EditarOrdenCompra() {
           error={error}
           tituloBoton="Guardar cambios"
         />
+        )}
       </main>
     </div>
   );

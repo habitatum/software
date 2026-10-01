@@ -25,6 +25,8 @@ export default function DetalleOrdenCompra() {
   // Alertas de amortización de esta orden (vista v_alertas_amortizacion,
   // migración 044). Solo informan: la corrección se hace en el chat de la obra.
   const [alertasAmortizacion, setAlertasAmortizacion] = useState([]);
+  // Corte de cobro cerrado que incluye esta orden (046) y sus líneas cortadas.
+  const [corteCerrado, setCorteCerrado] = useState(null);
 
   async function cargar() {
     const supabase = crearClienteSupabase();
@@ -43,6 +45,12 @@ export default function DetalleOrdenCompra() {
       .select('problema, anticipo_folio, valor_amortizacion')
       .eq('oc_id', id);
     setAlertasAmortizacion(alertas || []);
+    const { data: enCorte } = await supabase
+      .from('v_oc_corte_cerrado')
+      .select('corte_numero, item_oc_ids')
+      .eq('orden_compra_id', id)
+      .maybeSingle();
+    setCorteCerrado(enCorte || null);
     if (ocData?.contrato_id) {
       const { data: acum } = await supabase.from('v_acumulados_contrato').select('*').eq('contrato_id', ocData.contrato_id).single();
       setAcumulados(acum);
@@ -119,6 +127,12 @@ export default function DetalleOrdenCompra() {
           <div>
             <h1 className="text-2xl font-semibold">{oc.folio}</h1>
             {oc.estado === 'ANULADA' && <span className="text-xs font-medium text-red-600">ANULADA</span>}
+            {corteCerrado && (
+              <span className="inline-block mt-1 bg-neutral-200 text-neutral-700 text-xs font-semibold px-2 py-0.5 rounded"
+                title="Incluida en un corte de cobro ya presentado al cliente">
+                🔒 Corte de cobro {corteCerrado.corte_numero} (cerrado)
+              </span>
+            )}
           </div>
           <div className="flex items-center gap-2">
             {usuario.rol === 'admin' && oc.estado === 'VIGENTE' && (
@@ -216,6 +230,9 @@ export default function DetalleOrdenCompra() {
                   return (
                     <tr key={it.id} className={`${i % 2 === 1 ? 'bg-neutral-50/60' : ''} border-b border-neutral-100 last:border-b-0 hover:bg-hueso/60`}>
                       <td className="py-2 px-3">
+                        {corteCerrado?.item_oc_ids?.includes(it.id) && (
+                          <span className="mr-1" title={`Línea incluida en el corte de cobro ${corteCerrado.corte_numero}`} aria-label="Línea en corte cerrado">🔒</span>
+                        )}
                         {it.descripcion}
                         {it.sin_iva && <span className="ml-1.5 text-xs text-neutral-400">(Sin IVA)</span>}
                       </td>
