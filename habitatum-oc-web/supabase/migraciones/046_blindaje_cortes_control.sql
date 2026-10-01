@@ -1,4 +1,4 @@
--- 046 · Blindaje de cortes de control presupuestal cerrados (PENDIENTE DE APLICAR)
+-- 046 · Blindaje de cortes de control presupuestal cerrados (aplicada el 01/10/2026, registro Supabase: blindaje_cortes_control)
 -- Pedido de desarrollo (Casa 101, OC-02-0027). Decisión A de Andrés: la retención de 13,3% queda y el
 -- −$30.030 entra como ajuste identificado al Corte 2. El Corte 1 ($30.934.197 directos) NO cambia.
 -- 1. Estado explícito del corte y vínculo línea por línea (item_oc_id, presupuesto_item_id, tipo, motivo).
