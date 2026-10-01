@@ -1,4 +1,4 @@
--- 045 · Ejecutado sin imputar visible y la imputación manual no se pierde (PENDIENTE DE APLICAR)
+-- 045 · Ejecutado sin imputar visible y la imputación manual no se pierde (aplicada el 30/09/2026, registro Supabase: ejecutado_sin_imputar)
 -- Decisión A de Andrés: el código del presupuesto en los ítems del contrato es OPCIONAL.
 -- Lo que no se imputa queda visible como "sin imputar / no presupuestado" y se puede imputar después.
 -- 1. items_oc.corte_item_id: vínculo explícito entre la línea de la OC y la línea del corte que la generó.

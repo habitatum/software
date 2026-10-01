@@ -556,6 +556,9 @@ function abrirAgregarItem() {
               )}
             </div>
 
+            {/* Solo admin: modifica el presupuesto que se reporta al cliente. La base
+                de datos ya lo exige (RLS de presupuesto_capitulos / presupuesto_items). */}
+            {usuario.rol === 'admin' && (
             <div className="flex justify-end mb-2">
               <button
                 type="button"
@@ -565,6 +568,7 @@ function abrirAgregarItem() {
                 + Agregar ítem adicional
               </button>
             </div>
+            )}
 
             <div className="bg-white rounded-lg shadow-sm border overflow-x-auto">
               <table className="w-full text-sm">
