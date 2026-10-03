@@ -66,7 +66,7 @@ export async function construirLibroSabana({ m, contrato, proyecto, logoBase64, 
     for (let c = c1; c <= c2; c++) { ws.getCell(r, c).fill = relleno(oscuro ? CARBON : GRIS); ws.getCell(r, c).border = { bottom: { style: 'thin', color: { argb: DORADO } } }; }
   };
   titulo(r1, 1, 6, 'ITEMS Y ELEMENTOS CONTRACTUALES (APROBADOS)');
-  cols.forEach((c, k) => titulo(r1, colCorte(k), colCorte(k) + 2, `CORTE ${c.numero}${c.fecha ? ` · ${c.fecha.split('-').reverse().join('/')}` : ''}${c.folio ? ` · ${c.folio}` : ''}`, c.editable));
+  cols.forEach((c, k) => titulo(r1, colCorte(k), colCorte(k) + 2, `CORTE ${c.numero}${c.tipo === 'DEVOLUCION' ? ' · DEVOLUCIÓN RETENIDO' : ''}${c.fecha ? ` · ${c.fecha.split('-').reverse().join('/')}` : ''}${c.folio ? ` · ${c.folio}` : ''}`, c.editable));
   titulo(r1, colAcum, colAcum + 2, 'ACUMULADOS TOTALES CORTES');
   ws.getRow(r1).height = 30;
   const enc = ['Ítem', 'Descripción', 'Unidad', 'Cantidad', 'Valor Unit', 'SUBTOTAL'];
@@ -136,6 +136,11 @@ export async function construirLibroSabana({ m, contrato, proyecto, logoBase64, 
   cierre({ etq: (c) => `TOTAL CORTE ${c.numero}`, valor: (c) => c.total, etqAcum: 'TOTAL CORTES', valorAcum: m.acumulado.total });
   if (cols.some((c) => c.descuento)) cierre({ etq: () => '(-) Descuento', valor: (c) => c.descuento, etqAcum: '(-) TOTAL DESCUENTOS', valorAcum: m.acumulado.descuento });
   cierre({ etq: (c) => `(-) Retenido ${c.pctRetencion}%`, valor: (c) => c.retencion, etqAcum: '(-) TOTAL RETENIDO', valorAcum: m.acumulado.retencion });
+  // Devolución de retenidos (047)
+  const hayDevolucion = cols.some((c) => c.devolucion || c.descuentoRetenido);
+  if (hayDevolucion) cierre({ etq: () => '(+) Devolución retenido', valor: (c) => c.devolucion, etqAcum: '(+) TOTAL DEVUELTO', valorAcum: m.acumulado.devolucion });
+  if (cols.some((c) => c.descuentoRetenido)) cierre({ etq: () => '(-) Descuento al retenido', valor: (c) => c.descuentoRetenido, etqAcum: '(-) DESCONTADO DEL RETENIDO', valorAcum: m.acumulado.descuentoRetenido });
+  if (hayDevolucion) cierre({ etq: () => 'Retenido por devolver', valor: (c) => c.porDevolverAcum, etqAcum: 'RETENIDO POR DEVOLVER', valorAcum: m.acumulado.porDevolver, gris: true });
   cierre({
     izq: `ANTICIPO DE OBRA${m.totalAnticipos ? ` (${m.pctAnticipo}%)` : ''}`, valorIzq: m.totalAnticipos,
     etq: (c) => `(-) Amortización Anticipo${c.pctAmortizacion ? ` ${c.pctAmortizacion}%` : ''}`, valor: (c) => c.amortizacion,

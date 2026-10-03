@@ -246,6 +246,7 @@ export default function PlantillaEstadoCuentaPDF({ datos }) {
               <View style={estilos.cFolio}>
                 <Text style={estilos.folio}>{m.folio}</Text>
                 {m.tipo_pago === 'ANTICIPO' && <Text style={estilos.etiquetaAnticipo}>ANTICIPO</Text>}
+                {Number(m.devolucion) > 0 && <Text style={estilos.etiquetaAnticipo}>DEVOLUCIÓN RETENIDO</Text>}
               </View>
               <Text style={estilos.cFecha}>{fecha(m.fecha)}</Text>
               <Text style={estilos.cConcepto}>{conceptoMovimiento(m)}</Text>
@@ -281,6 +282,12 @@ export default function PlantillaEstadoCuentaPDF({ datos }) {
             <View style={estilos.bloque}>
               <View style={estilos.saldoFila}><Text>Girado neto al contratista</Text><Text>{pesos(saldos.girado_neto)}</Text></View>
               <View style={estilos.saldoFila}><Text>Anticipo por amortizar</Text><Text>{pesos(saldos.anticipo_por_amortizar)}</Text></View>
+              {Number(totales.devolucion) > 0 && (
+                <View style={estilos.saldoFila}><Text>Retenido devuelto</Text><Text>{pesos(totales.devolucion)}</Text></View>
+              )}
+              {Number(totales.descuento_retenido) > 0 && (
+                <View style={estilos.saldoFila}><Text>Descontado del retenido</Text><Text>{pesos(totales.descuento_retenido)}</Text></View>
+              )}
               <View style={estilos.saldoFilaDestacada}><Text>Retenido por devolver</Text><Text>{pesos(saldos.retenido_por_devolver)}</Text></View>
             </View>
           </View>

@@ -27,7 +27,7 @@ export default function SabanaDeCortes() {
       const [{ data: contrato }, { data: items }, { data: cortes }, { data: anticipos }, { data: borr }] = await Promise.all([
         s.from('contratos').select('*, proveedores:contratista_id(nombre)').eq('id', id).single(),
         s.from('contrato_items').select('*').eq('contrato_id', id).order('orden'),
-        s.from('cortes').select('*, ordenes_compra(folio), corte_items(*)').eq('contrato_id', id).eq('estado', 'APROBADO').order('numero'),
+        s.from('cortes').select('*, ordenes_compra(folio, estado), corte_items(*)').eq('contrato_id', id).eq('estado', 'APROBADO').order('numero'),
         s.from('v_ordenes_compra_calculadas').select('id, folio, fecha, total').eq('contrato_id', id).eq('tipo_pago', 'ANTICIPO').neq('estado', 'ANULADA').order('fecha'),
         s.from('cortes').select('id, numero').eq('contrato_id', id).eq('estado', 'BORRADOR').limit(1),
       ]);

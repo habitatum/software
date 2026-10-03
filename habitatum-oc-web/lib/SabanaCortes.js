@@ -148,7 +148,7 @@ export default function SabanaCortes({ m, contrato, edicion, onPdf, hrefCorte, p
               <Fragment key={c.id}>
                 <th className={LINEA} />
                 <th className={`${TD} text-center ${c.editable ? 'bg-carbon text-hueso' : GRIS}`} colSpan={3}>
-                  CORTE {c.numero}{c.editable ? ` · ${c.titulo}` : ''}
+                  CORTE {c.numero}{c.editable ? ` · ${c.titulo}` : ''}{c.tipo === 'DEVOLUCION' ? ' · DEVOLUCIÓN RETENIDO' : ''}
                   <div className="font-normal text-[10px]">
                     {fecha(c.fecha)}{c.folio ? ` · ${c.folio}` : c.editable ? '' : ' · sin OC'}
                     {!c.editable && onPdf && <> · <button onClick={() => onPdf(c)} className="underline">PDF</button></>}
@@ -241,6 +241,18 @@ export default function SabanaCortes({ m, contrato, edicion, onPdf, hrefCorte, p
                   className="border rounded px-1 py-0.5 text-xs w-14 text-right bg-white" />%
               </span>
             ) : null,
+          })}
+          {cols.some((c) => c.devolucion || c.descuentoRetenido) && filaCierre({
+            etiquetaCorte: () => '(+) Devolución retenido', valorCorte: (c) => c.devolucion,
+            etiquetaAcum: '(+) TOTAL DEVUELTO', valorAcum: m.acumulado.devolucion,
+          })}
+          {cols.some((c) => c.descuentoRetenido) && filaCierre({
+            etiquetaCorte: () => '(-) Descuento al retenido', valorCorte: (c) => c.descuentoRetenido,
+            etiquetaAcum: '(-) DESCONTADO DEL RETENIDO', valorAcum: m.acumulado.descuentoRetenido,
+          })}
+          {cols.some((c) => c.devolucion || c.descuentoRetenido) && filaCierre({
+            etiquetaCorte: () => 'Retenido por devolver', valorCorte: (c) => c.porDevolverAcum,
+            etiquetaAcum: 'RETENIDO POR DEVOLVER', valorAcum: m.acumulado.porDevolver, gris: true,
           })}
           {filaCierre({
             izquierda: m.totalAnticipos ? `ANTICIPO DE OBRA (${m.pctAnticipo}%)` : 'ANTICIPO DE OBRA',

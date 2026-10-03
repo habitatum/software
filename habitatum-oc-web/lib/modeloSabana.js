@@ -27,7 +27,9 @@ export function construirSabana({ items = [], cortes = [], anticipos = [], edici
   const vuContrato = Object.fromEntries(todos.map((i) => [i.id, n(i.valor_unitario)]));
   // Último valor unitario usado en un corte para cada ítem (el corte nuevo lo propone por defecto).
   const ultimoVU = {};
-  const columnas = cortes.map((c) => {
+  // Cortes de devolución de retenido (047): sin cantidades. Si su OC fue anulada no cuentan.
+  const vigentes = cortes.filter((c) => !(c.tipo === 'DEVOLUCION' && c.ordenes_compra?.estado === 'ANULADA'));
+  const columnas = vigentes.map((c) => {
     const q = {}; const vu = {};
     (c.corte_items || []).forEach((x) => {
       if (!x.contrato_item_id) return;
@@ -41,6 +43,7 @@ export function construirSabana({ items = [], cortes = [], anticipos = [], edici
       vu: (itemId) => (vu[itemId] !== undefined ? vu[itemId] : vuContrato[itemId] || 0),
       pctRetencion: n(c.porcentaje_retencion), retencion: n(c.valor_retencion), amortizacion: n(c.valor_amortizacion),
       descuento: n(c.descuento), neto: n(c.neto), notas: c.notas,
+      tipo: c.tipo || 'OBRA', devolucion: n(c.valor_devolucion), descuentoRetenido: n(c.descuento_retenido), motivoDescuento: c.motivo_descuento || null,
     };
   });
 
@@ -58,7 +61,7 @@ export function construirSabana({ items = [], cortes = [], anticipos = [], edici
         return ultimoVU[itemId] !== undefined ? ultimoVU[itemId] : vuContrato[itemId] || 0;
       },
       pctRetencion: n(edicion.pctRetencion), amortizacion: n(edicion.amortizacion), descuento: n(edicion.descuento),
-      titulo: edicion.titulo || 'NUEVO',
+      titulo: edicion.titulo || 'NUEVO', tipo: 'OBRA', devolucion: 0, descuentoRetenido: 0,
     });
     columnas.sort((a, b) => Number(a.numero) - Number(b.numero));
   }
@@ -75,6 +78,13 @@ export function construirSabana({ items = [], cortes = [], anticipos = [], edici
     col.pctAmortizacion = col.total > 0 ? Math.round((col.amortizacion / col.total) * 10000) / 100 : 0;
   });
 
+  // Retenido por devolver después de cada corte (retenido − devuelto − descontado, acumulado).
+  let porDevolver = 0;
+  columnas.forEach((col) => {
+    porDevolver += n(col.retencion) - n(col.devolucion) - n(col.descuentoRetenido);
+    col.porDevolverAcum = r2(porDevolver);
+  });
+
   const totalAnticipos = anticipos.reduce((a, x) => a + n(x.total), 0);
   const acumulado = {
     cantidad: (itemId) => columnas.reduce((a, c) => a + c.cantidad(itemId), 0),
@@ -85,10 +95,14 @@ export function construirSabana({ items = [], cortes = [], anticipos = [], edici
     descuento: r2(columnas.reduce((a, c) => a + c.descuento, 0)),
     retencion: r2(columnas.reduce((a, c) => a + n(c.retencion), 0)),
     amortizacion: r2(columnas.reduce((a, c) => a + c.amortizacion, 0)),
+    devolucion: r2(columnas.reduce((a, c) => a + n(c.devolucion), 0)),
+    descuentoRetenido: r2(columnas.reduce((a, c) => a + n(c.descuentoRetenido), 0)),
   };
+  acumulado.porDevolver = r2(acumulado.retencion - acumulado.devolucion - acumulado.descuentoRetenido);
   acumulado.porAmortizar = r2(totalAnticipos - acumulado.amortizacion);
   // Igual que el Excel: TOTAL PAGADO = total cortes + por amortizar − retenido (= pagos de cortes + anticipos).
-  acumulado.pagado = r2(acumulado.total - acumulado.descuento - acumulado.retencion + totalAnticipos - acumulado.amortizacion);
+  // + lo devuelto del retenido (047).
+  acumulado.pagado = r2(acumulado.total - acumulado.descuento - acumulado.retencion + totalAnticipos - acumulado.amortizacion + acumulado.devolucion);
 
   const subtotalContratado = r2(contractuales.reduce((a, i) => a + n(i.cantidad) * n(i.valor_unitario), 0));
   return {

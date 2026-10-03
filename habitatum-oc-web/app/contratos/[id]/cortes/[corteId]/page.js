@@ -53,7 +53,7 @@ export default function CorteDeObra() {
       const [{ data: contrato }, { data: items }, { data: cortes }, { data: anticipos }, { data: ant }, { data: pres }] = await Promise.all([
         s.from('contratos').select('*, proveedores:contratista_id(nombre)').eq('id', contratoId).single(),
         s.from('contrato_items').select('*').eq('contrato_id', contratoId).order('orden'),
-        s.from('cortes').select('*, ordenes_compra(folio), corte_items(*)').eq('contrato_id', contratoId).eq('estado', 'APROBADO').order('numero'),
+        s.from('cortes').select('*, ordenes_compra(folio, estado), corte_items(*)').eq('contrato_id', contratoId).eq('estado', 'APROBADO').order('numero'),
         s.from('v_ordenes_compra_calculadas').select('id, folio, fecha, total').eq('contrato_id', contratoId).eq('tipo_pago', 'ANTICIPO').neq('estado', 'ANULADA').order('fecha'),
         s.rpc('anticipo_contrato', { p_contrato: contratoId }),
         s.from('presupuestos').select('id').eq('proyecto_id', proyecto.id).maybeSingle(),
