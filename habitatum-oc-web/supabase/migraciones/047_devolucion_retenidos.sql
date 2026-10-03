@@ -1,4 +1,4 @@
--- 047 · Devolución de retenidos en los cortes de obra (PENDIENTE DE APLICAR)
+-- 047 · Devolución de retenidos en los cortes de obra (aplicada el 03/10/2026, registro Supabase: devolucion_retenidos)
 -- Pedido de Andrés (Apto 423, contrato 09-2026-06). Corte de DEVOLUCIÓN: sin cantidades, con el valor devuelto
 -- (y opcionalmente un descuento contra el retenido, con motivo). Genera la OC de devolución, cuyas líneas
 -- regresan el dinero a los mismos ítems del presupuesto donde se retuvo (los dos controles presupuestales
