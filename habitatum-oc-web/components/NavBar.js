@@ -22,6 +22,7 @@ export default function NavBar({ usuario, proyecto }) {
     { href: '/presupuesto', label: 'Presupuesto' },
     { href: '/bitacora', label: 'Bitácora' },
     { href: '/registro-fotografico', label: 'Registro Fotográfico' },
+    { href: '/manual', label: 'Manual' },
     { href: '/proveedores', label: 'Proveedores' },
   ];
   // Caja: solo administradores y solo en proyectos Todo costo.
