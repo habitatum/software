@@ -7,6 +7,7 @@ import { useProyectoActual } from '@/lib/useProyectoActual';
 import { crearClienteSupabase } from '@/lib/supabaseClient';
 import { formatoPesos } from '@/lib/calculosOC';
 import NavBar from '@/components/NavBar';
+import BotonVolver from '@/components/BotonVolver';
 import { compartirOAbrirArchivo } from '@/lib/compartirArchivo';
 
 export default function DetalleOrdenCompra() {
@@ -125,6 +126,7 @@ export default function DetalleOrdenCompra() {
       <main className="p-4 sm:p-8 max-w-4xl mx-auto space-y-6">
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
           <div>
+            <BotonVolver respaldo="/ordenes-compra" />
             <h1 className="text-2xl font-semibold">{oc.folio}</h1>
             {oc.estado === 'ANULADA' && <span className="text-xs font-medium text-red-600">ANULADA</span>}
             {corteCerrado && (

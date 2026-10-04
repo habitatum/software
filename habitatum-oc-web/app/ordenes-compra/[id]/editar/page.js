@@ -7,6 +7,7 @@ import { crearClienteSupabase } from '@/lib/supabaseClient';
 import { calcularOrdenCompra, validarAnticipoOC, cambioAmortizacion, numeroSeguro, mensajeErrorBD, factorEjecutado } from '@/lib/calculosOC';
 import FormularioOC from '@/lib/FormularioOC';
 import NavBar from '@/components/NavBar';
+import BotonVolver from '@/components/BotonVolver';
 
 // Campos propios de ordenes_compra que se pueden editar desde este formulario.
 // (folio, estado, creado_por/en, modificado_por/en, proyecto_id no se tocan aquí).
@@ -32,6 +33,8 @@ export default function EditarOrdenCompra() {
   const { usuario, cargando } = useUsuarioActual(['admin', 'operativo']);
   const { proyecto } = useProyectoActual();
   const router = useRouter();
+  // Para avisar al volver si hay cambios sin guardar.
+  const [tocado, setTocado] = useState(false);
 
   const [folio, setFolio] = useState('');
   const [oc, setOc] = useState(null);
@@ -218,7 +221,9 @@ export default function EditarOrdenCompra() {
       if (errAsig) { setError(errAsig.message); setGuardando(false); return; }
     }
 
-    router.push(`/ordenes-compra/${id}`);
+    // Vuelve a donde se abrió la edición (normalmente el detalle, que se recarga).
+    if (window.history.length > 1) router.back();
+    else router.replace(`/ordenes-compra/${id}`);
   }
 
   if (cargando || !usuario || !oc || !calculo) return null;
@@ -238,6 +243,7 @@ export default function EditarOrdenCompra() {
     <div>
       <NavBar usuario={usuario} proyecto={proyecto} />
       <main className="p-4 sm:p-8 max-w-4xl mx-auto">
+        <BotonVolver respaldo={`/ordenes-compra/${id}`} hayCambios={tocado} />
         <h1 className="text-2xl font-semibold mb-1">Editar {folio}</h1>
         <p className="text-sm text-neutral-500 mb-6">{proyecto?.nombre}</p>
 
@@ -272,8 +278,8 @@ export default function EditarOrdenCompra() {
         )}
         {(!corteCerrado || autorizacion) && (
         <FormularioOC
-          oc={oc} setOc={setOc}
-          items={items} setItems={setItems}
+          oc={oc} setOc={(v) => { setTocado(true); setOc(v); }}
+          items={items} setItems={(v) => { setTocado(true); setItems(v); }}
           proveedores={proveedores} contratos={contratos} anticipos={anticipos} usuarios={usuarios}
           presupuestoCapitulos={presupuestoCapitulos}
           ejecutadosPresupuesto={ejecutadosPresupuesto}

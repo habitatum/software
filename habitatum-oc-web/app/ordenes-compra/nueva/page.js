@@ -7,6 +7,7 @@ import { crearClienteSupabase } from '@/lib/supabaseClient';
 import { calcularOrdenCompra, validarAnticipoOC, numeroSeguro, mensajeErrorBD } from '@/lib/calculosOC';
 import FormularioOC from '@/lib/FormularioOC';
 import NavBar from '@/components/NavBar';
+import BotonVolver from '@/components/BotonVolver';
 
 // Campos numéricos de ordenes_compra: se sanean con numeroSeguro justo antes
 // de guardar, porque un input vacío ("") pasa tal cual al estado y Postgres
@@ -31,6 +32,8 @@ export default function NuevaOrdenCompra() {
   const { usuario, cargando } = useUsuarioActual(['admin', 'operativo']);
   const { proyecto, cargando: cargandoProyecto } = useProyectoActual();
   const router = useRouter();
+  // Para avisar al volver si hay cambios sin guardar.
+  const [tocado, setTocado] = useState(false);
 
   const [oc, setOc] = useState(OC_VACIA);
   const [items, setItems] = useState([{ descripcion: '', unidad: '', cantidad: 1, valor_unitario: 0, sin_iva: false }]);
@@ -167,7 +170,8 @@ export default function NuevaOrdenCompra() {
       if (errAsig) { setError(errAsig.message); setGuardando(false); return; }
     }
 
-    router.push(`/ordenes-compra/${nuevaOC.id}`);
+    // replace: así "Volver" desde la OC creada no regresa al formulario vacío.
+    router.replace(`/ordenes-compra/${nuevaOC.id}`);
   }
 
   if (cargando || !usuario || cargandoProyecto || !proyecto) return null;
@@ -176,12 +180,13 @@ export default function NuevaOrdenCompra() {
     <div>
       <NavBar usuario={usuario} proyecto={proyecto} />
       <main className="p-4 sm:p-8 max-w-4xl mx-auto">
+        <BotonVolver respaldo="/ordenes-compra" hayCambios={tocado} />
         <h1 className="text-2xl font-semibold mb-1">Nueva Orden de Compra</h1>
         <p className="text-sm text-neutral-500 mb-6">{proyecto.nombre}</p>
 
         <FormularioOC
-          oc={oc} setOc={setOc}
-          items={items} setItems={setItems}
+          oc={oc} setOc={(v) => { setTocado(true); setOc(v); }}
+          items={items} setItems={(v) => { setTocado(true); setItems(v); }}
           proveedores={proveedores} contratos={contratos} anticipos={anticipos} usuarios={usuarios}
           presupuestoCapitulos={presupuestoCapitulos}
           ejecutadosPresupuesto={ejecutadosPresupuesto}
