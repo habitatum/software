@@ -4,7 +4,7 @@ import { useParams, useRouter } from 'next/navigation';
 import { useUsuarioActual } from '@/lib/useUsuarioActual';
 import { useProyectoActual } from '@/lib/useProyectoActual';
 import { crearClienteSupabase } from '@/lib/supabaseClient';
-import { calcularOrdenCompra, validarAnticipoOC, cambioAmortizacion, numeroSeguro, mensajeErrorBD } from '@/lib/calculosOC';
+import { calcularOrdenCompra, validarAnticipoOC, cambioAmortizacion, numeroSeguro, mensajeErrorBD, factorEjecutado } from '@/lib/calculosOC';
 import FormularioOC from '@/lib/FormularioOC';
 import NavBar from '@/components/NavBar';
 
@@ -119,6 +119,16 @@ export default function EditarOrdenCompra() {
         const { data: ejec } = await supabase.from('v_presupuesto_ejecutado').select('*');
         const mapaEjec = {};
         (ejec || []).forEach((e) => { mapaEjec[e.presupuesto_item_id] = Number(e.ejecutado) || 0; });
+        // El ejecutado de la base ya incluye lo que ESTA orden tenía imputado; el
+        // formulario lo vuelve a sumar con sus líneas, así que se descuenta aquí
+        // para no contarlo dos veces.
+        if (ocData && ocData.estado !== 'ANULADA') {
+          const fGuardado = factorEjecutado(ocData, calcularOrdenCompra(ocData, itemsConAsignaciones));
+          itemsConAsignaciones.forEach((it) => (it.asignaciones || []).forEach((a) => {
+            const v = Number(it.cantidad || 0) * Number(it.valor_unitario || 0) * fGuardado * Number(a.porcentaje || 0) / 100;
+            mapaEjec[a.presupuesto_item_id] = (mapaEjec[a.presupuesto_item_id] || 0) - v;
+          }));
+        }
         setEjecutadosPresupuesto(mapaEjec);
       }
     }

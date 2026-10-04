@@ -1,6 +1,6 @@
 'use client';
 import { useState } from 'react';
-import { formatoPesos, anticiposElegibles, amortizacionConfigurada, validarAnticipoOC } from '@/lib/calculosOC';
+import { formatoPesos, anticiposElegibles, amortizacionConfigurada, validarAnticipoOC, factorEjecutado } from '@/lib/calculosOC';
 
 // Antes esto vivía como .input dentro de <style jsx global> con @apply, pero
 // styled-jsx no pasa ese bloque por el pipeline de Tailwind: la clase nunca se
@@ -26,6 +26,8 @@ export default function FormularioOC({
 }) {
   const esAnticipo = oc.tipo_pago === 'ANTICIPO';
   const [modalImputacionIndex, setModalImputacionIndex] = useState(null);
+  // Base del control presupuestal para esta orden (IVA/AIU − descuento − retención neta).
+  const factor = factorEjecutado(oc, calculo);
 
   // Amortización exige anticipo (migración 044): solo se ofrecen anticipos del
   // mismo contratista (y del mismo contrato si la orden tiene contrato) con
@@ -408,6 +410,8 @@ export default function FormularioOC({
       {modalImputacionIndex !== null && items[modalImputacionIndex] && (
         <ModalImputacion
           item={items[modalImputacionIndex]}
+          indice={modalImputacionIndex}
+          factor={factor}
           items={items}
           presupuestoCapitulos={presupuestoCapitulos}
           ejecutadosPresupuesto={ejecutadosPresupuesto}
@@ -426,7 +430,7 @@ function resumenImputacion(asignaciones) {
   return `${validas.length} ítems del presupuesto`;
 }
 
-function ejecutadoConBorrador(presupuestoItemId, ejecutadosPresupuesto, items) {
+function ejecutadoConBorrador(presupuestoItemId, ejecutadosPresupuesto, items, factor = 1, excluirIndice = -1) {
   // Suma lo ya guardado en la base de datos (ejecutadosPresupuesto) MÁS lo que
   // ya está imputado a ese ítem del presupuesto en ESTE formulario, aunque
   // todavía no se haya guardado la Orden de Compra. Así el Ejecutado/Saldo
@@ -434,10 +438,12 @@ function ejecutadoConBorrador(presupuestoItemId, ejecutadosPresupuesto, items) {
   // guardar.
   const base = Number(ejecutadosPresupuesto[presupuestoItemId] || 0);
   let borrador = 0;
-  (items || []).forEach((it) => {
+  // (Se excluye la línea que se está imputando: su aporte se muestra aparte.)
+  (items || []).forEach((it, idx) => {
+    if (idx === excluirIndice) return;
     (it.asignaciones || []).forEach((a) => {
       if (a.presupuesto_item_id === presupuestoItemId) {
-        const valorFila = Number(it.cantidad || 0) * Number(it.valor_unitario || 0);
+        const valorFila = Number(it.cantidad || 0) * Number(it.valor_unitario || 0) * factor;
         borrador += valorFila * (Number(a.porcentaje || 0) / 100);
       }
     });
@@ -449,7 +455,7 @@ function ejecutadoConBorrador(presupuestoItemId, ejecutadosPresupuesto, items) {
 // colorear Presupuestado/Ejecutado/Saldo de cada ítem — un <select> nativo no
 // permite formato en sus <option>. Se expande hacia abajo dentro del mismo
 // flujo (no flotante) para no quedar cortado por el scroll del modal.
-function SelectorItemPresupuesto({ valor, presupuestoCapitulos, ejecutadosPresupuesto, items, onChange }) {
+function SelectorItemPresupuesto({ valor, presupuestoCapitulos, ejecutadosPresupuesto, items, onChange, factor = 1, excluirIndice = -1, aporte = 0 }) {
   const [abierto, setAbierto] = useState(false);
   const mapaItems = {};
   presupuestoCapitulos.forEach((cap) => {
@@ -473,7 +479,7 @@ function SelectorItemPresupuesto({ valor, presupuestoCapitulos, ejecutadosPresup
             <span className="flex items-center gap-3 shrink-0">
               <span className="w-20 text-right">Presup.</span>
               <span className="w-20 text-right">Ejec.</span>
-              <span className="w-20 text-right">Saldo</span>
+              <span className="w-20 text-right" title="Saldo que quedaría si se imputa aquí este ítem de la orden">Quedaría</span>
             </span>
           </div>
           <button type="button" onClick={() => { onChange(''); setAbierto(false); }}
@@ -487,9 +493,10 @@ function SelectorItemPresupuesto({ valor, presupuestoCapitulos, ejecutadosPresup
               </div>
               {(cap.presupuesto_items || []).map((pi) => {
                 const pres = Number(pi.valor_parcial || 0);
-                const ejec = ejecutadoConBorrador(pi.id, ejecutadosPresupuesto, items);
-                const sal = pres - ejec;
-                const pct = pres > 0 ? ejec / pres : 0;
+                const ejec = ejecutadoConBorrador(pi.id, ejecutadosPresupuesto, items, factor, excluirIndice);
+                // Saldo que quedaría si este ítem de la orden se imputa aquí.
+                const sal = pres - ejec - aporte;
+                const pct = pres > 0 ? (ejec + aporte) / pres : 0;
                 const colorSaldo = sal < 0 ? 'text-red-600' : pct >= 0.9 ? 'text-amber-600' : 'text-green-600';
                 return (
                   <button key={pi.id} type="button"
@@ -512,10 +519,12 @@ function SelectorItemPresupuesto({ valor, presupuestoCapitulos, ejecutadosPresup
   );
 }
 
-function ModalImputacion({ item, items, presupuestoCapitulos, ejecutadosPresupuesto, onChange, onClose }) {
+function ModalImputacion({ item, indice = -1, factor = 1, items, presupuestoCapitulos, ejecutadosPresupuesto, onChange, onClose }) {
   const [asignaciones, setAsignaciones] = useState(item.asignaciones || []);
   const [confirmandoCierre, setConfirmandoCierre] = useState(false);
   const valorItem = Number(item.cantidad || 0) * Number(item.valor_unitario || 0);
+  // Lo que este ítem le suma al control presupuestal (con IVA/AIU, descuento y retención de la orden).
+  const valorControl = valorItem * factor;
   const sumaPct = asignaciones.reduce((acc, a) => acc + Number(a.porcentaje || 0), 0);
   const necesitaPct = asignaciones.length > 1;
   const sumaOk = asignaciones.length === 0 || (necesitaPct ? Math.abs(sumaPct - 100) < 0.01 : true);
@@ -570,7 +579,8 @@ function ModalImputacion({ item, items, presupuestoCapitulos, ejecutadosPresupue
         <div className="bg-carbon text-hueso px-5 py-3 flex items-center justify-between rounded-t-lg sticky top-0">
           <div>
             <p className="font-semibold">Imputar al presupuesto</p>
-            <p className="text-xs text-gris-calido">{item.descripcion || '(sin descripción)'} — {formatoPesos(valorItem)}</p>
+            <p className="text-xs text-gris-calido">{item.descripcion || '(sin descripción)'} — {formatoPesos(valorItem)}
+              {Math.abs(factor - 1) > 0.0001 && <span> · al control {formatoPesos(valorControl)}</span>}</p>
           </div>
           <button type="button" onClick={intentarCerrar} className="text-hueso hover:text-dorado text-lg leading-none px-2">✕</button>
         </div>
@@ -581,8 +591,13 @@ function ModalImputacion({ item, items, presupuestoCapitulos, ejecutadosPresupue
           {asignaciones.map((a, j) => {
             const info = mapaItems[a.presupuesto_item_id];
             const presupuestado = info ? Number(info.valor_parcial || 0) : 0;
-            const ejecutado = a.presupuesto_item_id ? ejecutadoConBorrador(a.presupuesto_item_id, ejecutadosPresupuesto, items) : 0;
-            const saldo = presupuestado - ejecutado;
+            const ejecutado = a.presupuesto_item_id ? ejecutadoConBorrador(a.presupuesto_item_id, ejecutadosPresupuesto, items, factor, indice) : 0;
+            const pctFila = necesitaPct ? Number(a.porcentaje || 0) : 100;
+            const aporte = valorControl * pctFila / 100;
+            const quedaria = ejecutado + aporte;
+            const saldo = presupuestado - quedaria;
+            const pctEjec = presupuestado > 0 ? quedaria / presupuestado : 0;
+            const colorQueda = saldo < 0 ? 'text-red-600' : pctEjec >= 0.9 ? 'text-amber-600' : 'text-green-700';
             return (
               <div key={j} className="border rounded p-3 space-y-2">
                 <div className="flex items-center gap-2">
@@ -591,6 +606,9 @@ function ModalImputacion({ item, items, presupuestoCapitulos, ejecutadosPresupue
                     presupuestoCapitulos={presupuestoCapitulos}
                     ejecutadosPresupuesto={ejecutadosPresupuesto}
                     items={items}
+                    factor={factor}
+                    excluirIndice={indice}
+                    aporte={aporte}
                     onChange={(v) => actualizarFila(j, 'presupuesto_item_id', v)}
                   />
                   {necesitaPct && (
@@ -603,10 +621,16 @@ function ModalImputacion({ item, items, presupuestoCapitulos, ejecutadosPresupue
                     className="text-red-600 text-sm border border-red-200 rounded w-7 h-7 leading-none hover:bg-red-50">✕</button>
                 </div>
                 {a.presupuesto_item_id && (
-                  <div className="grid grid-cols-3 gap-2 text-xs text-neutral-500 bg-neutral-50 rounded p-2">
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs text-neutral-500 bg-neutral-50 rounded p-2">
                     <div>Presupuestado<br /><span className="font-medium text-neutral-700">{formatoPesos(presupuestado)}</span></div>
-                    <div>Ejecutado<br /><span className="font-medium text-neutral-700">{formatoPesos(ejecutado)}</span></div>
-                    <div>Saldo<br /><span className={`font-medium ${saldo < 0 ? 'text-red-600' : 'text-neutral-700'}`}>{formatoPesos(saldo)}</span></div>
+                    <div>Ejecutado actual<br /><span className="font-medium text-neutral-700">{formatoPesos(ejecutado)}</span></div>
+                    <div>+ Este ítem{necesitaPct ? ` (${pctFila}%)` : ''}<br /><span className="font-medium text-blue-700">{formatoPesos(aporte)}</span></div>
+                    <div>Quedaría ejecutado<br />
+                      <span className={`font-semibold ${colorQueda}`}>{formatoPesos(quedaria)}</span>
+                      <span className={`block ${colorQueda}`}>
+                        {presupuestado > 0 ? `${Math.round(pctEjec * 100)}% · ` : ''}{saldo < 0 ? `se pasa ${formatoPesos(-saldo)}` : `saldo ${formatoPesos(saldo)}`}
+                      </span>
+                    </div>
                   </div>
                 )}
               </div>

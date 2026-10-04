@@ -264,3 +264,14 @@ export function mensajeErrorBD(mensaje) {
   if (m.startsWith('CORTE_CERRADO: ')) return `🔒 ${m.slice('CORTE_CERRADO: '.length)}`;
   return m;
 }
+
+// Factor del ejecutado de una línea, con la MISMA base del control presupuestal
+// (v_presupuesto_ejecutado): valor de la línea + su parte de IVA/AIU − descuento
+// − retención neta. Se usa para la vista previa de la imputación.
+export function factorEjecutado(oc, calculo) {
+  const base = Number(calculo?.subtotalItems || 0);
+  if (!(base > 0)) return 1;
+  const ajuste = Number(calculo.valor_iva || 0) + Number(calculo.valor_aiu || 0) - Number(oc?.descuento || 0)
+    - (Number(calculo.valor_retenido || 0) - Number(oc?.devolucion_retenido || 0));
+  return 1 + ajuste / base;
+}
