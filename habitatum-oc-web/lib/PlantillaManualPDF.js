@@ -104,7 +104,9 @@ function Seccion({ n, titulo, nota }) {
 }
 
 export default function PlantillaManualPDF({ datos }) {
-  const { proyecto = {}, manual = {}, contactos = [], acabados = [], sistemas = [], rutinas = [], anexos = [] } = datos;
+  const { proyecto = {}, manual = {}, contactos: todosLosContactos = [], acabados = [], sistemas = [], rutinas = [], anexos = [] } = datos;
+  // 050: solo los contactos marcados "Aparece en el PDF"; los demás quedan como respaldo interno.
+  const contactos = todosLosContactos.filter((c) => c.mostrar_en_pdf !== false);
   const obra = proyecto.nombre || '';
   const entrega = manual.fecha_entrega;
   // 049: en TODO COSTO el responsable ante el cliente es quien firma la obra
