@@ -17,7 +17,7 @@ export async function GET(request, { params }) {
   const { proyectoId } = params;
   const orden = { ascending: true };
   const [proy, man, con, aca, sis, rut, anx] = await Promise.all([
-    supabase.from('proyectos').select('nombre, codigo, mostrar_marca_habitatum, nombre_emisor').eq('id', proyectoId).maybeSingle(),
+    supabase.from('proyectos').select('nombre, codigo, mostrar_marca_habitatum, nombre_emisor, modelo_contratacion').eq('id', proyectoId).maybeSingle(),
     supabase.from('manual_mantenimiento').select('*').eq('proyecto_id', proyectoId).maybeSingle(),
     supabase.from('manual_contactos').select('*').eq('proyecto_id', proyectoId).order('orden', orden),
     supabase.from('manual_acabados').select('*').eq('proyecto_id', proyectoId).order('espacio', orden).order('orden', orden),

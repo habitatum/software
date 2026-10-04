@@ -50,6 +50,10 @@ const e = StyleSheet.create({
   alerta: { backgroundColor: HUESO_CLARO, borderLeftWidth: 2, borderLeftColor: COLOR_DORADO, marginHorizontal: 8, marginBottom: 7, marginTop: 2, padding: 5 },
 
   vacio: { color: TEXTO_SUAVE, fontStyle: 'italic', marginVertical: 6 },
+  posventa: { backgroundColor: COLOR_FONDO, borderTopWidth: 2, borderTopColor: COLOR_DORADO, padding: 10, marginBottom: 16 },
+  posventaEtiqueta: { fontSize: 7.5, color: COLOR_DORADO, fontFamily: 'Helvetica-Bold', textTransform: 'uppercase', letterSpacing: 0.6 },
+  posventaTexto: { color: 'white', fontSize: 11, fontFamily: 'Helvetica-Bold', marginTop: 3 },
+  posventaNota: { color: GRIS_CALIDO, fontSize: 8, marginTop: 4 },
   pie: { position: 'absolute', bottom: 22, left: 34, right: 34, flexDirection: 'row', justifyContent: 'space-between', fontSize: 7, color: TEXTO_SUAVE, borderTopWidth: 0.5, borderTopColor: GRIS_CALIDO, paddingTop: 5 },
 });
 
@@ -71,6 +75,15 @@ function sumarMeses(f, meses) {
   return d.toISOString().slice(0, 10);
 }
 const t = (v) => (v === null || v === undefined || v === '' ? '—' : String(v));
+
+// En todo costo, los textos base que remiten "al contratista / electricista /
+// carpintero del directorio" se dirigen al responsable de la obra.
+function aResponsable(texto, responsable) {
+  return String(texto || '').replace(
+    /(llame|reporte|comuníquese)( al| con el)? (contratista|electricista|carpintero)( del directorio)?/gi,
+    (m) => `${m[0] === m[0].toUpperCase() ? 'C' : 'c'}omuníquese con ${responsable}`,
+  ).replace(/, que puede atenderlo dentro de la garantía/gi, ', que lo atenderá dentro de la garantía');
+}
 
 function Pie({ obra }) {
   return (
@@ -94,7 +107,15 @@ export default function PlantillaManualPDF({ datos }) {
   const { proyecto = {}, manual = {}, contactos = [], acabados = [], sistemas = [], rutinas = [], anexos = [] } = datos;
   const obra = proyecto.nombre || '';
   const entrega = manual.fecha_entrega;
+  // 049: en TODO COSTO el responsable ante el cliente es quien firma la obra
+  // (HABITATUM o el emisor configurado): garantías por sistema y posventa única;
+  // los contratistas no se muestran con teléfono ni correo. En administración
+  // delegada se mantiene el directorio completo con la garantía de cada uno.
+  const todoCosto = proyecto.modelo_contratacion === 'TODO_COSTO';
+  const responsable = proyecto.mostrar_marca_habitatum === false ? (proyecto.nombre_emisor || 'el constructor') : 'HABITATUM';
+  const mostrarContratistas = manual.mostrar_contratistas ?? !todoCosto;
   const conGarantia = contactos.filter((c) => Number(c.garantia_meses) > 0);
+  const sistemasConGarantia = sistemas.filter((s) => Number(s.garantia_meses) > 0);
   const espacios = [];
   acabados.forEach((a) => {
     const k = a.espacio || 'General';
@@ -102,11 +123,13 @@ export default function PlantillaManualPDF({ datos }) {
     if (!g) { g = { espacio: k, filas: [] }; espacios.push(g); }
     g.filas.push(a);
   });
+  const tituloDirectorio = todoCosto ? 'Participantes en la obra' : 'Directorio de contratistas y proveedores';
   const indice = [
-    'Directorio de contratistas y proveedores', 'Garantías', 'Acabados y materiales',
+    ...(mostrarContratistas ? [tituloDirectorio] : []), 'Garantías', 'Acabados y materiales',
     'Uso y mantenimiento por sistema', 'Rutinas de mantenimiento preventivo',
     ...(anexos.length ? ['Anexos'] : []),
   ];
+  const num = (titulo) => indice.indexOf(titulo) + 1;
   const encabezado = (
     <EncabezadoPDF
       tituloDocumento="Manual de uso y mantenimiento"
@@ -131,10 +154,17 @@ export default function PlantillaManualPDF({ datos }) {
           <View style={e.datoFila}><Text style={e.datoEtiqueta}>Cliente</Text><Text style={e.datoValor}>{t(manual.cliente)}</Text></View>
           <View style={e.datoFila}><Text style={e.datoEtiqueta}>Dirección</Text><Text style={e.datoValor}>{t(manual.direccion)}</Text></View>
           <View style={e.datoFila}><Text style={e.datoEtiqueta}>Fecha de entrega</Text><Text style={e.datoValor}>{fecha(entrega)}</Text></View>
-          {manual.contacto_postventa && (
+          {manual.contacto_postventa && !todoCosto && (
             <View style={e.datoFila}><Text style={e.datoEtiqueta}>Contacto posventa</Text><Text style={e.datoValor}>{manual.contacto_postventa}</Text></View>
           )}
         </View>
+        {todoCosto && (
+          <View style={e.posventa}>
+            <Text style={e.posventaEtiqueta}>Posventa y garantías</Text>
+            <Text style={e.posventaTexto}>{manual.contacto_postventa || responsable}</Text>
+            <Text style={e.posventaNota}>Toda solicitud de garantía o posventa se tramita con {responsable}.</Text>
+          </View>
+        )}
         {manual.presentacion && <Text style={e.presentacion}>{manual.presentacion}</Text>}
         <Text style={e.subtitulo}>Contenido</Text>
         {indice.map((s, i) => (
@@ -144,8 +174,25 @@ export default function PlantillaManualPDF({ datos }) {
       </Page>
 
       <Page size="A4" style={e.pagina} wrap>
-        {/* 1. Directorio */}
-        <Seccion n={1} titulo="Directorio de contratistas y proveedores" nota="Personas y empresas que ejecutaron o suministraron cada parte de la obra. Contáctelos para garantías, reparaciones o ampliaciones." />
+        {/* 1. Directorio (en todo costo: solo referencia, sin contactos, y opcional) */}
+        {mostrarContratistas && todoCosto && (
+          <>
+            <Seccion n={num(tituloDirectorio)} titulo={tituloDirectorio} nota={`Empresas que ejecutaron cada parte de la obra, como referencia. Para garantías y posventa comuníquese con ${responsable}.`} />
+            {contactos.length === 0 ? <Text style={e.vacio}>Pendiente por completar.</Text> : (
+              <View style={{ marginBottom: 14 }}>
+                <View style={e.tEnc}><Text style={{ width: '55%' }}>Actividad</Text><Text style={{ width: '45%' }}>Empresa</Text></View>
+                {contactos.map((c, i) => (
+                  <View key={c.id} style={i % 2 ? e.tFilaAlt : e.tFila} wrap={false}>
+                    <Text style={{ width: '55%', paddingRight: 4 }}>{t(c.actividad)}</Text>
+                    <Text style={{ width: '45%' }}>{c.empresa}</Text>
+                  </View>
+                ))}
+              </View>
+            )}
+          </>
+        )}
+        {mostrarContratistas && !todoCosto && (<>
+        <Seccion n={num(tituloDirectorio)} titulo={tituloDirectorio} nota="Personas y empresas que ejecutaron o suministraron cada parte de la obra. Contáctelos para garantías, reparaciones o ampliaciones." />
         {contactos.length === 0 ? <Text style={e.vacio}>Pendiente por completar.</Text> : (
           <View style={{ marginBottom: 14 }}>
             <View style={e.tEnc} fixed>
@@ -166,10 +213,28 @@ export default function PlantillaManualPDF({ datos }) {
             ))}
           </View>
         )}
+        </>)}
 
         {/* 2. Garantías */}
-        <Seccion n={2} titulo="Garantías" nota={`Vigencia contada desde la fecha de entrega (${fecha(entrega)}), salvo que se indique otra fecha. La garantía no cubre daños por mal uso, golpes, falta de mantenimiento o intervenciones de terceros.`} />
-        {conGarantia.length === 0 ? <Text style={e.vacio}>Pendiente por completar.</Text> : (
+        <Seccion n={num('Garantías')} titulo="Garantías" nota={todoCosto
+          ? `Garantías otorgadas por ${responsable}, contadas desde la fecha de entrega (${fecha(entrega)}). Toda solicitud de garantía se tramita con ${responsable}. La garantía no cubre daños por mal uso, golpes, falta de mantenimiento o intervenciones de terceros.`
+          : `Vigencia contada desde la fecha de entrega (${fecha(entrega)}), salvo que se indique otra fecha. La garantía no cubre daños por mal uso, golpes, falta de mantenimiento o intervenciones de terceros.`} />
+        {todoCosto ? (sistemasConGarantia.length === 0 ? <Text style={e.vacio}>Pendiente por completar.</Text> : (
+          <View style={{ marginBottom: 14 }}>
+            <View style={e.tEnc}>
+              <Text style={{ width: '50%' }}>Sistema</Text><Text style={{ width: '14%', textAlign: 'center' }}>Meses</Text>
+              <Text style={{ width: '18%' }}>Desde</Text><Text style={{ width: '18%' }}>Hasta</Text>
+            </View>
+            {sistemasConGarantia.map((s, i) => (
+              <View key={s.id} style={i % 2 ? e.tFilaAlt : e.tFila} wrap={false}>
+                <Text style={{ width: '50%', paddingRight: 4 }}>{s.titulo}</Text>
+                <Text style={{ width: '14%', textAlign: 'center' }}>{Number(s.garantia_meses)}</Text>
+                <Text style={{ width: '18%' }}>{fecha(entrega)}</Text>
+                <Text style={{ width: '18%' }}>{fecha(sumarMeses(entrega, s.garantia_meses))}</Text>
+              </View>
+            ))}
+          </View>
+        )) : conGarantia.length === 0 ? <Text style={e.vacio}>Pendiente por completar.</Text> : (
           <View style={{ marginBottom: 14 }}>
             <View style={e.tEnc}>
               <Text style={{ width: '40%' }}>Actividad</Text><Text style={{ width: '30%' }}>Responsable</Text>
@@ -192,7 +257,7 @@ export default function PlantillaManualPDF({ datos }) {
         )}
 
         {/* 3. Acabados */}
-        <Seccion n={3} titulo="Acabados y materiales" nota="Materiales instalados en cada espacio, con su referencia y dónde comprarlos, para reponerlos o retocarlos con exactamente el mismo producto." />
+        <Seccion n={num('Acabados y materiales')} titulo="Acabados y materiales" nota="Materiales instalados en cada espacio, con su referencia y dónde comprarlos, para reponerlos o retocarlos con exactamente el mismo producto." />
         {espacios.length === 0 ? <Text style={e.vacio}>Pendiente por completar.</Text> : espacios.map((g) => (
           <View key={g.espacio} style={{ marginBottom: 10 }}>
             <Text style={e.subtitulo}>{g.espacio}</Text>
@@ -219,20 +284,21 @@ export default function PlantillaManualPDF({ datos }) {
 
       {/* 4. Sistemas */}
       <Page size="A4" style={e.pagina} wrap>
-        <Seccion n={4} titulo="Uso y mantenimiento por sistema" nota="Recomendaciones de uso, cuidados periódicos y qué hacer ante una falla en cada sistema del inmueble." />
+        <Seccion n={num('Uso y mantenimiento por sistema')} titulo="Uso y mantenimiento por sistema" nota="Recomendaciones de uso, cuidados periódicos y qué hacer ante una falla en cada sistema del inmueble." />
         {sistemas.length === 0 ? <Text style={e.vacio}>Pendiente por completar.</Text> : sistemas.map((s) => (
           <View key={s.id} style={e.sistema} wrap={false}>
             <Text style={e.sistemaTitulo}>{s.titulo}</Text>
             {s.descripcion && <View style={e.bloque}><Text style={e.bloqueEtiqueta}>Qué se instaló</Text><Text style={e.bloqueTexto}>{s.descripcion}</Text></View>}
             {s.uso && <View style={e.bloque}><Text style={e.bloqueEtiqueta}>Uso</Text><Text style={e.bloqueTexto}>{s.uso}</Text></View>}
             {s.mantenimiento && <View style={e.bloque}><Text style={e.bloqueEtiqueta}>Mantenimiento</Text><Text style={e.bloqueTexto}>{s.mantenimiento}</Text></View>}
-            {s.que_hacer && <View style={e.alerta}><Text style={e.bloqueEtiqueta}>Qué hacer si falla</Text><Text>{s.que_hacer}</Text></View>}
+            {s.que_hacer && <View style={e.alerta}><Text style={e.bloqueEtiqueta}>Qué hacer si falla</Text>
+              <Text>{todoCosto ? aResponsable(s.que_hacer, responsable) : s.que_hacer}</Text></View>}
           </View>
         ))}
 
         {/* 5. Rutinas */}
         <View break>
-          <Seccion n={5} titulo="Rutinas de mantenimiento preventivo" nota="Calendario sugerido. Las tareas de técnico especializado deben hacerlas personas calificadas; las demás puede hacerlas el propietario." />
+          <Seccion n={num('Rutinas de mantenimiento preventivo')} titulo="Rutinas de mantenimiento preventivo" nota="Calendario sugerido. Las tareas de técnico especializado deben hacerlas personas calificadas; las demás puede hacerlas el propietario." />
         </View>
         {rutinas.length === 0 ? <Text style={e.vacio}>Pendiente por completar.</Text> : FRECUENCIAS.map(([k, etiqueta]) => {
           const filas = rutinas.filter((r) => r.frecuencia === k);
@@ -255,7 +321,7 @@ export default function PlantillaManualPDF({ datos }) {
         {/* 6. Anexos */}
         {anexos.length > 0 && (
           <View>
-            <Seccion n={6} titulo="Anexos" nota="Manuales, fichas técnicas y certificados entregados por los proveedores y contratistas." />
+            <Seccion n={num('Anexos')} titulo="Anexos" nota="Manuales, fichas técnicas y certificados entregados por los proveedores y contratistas." />
             {anexos.map((a, i) => (
               <View key={a.id} style={i % 2 ? e.tFilaAlt : e.tFila}>
                 <Text style={{ width: '70%' }}>{a.titulo}</Text><Text style={{ width: '30%' }}>{t(a.proveedor)}</Text>
