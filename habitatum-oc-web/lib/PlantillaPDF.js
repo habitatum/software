@@ -140,11 +140,12 @@ export default function PlantillaOrdenCompraPDF({ oc, items, acumulados, anticip
             </>
           )}
           <FilaCuadro label="TOTAL" valor={oc.total} destacado />
-          {Number(oc.porcentaje_retencion) > 0 && (
+          {Number(oc.valor_retenido) > 0 && (
             <FilaCuadro label={`- Retenido (${oc.porcentaje_retencion}%)`} valor={oc.valor_retenido} negativo />
           )}
-          {Number(oc.porcentaje_amortizacion) > 0 && (
-            <FilaCuadro label={`- Amortización anticipo (${oc.porcentaje_amortizacion}%)`} valor={oc.valor_amortizacion} negativo />
+          {/* Se muestra siempre que haya valor: los cortes de obra amortizan por valor fijo (sin %). */}
+          {Number(oc.valor_amortizacion) > 0 && (
+            <FilaCuadro label={oc.tipo_amortizacion === 'VALOR_FIJO' || !(Number(oc.porcentaje_amortizacion) > 0) ? '- Amortización anticipo' : `- Amortización anticipo (${oc.porcentaje_amortizacion}%)`} valor={oc.valor_amortizacion} negativo />
           )}
           {Number(oc.devolucion_retenido) > 0 && (
             <FilaCuadro label="+ Devolución retenido" valor={oc.devolucion_retenido} />

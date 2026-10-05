@@ -386,11 +386,12 @@ export default function FormularioOC({
             </>
           )}
           <FilaResumen label="TOTAL" valor={calculo.total} destacado />
-          {Number(oc.porcentaje_retencion) > 0 && (
+          {Number(calculo.valor_retenido) > 0 && (
             <FilaResumen label={`- Retenido (${oc.porcentaje_retencion}%)`} valor={calculo.valor_retenido} negativo />
           )}
-          {Number(oc.porcentaje_amortizacion) > 0 && (
-            <FilaResumen label={`- Amortización anticipo (${oc.porcentaje_amortizacion}%)`} valor={calculo.valor_amortizacion} negativo />
+          {/* Se muestra siempre que haya valor: los cortes de obra amortizan por valor fijo (sin %). */}
+          {Number(calculo.valor_amortizacion) > 0 && (
+            <FilaResumen label={oc.tipo_amortizacion === 'VALOR_FIJO' || !(Number(oc.porcentaje_amortizacion) > 0) ? '- Amortización anticipo' : `- Amortización anticipo (${oc.porcentaje_amortizacion}%)`} valor={calculo.valor_amortizacion} negativo />
           )}
           {Number(oc.devolucion_retenido) > 0 && (
             <FilaResumen label="+ Devolución retenido" valor={oc.devolucion_retenido} />
