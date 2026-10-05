@@ -2,6 +2,7 @@
 import { Fragment, useEffect, useState } from 'react';
 import Link from 'next/link';
 import { crearClienteSupabase } from '@/lib/supabaseClient';
+import DevolverRetenido from '@/lib/DevolverRetenido';
 import { formatoPesos } from '@/lib/calculosOC';
 import { compartirOAbrirArchivo } from '@/lib/compartirArchivo';
 
@@ -29,10 +30,6 @@ export default function SeccionCortes({ contrato, usuario }) {
   const [formAnt, setFormAnt] = useState(null);
   const [guardandoAnt, setGuardandoAnt] = useState(false);
   // Devolución de retenidos (047)
-  const [porDevolver, setPorDevolver] = useState(0);
-  const [pagadoPorCliente, setPagadoPorCliente] = useState(false);
-  const [formDev, setFormDev] = useState(null);
-  const [guardandoDev, setGuardandoDev] = useState(false);
   const esAdmin = usuario?.rol === 'admin';
   const puedeCrear = usuario?.rol === 'admin' || usuario?.rol === 'operativo';
 
@@ -48,37 +45,9 @@ export default function SeccionCortes({ contrato, usuario }) {
       .select('id, folio, fecha, total, saldo_anticipo_por_amortizar').eq('contrato_id', contrato.id)
       .eq('tipo_pago', 'ANTICIPO').neq('estado', 'ANULADA').order('fecha');
     setAnticipos(ants || []);
-    const { data: saldo } = await supabase.rpc('retenido_por_devolver_contrato', { p_contrato: contrato.id });
-    setPorDevolver(Number(saldo || 0));
-    // Por defecto la devolución la paga quien pagó el contrato (cliente directo o HABITATUM).
-    const { data: pagos } = await supabase.from('ordenes_compra').select('pagado_por_cliente')
-      .eq('contrato_id', contrato.id).neq('estado', 'ANULADA').neq('tipo_pago', 'ANTICIPO').limit(20);
-    setPagadoPorCliente((pagos || []).length > 0 && (pagos || []).every((x) => x.pagado_por_cliente));
   }
 
-  async function registrarDevolucion() {
-    const valor = Number(formDev?.valor || 0);
-    const descuento = Number(formDev?.descuento || 0);
-    if (!(valor + descuento > 0)) { window.alert('Escribe el valor a devolver.'); return; }
-    if (valor + descuento > porDevolver + 1) { window.alert(`El retenido por devolver es ${formatoPesos(porDevolver)}.`); return; }
-    if (descuento > 0 && (formDev.motivo || '').trim().length < 5) { window.alert('Escribe el motivo del descuento al retenido.'); return; }
-    const resumen = `¿Registrar la devolución de retenido del contrato ${contrato.numero_contrato}?\n\n`
-      + `Devolver: ${formatoPesos(valor)}${descuento > 0 ? `\nDescuento al retenido: ${formatoPesos(descuento)} (${formDev.motivo.trim()})` : ''}\n`
-      + `Paga: ${formDev.cliente ? 'el cliente directamente' : 'HABITATUM'}\n\n`
-      + 'Se crea un corte de devolución y su orden de compra.';
-    if (!window.confirm(resumen)) return;
-    setGuardandoDev(true);
-    const supabase = crearClienteSupabase();
-    const { data, error } = await supabase.rpc('devolver_retenido_contrato', {
-      p_contrato: contrato.id, p_fecha: formDev.fecha, p_valor: valor, p_descuento: descuento,
-      p_motivo: formDev.motivo || null, p_pagado_por_cliente: !!formDev.cliente,
-    });
-    setGuardandoDev(false);
-    if (error) { window.alert(error.message.replace(/^DEVOLUCION: /, '')); return; }
-    window.alert(`Devolución registrada en el corte ${data.corte}${data.folio ? ` (${data.folio})` : ''}. Retenido por devolver: ${formatoPesos(data.retenido_por_devolver)}.`);
-    setFormDev(null);
-    cargar();
-  }
+
 
   async function registrarAnticipo() {
     const valor = Number(formAnt?.valor);
@@ -117,11 +86,6 @@ export default function SeccionCortes({ contrato, usuario }) {
           {esAdmin && contrato.estado !== 'ANULADO' && (
             <button onClick={() => setFormAnt(formAnt ? null : { valor: '', fecha: new Date().toISOString().slice(0, 10), notas: '' })} className="border border-dorado text-dorado px-3 py-2 rounded text-sm">+ Anticipo</button>
           )}
-          {esAdmin && porDevolver > 0.5 && (
-            <button
-              onClick={() => setFormDev(formDev ? null : { valor: String(porDevolver), descuento: '', motivo: '', fecha: new Date().toISOString().slice(0, 10), cliente: pagadoPorCliente })}
-              className="border border-carbon text-carbon px-3 py-2 rounded text-sm">Devolver retenido</button>
-          )}
           {puedeCrear && items.length > 0 && contrato.estado !== 'ANULADO' && (
             borrador ? (
               <Link href={`/contratos/${contrato.id}/cortes/${borrador.id}`} className="bg-carbon text-hueso px-4 py-2 rounded text-sm">Continuar corte No. {borrador.numero}</Link>
@@ -129,6 +93,7 @@ export default function SeccionCortes({ contrato, usuario }) {
               <Link href={`/contratos/${contrato.id}/cortes/nuevo`} className="bg-carbon text-hueso px-4 py-2 rounded text-sm">+ Nuevo corte</Link>
             )
           )}
+          <DevolverRetenido contrato={contrato} usuario={usuario} onHecho={cargar} />
         </div>
       </div>
 
@@ -143,27 +108,6 @@ export default function SeccionCortes({ contrato, usuario }) {
           <button disabled={guardandoAnt} onClick={registrarAnticipo} className="bg-carbon text-hueso px-3 py-1.5 rounded">{guardandoAnt ? 'Registrando…' : 'Registrar anticipo'}</button>
           {Number(contrato.valor_inicial) > 0 && Number(formAnt.valor) > 0 && (
             <p className="sm:col-span-4 text-xs text-neutral-500">Equivale al {Math.round(Number(formAnt.valor) / Number(contrato.valor_inicial) * 1000) / 10}% del valor del contrato.</p>
-          )}
-        </div>
-      )}
-      {formDev && (
-        <div className="mx-4 mb-4 p-3 bg-hueso rounded border border-carbon/30 grid sm:grid-cols-4 gap-2 items-end text-sm">
-          <p className="sm:col-span-4 text-xs text-neutral-600">Retenido por devolver: <span className="font-semibold text-carbon">{formatoPesos(porDevolver)}</span></p>
-          <label className="space-y-1"><span className="text-xs text-neutral-600">Valor a devolver</span>
-            <input type="number" value={formDev.valor} onChange={(e) => setFormDev({ ...formDev, valor: e.target.value })} className="border rounded px-2 py-1 w-full" /></label>
-          <label className="space-y-1"><span className="text-xs text-neutral-600">Fecha</span>
-            <input type="date" value={formDev.fecha} onChange={(e) => setFormDev({ ...formDev, fecha: e.target.value })} className="border rounded px-2 py-1 w-full" /></label>
-          <label className="space-y-1"><span className="text-xs text-neutral-600">Descuento al retenido (opcional)</span>
-            <input type="number" value={formDev.descuento} onChange={(e) => setFormDev({ ...formDev, descuento: e.target.value })} className="border rounded px-2 py-1 w-full" /></label>
-          <label className="space-y-1"><span className="text-xs text-neutral-600">Motivo del descuento</span>
-            <input value={formDev.motivo} onChange={(e) => setFormDev({ ...formDev, motivo: e.target.value })} placeholder="Solo si hay descuento" className="border rounded px-2 py-1 w-full" /></label>
-          <label className="sm:col-span-3 flex items-center gap-2 text-xs text-neutral-700">
-            <input type="checkbox" checked={!!formDev.cliente} onChange={(e) => setFormDev({ ...formDev, cliente: e.target.checked })} />
-            La paga el cliente directamente
-          </label>
-          <button disabled={guardandoDev} onClick={registrarDevolucion} className="bg-carbon text-hueso px-3 py-1.5 rounded">{guardandoDev ? 'Registrando…' : 'Registrar devolución'}</button>
-          {Number(formDev.valor || 0) + Number(formDev.descuento || 0) > porDevolver + 1 && (
-            <p className="sm:col-span-4 text-xs text-red-600">La devolución más el descuento superan el retenido por devolver.</p>
           )}
         </div>
       )}

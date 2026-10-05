@@ -22,7 +22,13 @@ export async function GET(request, { params }) {
 
   if (!oc) return new Response('Orden de Compra no encontrada', { status: 404 });
 
-  const { data: items } = await supabase.from('items_oc').select('*').eq('orden_compra_id', id).order('orden').order('id');
+  const { data: itemsBase } = await supabase.from('items_oc').select('*').eq('orden_compra_id', id).order('orden').order('id');
+  // Devolución de retenido (047): las líneas internas reparten el valor en los ítems del
+  // presupuesto (control presupuestal). Al contratista se le muestra UNA sola línea con el total.
+  const { data: extra } = await supabase.from('ordenes_compra').select('es_devolucion_retenido').eq('id', id).maybeSingle();
+  const items = extra?.es_devolucion_retenido
+    ? [{ descripcion: oc.descripcion || 'Devolución de retenido', unidad: 'Glb', cantidad: 1, valor_unitario: Number(oc.subtotal_items || oc.subtotal || 0) }]
+    : itemsBase;
 
   let acumulados = null;
   let anticipoPendienteContrato = 0;

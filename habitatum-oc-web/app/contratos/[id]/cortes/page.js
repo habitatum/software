@@ -11,6 +11,7 @@ import { construirSabana } from '@/lib/modeloSabana';
 import { exportarSabanaCortes } from '@/lib/exportarSabanaCortes';
 import SabanaCortes from '@/lib/SabanaCortes';
 import NavBar from '@/components/NavBar';
+import DevolverRetenido from '@/lib/DevolverRetenido';
 
 // Sábana de cortes del contrato (réplica del Excel de cortes de obra) + descarga en Excel con marca.
 export default function SabanaDeCortes() {
@@ -19,6 +20,7 @@ export default function SabanaDeCortes() {
   const { proyecto, cargando: cargandoProyecto } = useProyectoActual();
   const [d, setD] = useState(null);
   const [descargando, setDescargando] = useState(false);
+  const [version, setVersion] = useState(0); // recarga tras una devolución
 
   useEffect(() => {
     if (!usuario || !proyecto) return;
@@ -33,7 +35,7 @@ export default function SabanaDeCortes() {
       ]);
       setD({ contrato, items: items || [], cortes: cortes || [], anticipos: anticipos || [], borrador: borr?.[0] || null });
     })();
-  }, [usuario, proyecto, id]);
+  }, [usuario, proyecto, id, version]);
 
   if (cargando || cargandoProyecto || !usuario || !proyecto) return null;
   const m = d ? construirSabana({ items: d.items, cortes: d.cortes, anticipos: d.anticipos, valorContrato: d.contrato?.valor_inicial }) : null;
@@ -63,6 +65,7 @@ export default function SabanaDeCortes() {
                     {d.borrador ? `Continuar corte ${d.borrador.numero}` : '+ Nuevo corte'}
                   </Link>
                 )}
+                <DevolverRetenido contrato={d.contrato} usuario={usuario} onHecho={() => setVersion((v) => v + 1)} />
               </div>
             </div>
             {d.items.length === 0 ? (

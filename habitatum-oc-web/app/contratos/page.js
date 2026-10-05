@@ -8,6 +8,7 @@ import { formatoPesos } from '@/lib/calculosOC';
 import { TIPOS_CONTRATO, NOMBRES_TIPO_CONTRATO, plantillaClausulas } from '@/lib/plantillasContrato';
 import { parseItemsExcel } from '@/lib/parseItemsContrato';
 import NavBar from '@/components/NavBar';
+import DevolverRetenido from '@/lib/DevolverRetenido';
 import { compartirOAbrirArchivo } from '@/lib/compartirArchivo';
 
 const ANIO_ACTUAL = new Date().getFullYear();
@@ -432,6 +433,8 @@ export default function Contratos() {
                         {infoCortes[c.id]?.borrador ? `Continuar corte ${infoCortes[c.id].borrador.numero}` : '+ Nuevo corte'}
                       </Link>
                     )}
+                    {/* Junto a "+ Nuevo corte": solo admin y solo si hay retenido por devolver (047). */}
+                    {infoCortes[c.id]?.conItems && <DevolverRetenido contrato={c} usuario={usuario} onHecho={cargar} compacto />}
                     {/* Sin ítems no hay cortes: se ofrece cargarlos (se pueden importar del
                         cuadro del contrato). Antes no se mostraba ningún botón. */}
                     {(usuario.rol === 'admin' || usuario.rol === 'operativo') && !infoCortes[c.id]?.conItems && c.estado !== 'ANULADO' && (

@@ -31,6 +31,8 @@ export default function DetalleOrdenCompra() {
   const [corteCerrado, setCorteCerrado] = useState(null);
   // Factura o comprobante original que llegó por el bot (almacenamiento soportes-oc).
   const [soportePath, setSoportePath] = useState(null);
+  // OC de devolución de retenido: en el PDF va una sola línea; aquí se ve el reparto interno.
+  const [esDevolucion, setEsDevolucion] = useState(false);
 
   async function cargar() {
     const supabase = crearClienteSupabase();
@@ -55,8 +57,9 @@ export default function DetalleOrdenCompra() {
       .eq('orden_compra_id', id)
       .maybeSingle();
     setCorteCerrado(enCorte || null);
-    const { data: base } = await supabase.from('ordenes_compra').select('soporte_path').eq('id', id).maybeSingle();
+    const { data: base } = await supabase.from('ordenes_compra').select('soporte_path, es_devolucion_retenido').eq('id', id).maybeSingle();
     setSoportePath(base?.soporte_path || null);
+    setEsDevolucion(!!base?.es_devolucion_retenido);
     if (ocData?.contrato_id) {
       const { data: acum } = await supabase.from('v_acumulados_contrato').select('*').eq('contrato_id', ocData.contrato_id).single();
       setAcumulados(acum);
@@ -180,6 +183,12 @@ export default function DetalleOrdenCompra() {
           </div>
         ))}
 
+        {esDevolucion && (
+          <p className="text-xs bg-hueso border border-gris-calido rounded p-3 text-neutral-600">
+            Orden de devolución de retenido. Las líneas muestran el reparto interno del valor en el presupuesto;
+            el PDF para el contratista muestra un solo valor total.
+          </p>
+        )}
         {/* Si es la OC de legalización de caja menor: cada gasto con su comprobante. */}
         <GastosCajaMenor proyecto={proyecto} ocId={id} />
 
