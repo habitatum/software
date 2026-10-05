@@ -4,6 +4,7 @@ import { useUsuarioActual } from '@/lib/useUsuarioActual';
 import { useProyectoActual } from '@/lib/useProyectoActual';
 import { crearClienteSupabase } from '@/lib/supabaseClient';
 import NavBar from '@/components/NavBar';
+import { unirAnexosManual } from '@/lib/unirAnexosManual';
 
 // ============================================================
 // Manual de uso y mantenimiento (048–050). La pantalla es espejo del PDF:
@@ -74,21 +75,27 @@ export default function ManualMantenimiento() {
   const [trabajando, setTrabajando] = useState(false);
   const [mensaje, setMensaje] = useState('');
   const [guardado, setGuardado] = useState('');
+  const [nuevoAnexo, setNuevoAnexo] = useState({ archivo: null, titulo: '', proveedor: '' });
+  const [subiendo, setSubiendo] = useState(false);
   const editable = usuario?.rol === 'admin' || usuario?.rol === 'operativo';
 
   async function cargar(conIndicador = true) {
     if (conIndicador) setCargandoDatos(true);
     const s = crearClienteSupabase();
     const id = proyecto.id;
-    const [man, con, aca, sis, rut, anx] = await Promise.all([
+    const [man, con, aca, sis, rut, anx, base] = await Promise.all([
       s.from('manual_mantenimiento').select('*').eq('proyecto_id', id).maybeSingle(),
       s.from('manual_contactos').select('*').eq('proyecto_id', id).order('orden').order('empresa'),
       s.from('manual_acabados').select('*').eq('proyecto_id', id).order('espacio').order('orden'),
       s.from('manual_sistemas').select('*').eq('proyecto_id', id).order('orden'),
       s.from('manual_rutinas').select('*').eq('proyecto_id', id).order('orden'),
-      s.from('manual_anexos').select('id, titulo, proveedor').eq('proyecto_id', id).order('orden'),
+      s.from('manual_anexos').select('id, titulo, proveedor, storage_path, orden').eq('proyecto_id', id).order('orden').order('subido_en'),
+      s.from('manual_plantilla_sistemas').select('sistema'),
     ]);
-    setDatos({ manual: man.data, contactos: con.data || [], acabados: aca.data || [], sistemas: sis.data || [], rutinas: rut.data || [], anexos: anx.data || [] });
+    setDatos({
+      manual: man.data, contactos: con.data || [], acabados: aca.data || [], sistemas: sis.data || [], rutinas: rut.data || [], anexos: anx.data || [],
+      conBase: new Set((base.data || []).map((b) => b.sistema)),
+    });
     setCargandoDatos(false);
   }
   useEffect(() => { if (proyecto) cargar(); }, [proyecto]); // eslint-disable-line
@@ -140,8 +147,65 @@ export default function ManualMantenimiento() {
     const { data: { session } } = await s.auth.getSession();
     const r = await fetch(`/api/manual/${proyecto.id}/pdf`, { headers: { Authorization: `Bearer ${session?.access_token || ''}` } });
     if (!r.ok) { if (ventana) ventana.close(); setMensaje(await r.text()); return; }
-    const url = URL.createObjectURL(await r.blob());
+    let blob = await r.blob();
+    // 051: los anexos se unen al final en el navegador.
+    if (datos?.anexos?.length) {
+      setMensaje(`Uniendo ${datos.anexos.length} ${datos.anexos.length === 1 ? 'anexo' : 'anexos'}…`);
+      try {
+        const { bytes, fallidos } = await unirAnexosManual({ supabase: s, pdfBase: await blob.arrayBuffer(), anexos: datos.anexos, obra: proyecto.nombre });
+        blob = new Blob([bytes], { type: 'application/pdf' });
+        setMensaje(fallidos.length ? `No se pudieron unir: ${fallidos.join(', ')}. Revise que sean PDF, JPG o PNG válidos.` : '');
+      } catch (e) {
+        setMensaje(`El manual se descargó sin anexos: ${e.message}`);
+      }
+    }
+    const url = URL.createObjectURL(blob);
     if (ventana) ventana.location.href = url; else window.location.href = url;
+  }
+
+  async function subirAnexo() {
+    const f = nuevoAnexo.archivo;
+    if (!f) { setMensaje('Elija el archivo del anexo.'); return; }
+    const ext = (f.name.split('.').pop() || '').toLowerCase();
+    if (!['pdf', 'jpg', 'jpeg', 'png'].includes(ext)) { setMensaje('El anexo debe ser PDF, JPG o PNG.'); return; }
+    if (f.size > 25 * 1024 * 1024) { setMensaje('El archivo supera 25 MB.'); return; }
+    setSubiendo(true); setMensaje('');
+    const s = crearClienteSupabase();
+    const ruta = `${proyecto.id}/${(crypto.randomUUID && crypto.randomUUID()) || Date.now()}.${ext === 'jpeg' ? 'jpg' : ext}`;
+    const { error: e1 } = await s.storage.from('manuales').upload(ruta, f, { contentType: f.type || undefined });
+    if (e1) { setSubiendo(false); setMensaje(`No se subió el archivo: ${e1.message}`); return; }
+    const orden = (datos.anexos || []).reduce((m, x) => Math.max(m, Number(x.orden || 0)), 0) + 1;
+    const titulo = nuevoAnexo.titulo.trim() || f.name.replace(/\.[^.]+$/, '');
+    const { error: e2 } = await s.from('manual_anexos').insert({ proyecto_id: proyecto.id, titulo, proveedor: nuevoAnexo.proveedor.trim() || null, storage_path: ruta, orden });
+    setSubiendo(false);
+    if (e2) { await s.storage.from('manuales').remove([ruta]); setMensaje(`No se registró el anexo: ${e2.message}`); return; }
+    setNuevoAnexo({ archivo: null, titulo: '', proveedor: '' });
+    const input = document.getElementById('archivo-anexo'); if (input) input.value = '';
+    cargar(false);
+  }
+
+  async function quitarAnexo(a) {
+    if (!window.confirm(`¿Eliminar el anexo "${a.titulo}"? Se borra también el archivo.`)) return;
+    const s = crearClienteSupabase();
+    if (a.storage_path) await s.storage.from('manuales').remove([a.storage_path]);
+    const { error } = await s.from('manual_anexos').delete().eq('id', a.id);
+    if (error) { setMensaje(`No se eliminó: ${error.message}`); return; }
+    cargar(false);
+  }
+
+  async function verAnexo(a) {
+    const ventana = window.open('', '_blank');
+    const { data, error } = await crearClienteSupabase().storage.from('manuales').createSignedUrl(a.storage_path, 600);
+    if (error) { if (ventana) ventana.close(); setMensaje(error.message); return; }
+    if (ventana) ventana.location.href = data.signedUrl; else window.location.href = data.signedUrl;
+  }
+
+  async function restaurarSistema(sis) {
+    if (!window.confirm(`¿Volver "${sis.titulo}" a los textos base de HABITATUM? Se reemplazan título, uso, mantenimiento y qué hacer; se conservan "qué se instaló" y la garantía.`)) return;
+    const { error } = await crearClienteSupabase().rpc('manual_restaurar_sistema', { p_sistema_id: sis.id });
+    if (error) { setMensaje(error.message); return; }
+    setGuardado('Texto base restaurado'); setTimeout(() => setGuardado(''), 2000);
+    cargar(false);
   }
 
   if (cargando || !usuario || cargandoProyecto || !proyecto) return null;
@@ -359,6 +423,9 @@ export default function ManualMantenimiento() {
                     <div className="flex items-center gap-2 bg-hueso border-b-2 border-dorado px-2 py-1">
                       <Campo valor={s.titulo} editable={editable} className="font-semibold" onGuardar={(v) => v && guardarFila('manual_sistemas', s.id, { titulo: v })} />
                       {todoCosto && <span className="text-xs text-neutral-500 whitespace-nowrap">Garantía: {Number(s.garantia_meses) > 0 ? `${Number(s.garantia_meses)} meses` : 'sin garantía'}</span>}
+                      {editable && datos.conBase?.has(s.sistema) && (
+                        <button className="text-xs text-neutral-500 hover:text-carbon underline whitespace-nowrap" onClick={() => restaurarSistema(s)}>Restaurar texto base</button>
+                      )}
                       {editable && <button className={BOTON_QUITAR} aria-label="Eliminar sistema" onClick={() => quitar('manual_sistemas', s.id, `el sistema ${s.titulo}`)}>✕</button>}
                     </div>
                     <div className="p-2 grid gap-1 text-sm">
@@ -414,11 +481,45 @@ export default function ManualMantenimiento() {
               </div>
             </Seccion>
 
-            {datos.anexos.length > 0 && (
-              <Seccion n={num('Anexos')} titulo="Anexos">
-                <ul className="text-sm list-disc pl-5">{datos.anexos.map((a) => <li key={a.id}>{a.titulo}{a.proveedor ? ` · ${a.proveedor}` : ''}</li>)}</ul>
-              </Seccion>
-            )}
+            <Seccion n={datos.anexos.length ? num('Anexos') : null} titulo="Anexos"
+              nota="Manuales, fichas técnicas y certificados de proveedores (PDF, JPG o PNG hasta 25 MB). Se unen al final del PDF, cada uno con su página separadora.">
+              {datos.anexos.length === 0 ? <p className="text-sm text-neutral-400 italic">Sin anexos.</p> : (
+                <table className="w-full text-sm">
+                  <thead><tr className="text-left text-xs text-neutral-500 border-b">
+                    <th className="p-2 font-medium w-10">#</th><th className="p-2 font-medium">Título</th><th className="p-2 font-medium">Proveedor</th><th className="w-24" />
+                  </tr></thead>
+                  <tbody>
+                    {datos.anexos.map((a, i) => (
+                      <tr key={a.id} className="border-b last:border-0">
+                        <td className="p-2 text-dorado font-semibold">{i + 1}</td>
+                        <td className="p-1"><Campo valor={a.titulo} editable={editable} onGuardar={(v) => v && guardarFila('manual_anexos', a.id, { titulo: v })} /></td>
+                        <td className="p-1"><Campo valor={a.proveedor} editable={editable} onGuardar={(v) => guardarFila('manual_anexos', a.id, { proveedor: v || null })} /></td>
+                        <td className="p-2 text-right whitespace-nowrap">
+                          {a.storage_path && <button className="text-xs underline text-neutral-600 mr-2" onClick={() => verAnexo(a)}>Ver</button>}
+                          {editable && <button className={BOTON_QUITAR} aria-label="Eliminar anexo" onClick={() => quitarAnexo(a)}>✕</button>}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              )}
+              {editable && (
+                <div className="grid sm:grid-cols-4 gap-2 items-end bg-hueso rounded p-3 text-sm">
+                  <label className="sm:col-span-4 text-xs text-neutral-600">Archivo
+                    <input id="archivo-anexo" type="file" accept="application/pdf,image/jpeg,image/png"
+                      onChange={(e) => { const f = e.target.files?.[0] || null; setNuevoAnexo({ ...nuevoAnexo, archivo: f, titulo: nuevoAnexo.titulo || (f ? f.name.replace(/\.[^.]+$/, '') : '') }); }}
+                      className="block w-full text-sm mt-1" />
+                  </label>
+                  <label className="sm:col-span-2 text-xs text-neutral-600">Título
+                    <input value={nuevoAnexo.titulo} onChange={(e) => setNuevoAnexo({ ...nuevoAnexo, titulo: e.target.value })} placeholder="Ej. Manual de la estufa" className="block w-full border rounded px-2 py-1 mt-1 bg-white" />
+                  </label>
+                  <label className="text-xs text-neutral-600">Proveedor
+                    <input value={nuevoAnexo.proveedor} onChange={(e) => setNuevoAnexo({ ...nuevoAnexo, proveedor: e.target.value })} className="block w-full border rounded px-2 py-1 mt-1 bg-white" />
+                  </label>
+                  <button onClick={subirAnexo} disabled={subiendo || !nuevoAnexo.archivo} className="bg-carbon text-hueso px-3 py-1.5 rounded disabled:opacity-40">{subiendo ? 'Subiendo…' : 'Subir anexo'}</button>
+                </div>
+              )}
+            </Seccion>
           </>
         )}
       </main>
