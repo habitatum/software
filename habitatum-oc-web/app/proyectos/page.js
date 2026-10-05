@@ -127,6 +127,7 @@ export default function SeleccionarProyecto() {
 
   const [gruposPendientes, setGruposPendientes] = useState([]);
   const [vinculando, setVinculando] = useState(null); // chat_id que se está vinculando
+  const [obraElegida, setObraElegida] = useState({}); // chat_id -> proyecto elegido
 
   async function cargar() {
     const supabase = crearClienteSupabase();
@@ -142,22 +143,30 @@ export default function SeleccionarProyecto() {
   useEffect(() => { if (usuario) cargar(); }, [usuario]); // eslint-disable-line
   useEffect(() => { if (usuario?.rol === 'admin') cargarGruposPendientes(); }, [usuario]); // eslint-disable-line
 
-  // valor = "<proyectoId>|BITACORA" o "<proyectoId>|FINANZAS"
-  async function vincularGrupo(chatId, valor) {
-    if (!valor) return;
-    const [proyectoId, tipo] = valor.split('|');
-    setVinculando(chatId);
+  // Vincula un grupo pendiente a una obra con un uso explícito (Bitácora o Finanzas).
+  // Pide confirmación nombrando el uso y avisa si reemplaza el grupo actual de esa obra.
+  async function vincularGrupo(grupo, proyectoId, tipo) {
+    const p = proyectos.find((x) => x.id === proyectoId);
+    if (!p) { alert('Elige primero la obra.'); return; }
+    const esFinanzas = tipo === 'FINANZAS';
+    const uso = esFinanzas ? 'FINANZAS (facturas → Órdenes de Compra)' : 'BITÁCORA (fotos de avance)';
+    const actual = esFinanzas ? p.telegram_chat_id_finanzas : p.telegram_chat_id;
+    const aviso = actual ? `\n\nATENCIÓN: ${p.nombre} ya tiene un grupo de ${esFinanzas ? 'finanzas' : 'bitácora'}; se reemplazará por este.` : '';
+    if (!window.confirm(`¿Vincular "${grupo.titulo}" como ${uso} de ${p.nombre}?${aviso}`)) return;
+    setVinculando(grupo.chat_id);
     const supabase = crearClienteSupabase();
-    const columna = tipo === 'FINANZAS' ? 'telegram_chat_id_finanzas' : 'telegram_chat_id';
-    const { error: err } = await supabase.from('proyectos').update({ [columna]: chatId }).eq('id', proyectoId);
-    if (!err && tipo === 'FINANZAS') await activarBotonesBot();
-    if (!err) {
-      await supabase.from('telegram_grupos_pendientes').delete().eq('chat_id', chatId);
-      cargar();
-      cargarGruposPendientes();
-    } else {
-      alert('No se pudo vincular: ' + err.message);
+    const columna = esFinanzas ? 'telegram_chat_id_finanzas' : 'telegram_chat_id';
+    const { data: filas, error: err } = await supabase.from('proyectos').update({ [columna]: grupo.chat_id }).eq('id', proyectoId).select('id');
+    if (err || !filas?.length) {
+      alert('No se pudo vincular: ' + (err?.message || 'la obra no se actualizó (revisa que tengas rol de administrador).'));
+      setVinculando(null);
+      return;
     }
+    if (esFinanzas) await activarBotonesBot();
+    // Solo sale de pendientes si la vinculación quedó guardada.
+    await supabase.from('telegram_grupos_pendientes').delete().eq('chat_id', grupo.chat_id);
+    cargar();
+    cargarGruposPendientes();
     setVinculando(null);
   }
 
@@ -531,7 +540,7 @@ export default function SeleccionarProyecto() {
                       )}
                       {p.telegram_chat_id ? (
                         <div className="flex items-center gap-2 mt-2">
-                          <p className="text-xs text-green-700">Grupo de Telegram vinculado</p>
+                          <p className="text-xs text-green-700">Grupo de bitácora vinculado (fotos de avance)</p>
                           {usuario.rol === 'admin' && (
                             <button onClick={(e) => desvincularGrupo(p.id, e)} className="text-xs text-neutral-400 hover:text-red-600 underline">
                               Desvincular
@@ -539,7 +548,7 @@ export default function SeleccionarProyecto() {
                           )}
                         </div>
                       ) : (
-                        <p className="text-xs text-neutral-400 mt-2">Sin grupo de Telegram vinculado</p>
+                        <p className="text-xs text-neutral-400 mt-2">Sin grupo de bitácora vinculado</p>
                       )}
                       {(p.telegram_chat_id_finanzas ? (
                         <div className="flex items-center gap-2 mt-1">
@@ -574,24 +583,32 @@ export default function SeleccionarProyecto() {
             </p>
             <div className="space-y-2">
               {gruposPendientes.map((g) => (
-                <div key={g.chat_id} className="flex items-center gap-2 bg-white rounded border p-2">
-                  <span className="text-sm flex-1">{g.titulo}</span>
-                  <select
-                    defaultValue=""
-                    disabled={vinculando === g.chat_id}
-                    onChange={(e) => vincularGrupo(g.chat_id, e.target.value)}
-                    className="border rounded px-2 py-1 text-sm"
-                  >
-                    <option value="" disabled>Vincular a proyecto...</option>
-                    <optgroup label="Bitácora (fotos de avance)">
-                      {proyectos.map((p) => <option key={p.id + 'b'} value={`${p.id}|BITACORA`}>{p.nombre}</option>)}
-                    </optgroup>
-                    <optgroup label="Finanzas (facturas → OC)">
-                      {proyectos.map((p) => (
-                        <option key={p.id + 'f'} value={`${p.id}|FINANZAS`}>{p.nombre}</option>
-                      ))}
-                    </optgroup>
-                  </select>
+                <div key={g.chat_id} className="bg-white rounded border p-3 space-y-2">
+                  <p className="text-sm font-medium">{g.titulo}</p>
+                  <div className="flex flex-col sm:flex-row sm:items-center gap-2">
+                    <select
+                      value={obraElegida[g.chat_id] || ''}
+                      disabled={vinculando === g.chat_id}
+                      onChange={(e) => setObraElegida({ ...obraElegida, [g.chat_id]: e.target.value })}
+                      className="border rounded px-2 py-1.5 text-sm sm:flex-1"
+                      aria-label={`Obra para el grupo ${g.titulo}`}
+                    >
+                      <option value="" disabled>1. Elige la obra…</option>
+                      {proyectos.map((p) => <option key={p.id} value={p.id}>{p.nombre}</option>)}
+                    </select>
+                    <div className="flex gap-2">
+                      <button
+                        disabled={!obraElegida[g.chat_id] || vinculando === g.chat_id}
+                        onClick={() => vincularGrupo(g, obraElegida[g.chat_id], 'BITACORA')}
+                        className="border border-carbon text-carbon px-3 py-1.5 rounded text-sm disabled:opacity-40 whitespace-nowrap"
+                      >2. Vincular como Bitácora</button>
+                      <button
+                        disabled={!obraElegida[g.chat_id] || vinculando === g.chat_id}
+                        onClick={() => vincularGrupo(g, obraElegida[g.chat_id], 'FINANZAS')}
+                        className="bg-carbon text-hueso px-3 py-1.5 rounded text-sm disabled:opacity-40 whitespace-nowrap"
+                      >2. Vincular como Finanzas</button>
+                    </div>
+                  </div>
                 </div>
               ))}
             </div>
