@@ -8,6 +8,7 @@ import { crearClienteSupabase } from '@/lib/supabaseClient';
 import { formatoPesos } from '@/lib/calculosOC';
 import NavBar from '@/components/NavBar';
 import BotonVolver from '@/components/BotonVolver';
+import { BotonComprobante, GastosCajaMenor } from '@/lib/Comprobantes';
 import { compartirOAbrirArchivo } from '@/lib/compartirArchivo';
 
 export default function DetalleOrdenCompra() {
@@ -28,6 +29,8 @@ export default function DetalleOrdenCompra() {
   const [alertasAmortizacion, setAlertasAmortizacion] = useState([]);
   // Corte de cobro cerrado que incluye esta orden (046) y sus líneas cortadas.
   const [corteCerrado, setCorteCerrado] = useState(null);
+  // Factura o comprobante original que llegó por el bot (almacenamiento soportes-oc).
+  const [soportePath, setSoportePath] = useState(null);
 
   async function cargar() {
     const supabase = crearClienteSupabase();
@@ -52,6 +55,8 @@ export default function DetalleOrdenCompra() {
       .eq('orden_compra_id', id)
       .maybeSingle();
     setCorteCerrado(enCorte || null);
+    const { data: base } = await supabase.from('ordenes_compra').select('soporte_path').eq('id', id).maybeSingle();
+    setSoportePath(base?.soporte_path || null);
     if (ocData?.contrato_id) {
       const { data: acum } = await supabase.from('v_acumulados_contrato').select('*').eq('contrato_id', ocData.contrato_id).single();
       setAcumulados(acum);
@@ -135,6 +140,7 @@ export default function DetalleOrdenCompra() {
                 🔒 Corte de cobro {corteCerrado.corte_numero} (cerrado)
               </span>
             )}
+            {soportePath && <BotonComprobante ruta={soportePath} texto="Ver factura / comprobante" className="block mt-1" />}
           </div>
           <div className="flex items-center gap-2">
             {usuario.rol === 'admin' && oc.estado === 'VIGENTE' && (
@@ -173,6 +179,9 @@ export default function DetalleOrdenCompra() {
             )}
           </div>
         ))}
+
+        {/* Si es la OC de legalización de caja menor: cada gasto con su comprobante. */}
+        <GastosCajaMenor proyecto={proyecto} ocId={id} />
 
         {usuario.rol === 'admin' && auditoria && (
           <div className="bg-neutral-50 border border-neutral-200 rounded-lg p-3 text-xs text-neutral-500 space-y-0.5">

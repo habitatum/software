@@ -1,6 +1,7 @@
 'use client';
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
+import { GastosCajaMenor } from '@/lib/Comprobantes';
 import { useUsuarioActual } from '@/lib/useUsuarioActual';
 import { useProyectoActual } from '@/lib/useProyectoActual';
 import { crearClienteSupabase } from '@/lib/supabaseClient';
@@ -104,6 +105,9 @@ setImputacionCompleta({});
             </Link>
           )}
         </div>
+
+        {/* Caja menor pendiente de legalizar (gastos enviados al bot con "CAJA MENOR"). */}
+        <div className="mb-4"><GastosCajaMenor proyecto={proyecto} plegable /></div>
 
         <div className="flex gap-3 mb-4">
           <input
