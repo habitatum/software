@@ -18,6 +18,8 @@ const num = (v) => (v === '' || v === null || v === undefined ? 0 : Number(v));
 // Valida y arma los datos financieros de un proyecto TODO COSTO (tabla proyectos_finanzas,
 // que por seguridad solo puede leer/escribir un admin).
 function validarFinanzas(f) {
+  // El tope de caja menor aplica a todas las obras.
+  if (num(f.topeCajaMenor) <= 0) return { ok: false, error: 'El tope de caja menor debe ser mayor a 0.' };
   if (f.modelo !== 'TODO_COSTO') return { ok: true };
   if (f.modalidad === 'AIU') {
     if (num(f.porcentajeA) + num(f.porcentajeI) + num(f.porcentajeU) <= 0) return { ok: false, error: 'Define los % de A, I y U del proyecto.' };
@@ -87,13 +89,14 @@ function CamposContratacion({ f, set }) {
             <option value="HABITATUM">Cuenta HABITATUM</option>
             <option value="PERSONAL">Cuenta personal</option>
           </select>
-          <label className="text-xs text-neutral-600">Tope de caja menor (se legaliza en una OC al alcanzarlo)</label>
-          <input type="number" value={f.topeCajaMenor} onChange={(e) => set({ topeCajaMenor: e.target.value })} className={CAMPO} />
           {f.modalidad === 'SIN_FACTURA' && (
             <p className="text-[11px] text-neutral-500">Sin facturación: recuerda desmarcar la marca HABITATUM y poner tu nombre como emisor de los documentos.</p>
           )}
         </div>
       )}
+      {/* Aplica a todas las obras (todo costo y administración delegada): lo usa el bot de finanzas. */}
+      <label className="text-xs text-neutral-600 block">Tope de caja menor (al alcanzarlo, el bot legaliza los gastos en una OC)</label>
+      <input type="number" min="1" value={f.topeCajaMenor} onChange={(e) => set({ topeCajaMenor: e.target.value })} className={CAMPO} />
     </div>
   );
 }
