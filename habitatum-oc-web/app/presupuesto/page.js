@@ -41,6 +41,8 @@ export default function Presupuesto() {
   const [modalAgregarItem, setModalAgregarItem] = useState(false);
   const [nuevoItem, setNuevoItem] = useState({ codigo: '', descripcion: '', unidad: '', cantidad: '', valor_unitario: '' });
   const [guardandoItem, setGuardandoItem] = useState(false);
+  // Edición de un ítem adicional existente (solo admin). null = la ventana agrega uno nuevo.
+  const [editandoItemId, setEditandoItemId] = useState(null);
 
   async function cargar() {
     setCargandoDatos(true);
@@ -206,8 +208,21 @@ export default function Presupuesto() {
   }
 
 function abrirAgregarItem() {
+    setError('');
+    setEditandoItemId(null);
     setModalAgregarItem(true);
     setNuevoItem({ codigo: '', descripcion: '', unidad: '', cantidad: '', valor_unitario: '' });
+  }
+
+  // Abre la misma ventana con los datos del adicional para editarlo.
+  function abrirEditarItem(it) {
+    setError('');
+    setEditandoItemId(it.id);
+    setNuevoItem({
+      codigo: it.codigo || '', descripcion: it.descripcion || '', unidad: it.unidad || '',
+      cantidad: it.cantidad ?? '', valor_unitario: it.valor_unitario ?? '',
+    });
+    setModalAgregarItem(true);
   }
 
   function cerrarAgregarItem() {
@@ -222,6 +237,30 @@ function abrirAgregarItem() {
       const cantidad = Number(nuevoItem.cantidad) || 0;
       const valorUnitario = Number(nuevoItem.valor_unitario) || 0;
       const valorParcial = cantidad * valorUnitario;
+      const codigo = (nuevoItem.codigo || '').trim();
+
+      // El código no se puede repetir en el presupuesto: los contratos lo usan para enlazar sus cortes.
+      const repetido = capitulos.some((c) => (c.presupuesto_items || []).some((x) => x.id !== editandoItemId && (x.codigo || '').trim() === codigo));
+      if (repetido) throw new Error(`El código ${codigo} ya existe en este presupuesto. Usa otro (por ejemplo A.02).`);
+
+      if (editandoItemId) {
+        const capItem = capitulos.find((c) => (c.presupuesto_items || []).some((x) => x.id === editandoItemId));
+        const { error: errUpd } = await supabase.from('presupuesto_items').update({
+          codigo, descripcion: nuevoItem.descripcion, unidad: nuevoItem.unidad,
+          cantidad, valor_unitario: valorUnitario, valor_parcial: valorParcial,
+        }).eq('id', editandoItemId);
+        if (errUpd) throw errUpd;
+        // El total del capítulo se recalcula sumando sus ítems (no por diferencia).
+        const { data: itemsCap, error: errItems } = await supabase.from('presupuesto_items').select('valor_parcial').eq('capitulo_id', capItem.id);
+        if (errItems) throw errItems;
+        const totalCap = (itemsCap || []).reduce((a, x) => a + Number(x.valor_parcial || 0), 0);
+        const { error: errCap } = await supabase.from('presupuesto_capitulos').update({ valor_presupuestado: totalCap }).eq('id', capItem.id);
+        if (errCap) throw errCap;
+        setModalAgregarItem(false);
+        setEditandoItemId(null);
+        await cargar();
+        return;
+      }
 
       // Los ítems adicionales van siempre a un capítulo "Adicionales" al
       // final del presupuesto (se crea la primera vez que se usa). Así el
@@ -248,7 +287,7 @@ function abrirAgregarItem() {
       const orden = (capAdicionales.presupuesto_items || []).length;
       const { error: errInsert } = await supabase.from('presupuesto_items').insert({
         capitulo_id: capAdicionales.id,
-        codigo: nuevoItem.codigo,
+        codigo,
         descripcion: nuevoItem.descripcion,
         unidad: nuevoItem.unidad,
         cantidad,
@@ -268,7 +307,7 @@ function abrirAgregarItem() {
       setModalAgregarItem(false);
       await cargar();
     } catch (err) {
-      setError(err.message || 'No se pudo agregar el ítem adicional.');
+      setError(err.message || (editandoItemId ? 'No se pudo editar el ítem adicional.' : 'No se pudo agregar el ítem adicional.'));
     } finally {
       setGuardandoItem(false);
     }
@@ -629,7 +668,16 @@ function abrirAgregarItem() {
                               <td className="p-3 text-right">{formatoPesos(pres - ej)}</td>
                               <td className="p-3 text-right">{pres > 0 ? ((ej / pres) * 100).toFixed(0) : 0}%</td>
                               <td className="p-3"></td>
-                              <td className="p-3 text-right">
+                              <td className="p-3 text-right whitespace-nowrap">
+                                {usuario.rol === 'admin' && (cap.codigo === 'ADIC' || cap.nombre === 'Adicionales') && (
+                                  <button
+                                    onClick={() => abrirEditarItem(it)}
+                                    className="text-xs border rounded px-2 py-1 mr-1 hover:bg-gris-calido/20 text-dorado"
+                                    title="Editar código, descripción, cantidad y valor de este adicional"
+                                  >
+                                    ✎ Editar
+                                  </button>
+                                )}
                                 <button
                                   onClick={() => inspeccionarItem(it)}
                                   className="text-xs border rounded px-2 py-1 hover:bg-gris-calido/20"
@@ -716,8 +764,10 @@ function abrirAgregarItem() {
           <div className="bg-white rounded-lg max-w-md w-full">
             <div className="bg-carbon text-hueso px-5 py-3 flex items-center justify-between rounded-t-lg">
               <div>
-                <p className="font-semibold">Agregar ítem adicional</p>
-                <p className="text-xs text-hueso/70">Se agrega al capítulo &quot;Adicionales&quot; (se crea si no existe todavía)</p>
+                <p className="font-semibold">{editandoItemId ? 'Editar ítem adicional' : 'Agregar ítem adicional'}</p>
+                <p className="text-xs text-hueso/70">{editandoItemId
+                  ? 'Las órdenes imputadas y los contratos enlazados a este ítem se mantienen; el total del capítulo se recalcula.'
+                  : 'Se agrega al capítulo "Adicionales" (se crea si no existe todavía)'}</p>
               </div>
               <button type="button" onClick={cerrarAgregarItem} className="text-hueso hover:text-dorado text-lg leading-none px-2">✕</button>
             </div>
@@ -747,10 +797,11 @@ function abrirAgregarItem() {
               <p className="text-right text-sm text-neutral-500">
                 Valor parcial: {formatoPesos((Number(nuevoItem.cantidad) || 0) * (Number(nuevoItem.valor_unitario) || 0))}
               </p>
+              {error && <p role="alert" className="text-xs text-red-600 bg-red-50 border border-red-200 rounded p-2">{error}</p>}
               <div className="flex justify-end gap-2 pt-2">
                 <button type="button" onClick={cerrarAgregarItem} className="text-sm px-3 py-1.5 rounded border">Cancelar</button>
                 <button type="submit" disabled={guardandoItem} className="text-sm px-3 py-1.5 rounded bg-carbon text-hueso disabled:opacity-50">
-                  {guardandoItem ? 'Guardando…' : 'Guardar ítem'}
+                  {guardandoItem ? 'Guardando…' : (editandoItemId ? 'Guardar cambios' : 'Guardar ítem')}
                 </button>
               </div>
             </form>
