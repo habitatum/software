@@ -16,6 +16,16 @@ export default function CantidadesCorte({ presupuesto, capitulos, cortes, corte,
   const [estado, setEstado] = useState('');
   const [error, setError] = useState('');
   const numero = corte ? corte.numero : cortes.length + 1;
+  // Un corte cerrado ya se le presentó al cliente: sus cantidades se abren
+  // bloqueadas y solo el admin las desbloquea, con doble confirmación.
+  const [desbloqueado, setDesbloqueado] = useState(false);
+  const editable = puedeEditar && (!corte || desbloqueado);
+
+  function desbloquear() {
+    if (!window.confirm(`ADVERTENCIA: el Corte ${numero} ya está cerrado y se le presentó al cliente.\n\nCambiar sus cantidades modifica el documento entregado y los acumulados de los cortes siguientes. Los valores en pesos no cambian.\n\n¿Quieres desbloquear las cantidades para editarlas?`)) return;
+    if (!window.confirm(`Confirma de nuevo: ¿desbloquear las cantidades del Corte ${numero}?\n\nCada cambio queda registrado con tu usuario y la fecha.`)) return;
+    setDesbloqueado(true);
+  }
 
   async function cargarEnCurso() {
     const { data } = await crearClienteSupabase().from('presupuesto_cantidades_en_curso')
@@ -71,13 +81,32 @@ export default function CantidadesCorte({ presupuesto, capitulos, cortes, corte,
             <p className="font-semibold">Cantidades del Corte {numero}{corte ? ' (cerrado)' : ' (en curso)'}</p>
             <p className="text-xs text-gris-calido">
               {corte
-                ? (puedeEditar ? 'Solo se corrigen las cantidades; los valores del corte no cambian.' : 'Consulta.')
+                ? (desbloqueado ? 'Edición desbloqueada: solo se corrigen las cantidades; los valores del corte no cambian.' : 'Corte cerrado: cantidades bloqueadas.')
                 : 'Escribe la cantidad medida de cada ítem antes de cerrar el corte. Se guarda al salir de la casilla.'}
               {estado && <span className="ml-2 text-green-300">· {estado}</span>}
             </p>
           </div>
-          <button type="button" onClick={onClose} className="text-hueso hover:text-dorado text-lg leading-none px-2" aria-label="Cerrar">✕</button>
+          <div className="flex items-center gap-2">
+            {corte && puedeEditar && !desbloqueado && (
+              <button type="button" onClick={desbloquear}
+                className="text-xs border border-dorado text-dorado rounded px-3 py-1.5 hover:bg-white/10 whitespace-nowrap">
+                🔒 Desbloquear para editar
+              </button>
+            )}
+            {corte && desbloqueado && (
+              <button type="button" onClick={() => setDesbloqueado(false)}
+                className="text-xs border border-gris-calido text-hueso rounded px-3 py-1.5 hover:bg-white/10 whitespace-nowrap">
+                Bloquear de nuevo
+              </button>
+            )}
+            <button type="button" onClick={onClose} className="text-hueso hover:text-dorado text-lg leading-none px-2" aria-label="Cerrar">✕</button>
+          </div>
         </div>
+        {corte && desbloqueado && (
+          <p role="alert" className="bg-amber-50 border-b border-amber-300 text-amber-900 text-xs px-5 py-2">
+            Estás editando las cantidades del Corte {numero}, que ya se le presentó al cliente. Cada cambio queda registrado con tu usuario. Al cerrar esta ventana se vuelve a bloquear.
+          </p>
+        )}
 
         <div className="px-5 py-2 border-b flex items-center justify-between gap-3 text-sm">
           <label className="flex items-center gap-2 cursor-pointer">
@@ -119,7 +148,7 @@ export default function CantidadesCorte({ presupuesto, capitulos, cortes, corte,
                             <td className="p-2 text-right tabular-nums">{pres}</td>
                             <td className="p-2 text-right tabular-nums text-neutral-500">{ant || '—'}</td>
                             <td className="p-1 text-right">
-                              {puedeEditar ? (
+                              {editable ? (
                                 <input key={`${it.id}-${este ?? ''}`} type="number" min="0" step="any" defaultValue={este ?? ''}
                                   aria-label={`Cantidad del corte ${numero} · ${it.codigo}`}
                                   onBlur={(e) => guardar(it.id, e.target.value)}
