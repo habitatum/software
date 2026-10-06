@@ -110,16 +110,16 @@ export default function FormularioOC({
       {/* Ítems */}
       <Seccion titulo="Ítems">
         <div className="overflow-x-auto rounded-md border border-neutral-200">
-          <table className="w-full min-w-[980px] text-sm border-collapse table-fixed">
+          <table className="w-full min-w-[960px] text-sm border-collapse table-fixed">
             <colgroup>
-              <col style={{ width: '28.6%' }} />
+              <col style={{ width: '26%' }} />
+              <col style={{ width: '10%' }} />
+              <col style={{ width: '7%' }} />
               <col style={{ width: '13%' }} />
-              <col style={{ width: '6%' }} />
-              <col style={{ width: '13.7%' }} />
-              <col style={{ width: '10.3%' }} />
-              <col style={{ width: '5.2%' }} />
-              <col style={{ width: '19.8%' }} />
-              <col style={{ width: '3.4%' }} />
+              <col style={{ width: '11%' }} />
+              <col style={{ width: '6.5%' }} />
+              <col style={{ width: '22.5%' }} />
+              <col style={{ width: '4%' }} />
             </colgroup>
             <thead>
               <tr className="text-left text-xs text-neutral-500 bg-gris-calido/30">
@@ -173,7 +173,8 @@ export default function FormularioOC({
                     </td>
                     <td className="py-2 px-3">
                       <button type="button" onClick={() => setModalImputacionIndex(i)}
-                        className="text-xs border rounded px-2 py-1.5 w-full text-left hover:bg-gris-calido/20 truncate">
+                        title={resumenImputacion(it.asignaciones)}
+                        className="text-xs border rounded px-2 py-1.5 w-full text-left hover:bg-gris-calido/20 line-clamp-2 break-words">
                         {resumenImputacion(it.asignaciones)}
                       </button>
                     </td>
@@ -465,7 +466,7 @@ function SelectorItemPresupuesto({ valor, presupuestoCapitulos, ejecutadosPresup
   const seleccionado = valor ? mapaItems[valor] : null;
 
   return (
-    <div className="flex-1">
+    <div className="flex-1 min-w-0">
       <button type="button" onClick={() => setAbierto(!abierto)}
         className="border border-neutral-300 rounded-md px-3 py-2 text-sm w-full bg-white text-left flex items-center justify-between gap-2">
         <span className={`truncate ${seleccionado ? '' : 'text-neutral-400'}`}>
@@ -503,7 +504,7 @@ function SelectorItemPresupuesto({ valor, presupuestoCapitulos, ejecutadosPresup
                   <button key={pi.id} type="button"
                     onClick={() => { onChange(pi.id); setAbierto(false); }}
                     className={`w-full text-left px-3 py-2 text-sm hover:bg-gris-calido/20 flex items-center justify-between gap-3 ${valor === pi.id ? 'bg-dorado/10' : ''}`}>
-                    <span className="truncate">{pi.codigo} · {pi.descripcion}</span>
+                    <span className="truncate min-w-0 flex-1" title={`${pi.codigo} · ${pi.descripcion}`}>{pi.codigo} · {pi.descripcion}</span>
                     <span className="flex items-center gap-3 text-xs shrink-0 tabular-nums">
                       <span className="text-neutral-500 w-20 text-right">{formatoPesos(pres)}</span>
                       <span className="text-blue-600 w-20 text-right">{formatoPesos(ejec)}</span>
@@ -576,7 +577,7 @@ function ModalImputacion({ item, indice = -1, factor = 1, items, presupuestoCapi
 
   return (
     <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4" onClick={intentarCerrar}>
-      <div className="bg-white rounded-lg shadow-lg max-w-2xl w-full max-h-[80vh] overflow-auto" onClick={(e) => e.stopPropagation()}>
+      <div className="bg-white rounded-lg shadow-lg max-w-5xl w-full max-h-[90vh] overflow-y-auto overflow-x-hidden" onClick={(e) => e.stopPropagation()}>
         <div className="bg-carbon text-hueso px-5 py-3 flex items-center justify-between rounded-t-lg sticky top-0">
           <div>
             <p className="font-semibold">Imputar al presupuesto</p>

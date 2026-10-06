@@ -242,7 +242,7 @@ export default function EditarOrdenCompra() {
   return (
     <div>
       <NavBar usuario={usuario} proyecto={proyecto} />
-      <main className="p-4 sm:p-8 max-w-4xl mx-auto">
+      <main className="p-4 sm:p-8 max-w-6xl mx-auto">
         <BotonVolver respaldo={`/ordenes-compra/${id}`} hayCambios={tocado} />
         <h1 className="text-2xl font-semibold mb-1">Editar {folio}</h1>
         <p className="text-sm text-neutral-500 mb-6">{proyecto?.nombre}</p>
