@@ -64,9 +64,10 @@ function columnaLetra(n) {
 //     Indirectos, Anticipos, Total Control Presupuestal y Administración)
 //     son siempre la sumatoria de esa misma casilla en cada corte
 //     (Corte 1 + Corte 2 + Corte 3...).
-// La CANTIDAD de cada corte se deja en blanco a propósito: la pone el usuario
-// a mano en Excel (el software no mide cantidades físicas ejecutadas, solo el
-// valor en pesos ya imputado a cada ítem del presupuesto).
+// La CANTIDAD de cada corte es la cantidad medida registrada en la app
+// (Presupuesto → Cantidades del corte, migración 052). Si un ítem no la tiene,
+// queda en blanco y se puede llenar a mano. La cantidad de las OC (materiales,
+// jornales) no se usa: no mide la obra presentada al cliente.
 //
 // esPreview: cuando es true, el último "corte" incluido (numero === hastaNumero)
 // en realidad es un corte virtual (ver construirCorteVirtual en calcularCorte.js)
@@ -220,10 +221,10 @@ export async function exportarControlPresupuestal({ proyecto, presupuesto, capit
         acumValCapPorCorte[j] += val;
         if (esIndirecto) sumaIndirectoPorCorte[j] += val; else sumaDirectoPorCorte[j] += val;
         const col = colBloqueCorte(j);
-        // Cantidad de este corte: EN BLANCO. La pone el usuario a mano en
-        // Excel — el software solo conoce el valor en pesos ya imputado a
-        // este ítem, no la cantidad física realmente ejecutada.
-        hoja.getCell(fila, col).value = null;
+        // Cantidad de este corte: la cantidad medida registrada en la app
+        // (052). Si no se registró, queda en blanco para llenarla a mano.
+        const cantMedida = registro?.cantidad_medida;
+        hoja.getCell(fila, col).value = cantMedida === null || cantMedida === undefined ? null : Number(cantMedida);
         hoja.getCell(fila, col + 1).value = { formula: `IFERROR(${columnaLetra(col + 2)}${fila}/${columnaLetra(col)}${fila},"")` };
         hoja.getCell(fila, col + 2).value = val || null;
         [col, col + 1, col + 2].forEach((cc) => estilizarCelda(hoja.getCell(fila, cc), { alineacion: 'right' }));

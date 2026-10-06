@@ -192,7 +192,12 @@ export async function calcularPendientePorCortar(supabase, proyectoId, ultimoCor
   // Resumen de Órdenes de Compra del periodo (pestaña "Órdenes de Compra" del Excel).
   const ocs = await obtenerOCsEnRango(supabase, proyectoId, fechaDesde, fechaHasta);
   const anticiposPendientes = await calcularAnticiposPendientes(supabase, proyectoId, fechaHasta);
-  return { ocs, lineas: filas, porItem, ajustes, totalNuevo, totalAjustes, fechaDesde, fechaHasta, anticiposPendientes };
+  // Cantidades medidas escritas para el corte en curso (052).
+  const { data: cant } = await supabase.from('presupuesto_cantidades_en_curso')
+    .select('presupuesto_item_id, cantidad').eq('presupuesto_id', presupuestoId);
+  const cantidades = {};
+  (cant || []).forEach((c) => { cantidades[c.presupuesto_item_id] = Number(c.cantidad); });
+  return { ocs, lineas: filas, porItem, ajustes, totalNuevo, totalAjustes, fechaDesde, fechaHasta, anticiposPendientes, cantidades };
 }
 
 // Cierra un corte nuevo en una sola transacción en la base de datos
@@ -212,11 +217,17 @@ export async function cerrarCorte(supabase, { presupuestoId, fechaHasta }) {
 // para poder exportar el Control Presupuestal "a hoy" — con el mismo formato
 // del Excel de un corte — sin necesidad de cerrar oficialmente el corte.
 export function construirCorteVirtual(pendiente, mapaItems, numero) {
+  const cantidades = pendiente.cantidades || {};
   const items = Object.entries(pendiente.porItem || {}).map(([presupuesto_item_id, v]) => ({
     presupuesto_item_id,
     cantidad_ejecutada: v.cantidad,
     valor_ejecutado: v.valor,
+    cantidad_medida: cantidades[presupuesto_item_id] ?? null,
   }));
+  // Ítems con cantidad medida pero sin valor en el periodo (052).
+  Object.entries(cantidades).forEach(([presupuesto_item_id, q]) => {
+    if (!pendiente.porItem?.[presupuesto_item_id]) items.push({ presupuesto_item_id, cantidad_ejecutada: 0, valor_ejecutado: 0, cantidad_medida: q });
+  });
   // Las líneas ya vienen calculadas por la base de datos (NUEVO y AJUSTE).
   const ocs = (pendiente.lineas || []).map((l) => ({
     orden_compra_id: l.orden_compra_id,

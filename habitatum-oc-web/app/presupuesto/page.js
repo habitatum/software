@@ -7,6 +7,7 @@ import { formatoPesos } from '@/lib/calculosOC';
 import { parsearPresupuesto } from '@/lib/parsePresupuesto';
 import { calcularPendientePorCortar, cerrarCorte, mapaItemsPresupuesto, construirCorteVirtual, obtenerOCsEnRango } from '@/lib/calcularCorte';
 import { exportarControlPresupuestal, prepararCortesParaExportar } from '@/lib/exportarControlPresupuestal';
+import CantidadesCorte from '@/lib/CantidadesCorte';
 import NavBar from '@/components/NavBar';
 import PresupuestoTodoCosto from '@/lib/PresupuestoTodoCosto';
 import SinImputar from '@/lib/SinImputar';
@@ -43,6 +44,8 @@ export default function Presupuesto() {
   const [guardandoItem, setGuardandoItem] = useState(false);
   // Edición de un ítem adicional existente (solo admin). null = la ventana agrega uno nuevo.
   const [editandoItemId, setEditandoItemId] = useState(null);
+  // Ventana de cantidades medidas (052): null, 'EN_CURSO' o el número de un corte cerrado.
+  const [cantidadesDe, setCantidadesDe] = useState(null);
 
   async function cargar() {
     setCargandoDatos(true);
@@ -540,7 +543,11 @@ function abrirAgregarItem() {
                         <td className="py-2 text-right">{formatoPesos(valorCorte)}</td>
                         <td className="py-2 text-right text-neutral-500">{formatoPesos(anticiposCorte)}</td>
                         <td className="py-2 text-right font-semibold">{formatoPesos(totalAcumulado)}</td>
-                        <td className="py-2 text-right">
+                        <td className="py-2 text-right whitespace-nowrap">
+                          <button onClick={() => setCantidadesDe(c.numero)} className="text-xs border rounded px-2 py-1 mr-1 hover:bg-gris-calido/20"
+                            title={usuario.rol === 'admin' ? 'Ver o corregir las cantidades medidas de este corte' : 'Ver las cantidades medidas de este corte'}>
+                            Cantidades
+                          </button>
                           <button onClick={() => exportar(c.numero)} disabled={exportando !== null} className="text-xs border rounded px-2 py-1 hover:bg-gris-calido/20">
                             {exportando === c.numero ? 'Exportando...' : 'Exportar hasta aquí'}
                           </button>
@@ -582,6 +589,13 @@ function abrirAgregarItem() {
                     <p className="font-semibold text-base">{formatoPesos(pendiente.anticiposPendientes)}</p>
                   </div>
                   <div className="flex items-center gap-2 flex-wrap">
+                    <button
+                      onClick={() => setCantidadesDe('EN_CURSO')}
+                      className="text-sm border border-dorado text-dorado rounded px-3 py-1.5 hover:bg-hueso"
+                      title="Cantidades medidas que se le presentan al cliente en este corte"
+                    >
+                      Cantidades del Corte {cortes.length + 1}
+                    </button>
                     <button
                       onClick={exportarSinCorte}
                       disabled={exportando !== null}
@@ -757,6 +771,19 @@ function abrirAgregarItem() {
             </div>
           </div>
         </div>
+      )}
+
+      {cantidadesDe !== null && presupuesto && (
+        <CantidadesCorte
+          presupuesto={presupuesto}
+          capitulos={capitulos}
+          cortes={cortes}
+          corte={cantidadesDe === 'EN_CURSO' ? null : cortes.find((c) => c.numero === cantidadesDe) || null}
+          valoresEnCurso={pendiente?.porItem || {}}
+          puedeEditar={cantidadesDe === 'EN_CURSO' ? (usuario.rol === 'admin' || usuario.rol === 'operativo') : usuario.rol === 'admin'}
+          onGuardado={cargar}
+          onClose={() => { setCantidadesDe(null); if (cantidadesDe === 'EN_CURSO') cargar(); }}
+        />
       )}
 
       {modalAgregarItem && (
