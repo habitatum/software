@@ -55,7 +55,8 @@ function columnaLetra(n) {
 //   - ANTICIPOS PENDIENTES, por corte = variación del saldo de anticipos en
 //     ese periodo (saldo al cierre de este corte - saldo al cierre del
 //     corte anterior), para que sea sumable sin duplicar.
-//   - ADMINISTRACIÓN, por corte = TOTAL COSTOS DIRECTOS de ese corte × % —
+//   - ADMINISTRACIÓN, por corte = (TOTAL COSTOS DIRECTOS + ANTICIPOS
+//     PENDIENTES DE AMORTIZAR de ese corte) × % —
 //     el % se escribe siempre a mano en la celda de "Presupuesto" de esa
 //     fila (columna F) y aplica igual a todas las columnas.
 //   - (La fila TOTAL CONTROL PRESUPUESTAL se eliminó el 06/10/2026.)
@@ -421,8 +422,9 @@ export async function exportarControlPresupuestal({ proyecto, presupuesto, capit
   fila += 1;
 
   // ---------- Administración ----------
-  // Administración = TOTAL COSTOS DIRECTOS × % (por corte y acumulado). Los
-  // indirectos y los anticipos NO entran en la base. El % lo escribe siempre
+  // Administración = (TOTAL COSTOS DIRECTOS + ANTICIPOS PENDIENTES DE
+  // AMORTIZAR) × % (por corte y acumulado). Los indirectos NO entran en la
+  // base. El % lo escribe siempre
   // el usuario a mano en la celda de "Presupuesto" de esta fila (columna F):
   // la celda sale vacía y todas las columnas se recalculan al escribirlo.
   const filaAdmin = fila;
@@ -431,7 +433,7 @@ export async function exportarControlPresupuestal({ proyecto, presupuesto, capit
 
   hoja.mergeCells(fila, 1, fila, 5);
   const celdaTextoAdmin = hoja.getCell(fila, 1);
-  celdaTextoAdmin.value = 'ADMINISTRACIÓN = TOTAL COSTOS DIRECTOS × % (escriba el % en la celda de la derecha)';
+  celdaTextoAdmin.value = 'ADMINISTRACIÓN = (TOTAL COSTOS DIRECTOS + ANTICIPOS PENDIENTES DE AMORTIZAR) × % (escriba el % en la celda de la derecha)';
   estilizarCelda(celdaTextoAdmin, { negrita: true, relleno: CARBON, colorTexto: HUESO, numero: false, alineacion: 'right' });
   [2, 3, 4, 5].forEach((c) => estilizarCelda(hoja.getCell(fila, c), { negrita: true, relleno: CARBON, colorTexto: HUESO, numero: false }));
 
@@ -449,10 +451,10 @@ export async function exportarControlPresupuestal({ proyecto, presupuesto, capit
     const letraCorte = columnaLetra(col + 2);
     const valorCorte = 0;
     const celda = hoja.getCell(fila, col + 2);
-    // Administración de este corte = Directos de este corte × % (celda de la
-    // izquierda, la misma para todas las columnas).
+    // Administración de este corte = (Directos + Anticipos de este corte) × %
+    // (celda de la izquierda, la misma para todas las columnas).
     celda.value = {
-      formula: `${letraCorte}${filaDirectos}*${letraPct}${filaAdmin}/100`,
+      formula: `(${letraCorte}${filaDirectos}+${letraCorte}${filaAnticipos})*${letraPct}${filaAdmin}/100`,
       result: valorCorte,
     };
     estilizarCelda(celda, { negrita: true, relleno: CARBON, colorTexto: HUESO });
@@ -466,7 +468,7 @@ export async function exportarControlPresupuestal({ proyecto, presupuesto, capit
     celdaAdmin.value = { formula: sumaAdmin, result: valorAdministracionAcum };
   } else {
     celdaAdmin.value = {
-      formula: `${letraAcum}${filaDirectos}*${letraPct}${filaAdmin}/100`,
+      formula: `(${letraAcum}${filaDirectos}+${letraAcum}${filaAnticipos})*${letraPct}${filaAdmin}/100`,
       result: valorAdministracionAcum,
     };
   }

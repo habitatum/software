@@ -416,12 +416,12 @@ function abrirAgregarItem() {
   const totalPresupuestado = capitulos.reduce((acc, c) => acc + Number(c.valor_presupuestado || 0), 0);
   const totalEjecutado = capitulos.reduce((acc, c) => acc + sumaEjecutadoCapitulo(c, ejecutados), 0);
   const anticiposPendientesHoy = pendiente?.anticiposPendientes || 0;
-  // Administración = Costos Directos ejecutados × % (Proyectos > Editar).
-  // Los costos indirectos y los anticipos no entran en la base.
+  // Administración = (Costos Directos ejecutados + Anticipos pendientes de
+  // amortizar) × % (Proyectos > Editar). Los indirectos no entran en la base.
   const totalDirectos = capitulos.filter((c) => c.categoria !== 'INDIRECTO')
     .reduce((acc, c) => acc + sumaEjecutadoCapitulo(c, ejecutados), 0);
   const pctAdmin = Number(proyecto?.porcentaje_administracion || 0);
-  const valorAdministracion = totalDirectos * (pctAdmin / 100);
+  const valorAdministracion = (totalDirectos + anticiposPendientesHoy) * (pctAdmin / 100);
 
   // Fila por corte con el acumulado corrido de ítems ejecutados (no solo lo
   // de ese periodo) + el saldo de anticipos pendientes congelado a esa
@@ -489,7 +489,7 @@ function abrirAgregarItem() {
                   <p className="text-neutral-500 text-xs mb-1">Administración ({pctAdmin}%)</p>
                   <p className="text-lg font-semibold text-carbon">{formatoPesos(valorAdministracion)}</p>
                   <p className="text-[11px] text-neutral-400 mt-1">
-                    % configurado en Proyectos &gt; Editar, calculado sobre los Costos Directos ejecutados (sin indirectos ni anticipos).
+                    % configurado en Proyectos &gt; Editar, calculado sobre los Costos Directos ejecutados + Anticipos pendientes de amortizar (sin indirectos).
                   </p>
                 </div>
               )}
