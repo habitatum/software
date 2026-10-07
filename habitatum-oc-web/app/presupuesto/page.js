@@ -416,16 +416,12 @@ function abrirAgregarItem() {
   const totalPresupuestado = capitulos.reduce((acc, c) => acc + Number(c.valor_presupuestado || 0), 0);
   const totalEjecutado = capitulos.reduce((acc, c) => acc + sumaEjecutadoCapitulo(c, ejecutados), 0);
   const anticiposPendientesHoy = pendiente?.anticiposPendientes || 0;
-  const totalControlPresupuestal = totalEjecutado + anticiposPendientesHoy;
-  // % de administración: campo independiente y editable por proyecto
-  // (Proyectos > Editar), NO derivado de ningún ítem del presupuesto
-  // cargado. Se aplica sobre el Total Control Presupuestal (ejecutado +
-  // anticipos pendientes de amortizar), el mismo total "para cobro" de
-  // arriba, para que la Administración cobrada crezca con el avance real
-  // de la obra y con los anticipos entregados, sin doble-contar cuando
-  // luego se amorticen.
+  // Administración = Costos Directos ejecutados × % (Proyectos > Editar).
+  // Los costos indirectos y los anticipos no entran en la base.
+  const totalDirectos = capitulos.filter((c) => c.categoria !== 'INDIRECTO')
+    .reduce((acc, c) => acc + sumaEjecutadoCapitulo(c, ejecutados), 0);
   const pctAdmin = Number(proyecto?.porcentaje_administracion || 0);
-  const valorAdministracion = totalControlPresupuestal * (pctAdmin / 100);
+  const valorAdministracion = totalDirectos * (pctAdmin / 100);
 
   // Fila por corte con el acumulado corrido de ítems ejecutados (no solo lo
   // de ese periodo) + el saldo de anticipos pendientes congelado a esa
@@ -435,7 +431,7 @@ function abrirAgregarItem() {
     const valorCorte = (c.items || []).reduce((acc, it) => acc + Number(it.valor_ejecutado || 0), 0);
     acumuladoItemsCorte += valorCorte;
     const anticiposCorte = Number(c.anticipos_pendientes || 0);
-    return { corte: c, valorCorte, anticiposCorte, totalAcumulado: acumuladoItemsCorte + anticiposCorte };
+    return { corte: c, valorCorte, anticiposCorte, totalAcumulado: acumuladoItemsCorte };
   });
 
   return (
@@ -480,7 +476,7 @@ function abrirAgregarItem() {
               <FilaResumenGrande label="Saldo" valor={totalPresupuestado - totalEjecutado} />
             </div>
 
-            <div className={`bg-white rounded-lg shadow-sm border p-5 grid grid-cols-2 ${pctAdmin > 0 ? 'md:grid-cols-3' : ''} gap-4 text-sm`}>
+            <div className={`bg-white rounded-lg shadow-sm border p-5 grid grid-cols-2 ${pctAdmin > 0 ? 'md:grid-cols-2' : ''} gap-4 text-sm`}>
               <div>
                 <p className="text-neutral-500 text-xs mb-1">Anticipos pendientes de amortizar (a hoy)</p>
                 <p className="text-lg font-semibold">{formatoPesos(anticiposPendientesHoy)}</p>
@@ -488,17 +484,12 @@ function abrirAgregarItem() {
                   Anticipos entregados que aún no se han vinculado a ítems reales del presupuesto (se reduce solo a medida que se amortizan).
                 </p>
               </div>
-              <div>
-                <p className="text-neutral-500 text-xs mb-1">Total Control Presupuestal (para cobro)</p>
-                <p className="text-lg font-semibold text-dorado">{formatoPesos(totalControlPresupuestal)}</p>
-                <p className="text-[11px] text-neutral-400 mt-1">Ejecutado por ítems (ya neto de retención) + Anticipos pendientes de amortizar.</p>
-              </div>
               {pctAdmin > 0 && (
                 <div>
                   <p className="text-neutral-500 text-xs mb-1">Administración ({pctAdmin}%)</p>
                   <p className="text-lg font-semibold text-carbon">{formatoPesos(valorAdministracion)}</p>
                   <p className="text-[11px] text-neutral-400 mt-1">
-                    % configurado en Proyectos &gt; Editar, calculado sobre el Total Control Presupuestal (ejecutado + anticipos pendientes).
+                    % configurado en Proyectos &gt; Editar, calculado sobre los Costos Directos ejecutados (sin indirectos ni anticipos).
                   </p>
                 </div>
               )}
@@ -534,7 +525,7 @@ function abrirAgregarItem() {
                       <th className="py-1">Periodo</th>
                       <th className="py-1 text-right">Ejecutado en el periodo</th>
                       <th className="py-1 text-right">Anticipos pendientes</th>
-                      <th className="py-1 text-right">Total acumulado a este corte</th>
+                      <th className="py-1 text-right">Acumulado a este corte</th>
                       <th className="py-1 w-40"></th>
                     </tr>
                   </thead>
@@ -784,6 +775,7 @@ function abrirAgregarItem() {
           corte={cantidadesDe === 'EN_CURSO' ? null : cortes.find((c) => c.numero === cantidadesDe) || null}
           valoresEnCurso={pendiente?.porItem || {}}
           puedeEditar={cantidadesDe === 'EN_CURSO' ? (usuario.rol === 'admin' || usuario.rol === 'operativo') : usuario.rol === 'admin'}
+          esAdmin={usuario.rol === 'admin'}
           onGuardado={cargar}
           onClose={() => { setCantidadesDe(null); if (cantidadesDe === 'EN_CURSO') cargar(); }}
         />

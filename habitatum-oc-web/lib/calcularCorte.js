@@ -194,10 +194,14 @@ export async function calcularPendientePorCortar(supabase, proyectoId, ultimoCor
   const anticiposPendientes = await calcularAnticiposPendientes(supabase, proyectoId, fechaHasta);
   // Cantidades medidas escritas para el corte en curso (052).
   const { data: cant } = await supabase.from('presupuesto_cantidades_en_curso')
-    .select('presupuesto_item_id, cantidad').eq('presupuesto_id', presupuestoId);
+    .select('presupuesto_item_id, cantidad, valor_directo').eq('presupuesto_id', presupuestoId);
   const cantidades = {};
-  (cant || []).forEach((c) => { cantidades[c.presupuesto_item_id] = Number(c.cantidad); });
-  return { ocs, lineas: filas, porItem, ajustes, totalNuevo, totalAjustes, fechaDesde, fechaHasta, anticiposPendientes, cantidades };
+  const directos = {}; // valor pagado directo por el cliente sin OC (053)
+  (cant || []).forEach((c) => {
+    if (c.cantidad != null) cantidades[c.presupuesto_item_id] = Number(c.cantidad);
+    if (c.valor_directo != null) directos[c.presupuesto_item_id] = Number(c.valor_directo);
+  });
+  return { ocs, lineas: filas, porItem, ajustes, totalNuevo, totalAjustes, fechaDesde, fechaHasta, anticiposPendientes, cantidades, directos };
 }
 
 // Cierra un corte nuevo en una sola transacción en la base de datos
@@ -218,15 +222,24 @@ export async function cerrarCorte(supabase, { presupuestoId, fechaHasta }) {
 // del Excel de un corte — sin necesidad de cerrar oficialmente el corte.
 export function construirCorteVirtual(pendiente, mapaItems, numero) {
   const cantidades = pendiente.cantidades || {};
+  const directos = pendiente.directos || {};
   const items = Object.entries(pendiente.porItem || {}).map(([presupuesto_item_id, v]) => ({
     presupuesto_item_id,
     cantidad_ejecutada: v.cantidad,
-    valor_ejecutado: v.valor,
+    valor_ejecutado: Number(v.valor || 0) + Number(directos[presupuesto_item_id] || 0),
+    valor_directo: directos[presupuesto_item_id] ?? null,
     cantidad_medida: cantidades[presupuesto_item_id] ?? null,
   }));
-  // Ítems con cantidad medida pero sin valor en el periodo (052).
-  Object.entries(cantidades).forEach(([presupuesto_item_id, q]) => {
-    if (!pendiente.porItem?.[presupuesto_item_id]) items.push({ presupuesto_item_id, cantidad_ejecutada: 0, valor_ejecutado: 0, cantidad_medida: q });
+  // Ítems con cantidad medida o valor directo pero sin OC en el periodo (052, 053).
+  new Set([...Object.keys(cantidades), ...Object.keys(directos)]).forEach((presupuesto_item_id) => {
+    if (!pendiente.porItem?.[presupuesto_item_id]) {
+      items.push({
+        presupuesto_item_id, cantidad_ejecutada: 0,
+        valor_ejecutado: Number(directos[presupuesto_item_id] || 0),
+        valor_directo: directos[presupuesto_item_id] ?? null,
+        cantidad_medida: cantidades[presupuesto_item_id] ?? null,
+      });
+    }
   });
   // Las líneas ya vienen calculadas por la base de datos (NUEVO y AJUSTE).
   const ocs = (pendiente.lineas || []).map((l) => ({

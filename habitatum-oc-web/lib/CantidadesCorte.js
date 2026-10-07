@@ -9,8 +9,10 @@ import { formatoPesos } from '@/lib/calculosOC';
 // no sirve para esto y no se usa.
 // - corte = null → corte en curso (admin u operativo).
 // - corte = { id, numero, items } → corte cerrado (solo el admin corrige).
-export default function CantidadesCorte({ presupuesto, capitulos, cortes, corte, valoresEnCurso, puedeEditar, onClose, onGuardado }) {
+export default function CantidadesCorte({ presupuesto, capitulos, cortes, corte, valoresEnCurso, puedeEditar, esAdmin = false, onClose, onGuardado }) {
   const [enCurso, setEnCurso] = useState({});
+  // Valor pagado directo por el cliente sin OC (053), escrito para el corte en curso.
+  const [directoEnCurso, setDirectoEnCurso] = useState({});
   const [cargando, setCargando] = useState(!corte);
   const [soloConValor, setSoloConValor] = useState(true);
   const [estado, setEstado] = useState('');
@@ -20,6 +22,8 @@ export default function CantidadesCorte({ presupuesto, capitulos, cortes, corte,
   // bloqueadas y solo el admin las desbloquea, con doble confirmación.
   const [desbloqueado, setDesbloqueado] = useState(false);
   const editable = puedeEditar && (!corte || desbloqueado);
+  // El valor pagado directo (sin OC) solo lo registra el admin.
+  const editableDirecto = esAdmin && (!corte || desbloqueado);
 
   function desbloquear() {
     if (!window.confirm(`ADVERTENCIA: el Corte ${numero} ya está cerrado y se le presentó al cliente.\n\nCambiar sus cantidades modifica el documento entregado y los acumulados de los cortes siguientes. Los valores en pesos no cambian.\n\n¿Quieres desbloquear las cantidades para editarlas?`)) return;
@@ -29,31 +33,52 @@ export default function CantidadesCorte({ presupuesto, capitulos, cortes, corte,
 
   async function cargarEnCurso() {
     const { data } = await crearClienteSupabase().from('presupuesto_cantidades_en_curso')
-      .select('presupuesto_item_id, cantidad').eq('presupuesto_id', presupuesto.id);
-    const m = {};
-    (data || []).forEach((r) => { m[r.presupuesto_item_id] = Number(r.cantidad); });
-    setEnCurso(m);
+      .select('presupuesto_item_id, cantidad, valor_directo').eq('presupuesto_id', presupuesto.id);
+    const m = {}; const dir = {};
+    (data || []).forEach((r) => {
+      if (r.cantidad != null) m[r.presupuesto_item_id] = Number(r.cantidad);
+      if (r.valor_directo != null) dir[r.presupuesto_item_id] = Number(r.valor_directo);
+    });
+    setEnCurso(m); setDirectoEnCurso(dir);
     setCargando(false);
   }
   useEffect(() => { if (!corte) cargarEnCurso(); }, [corte]); // eslint-disable-line
 
   // Cantidad y valor de este corte, y cantidad acumulada de los cortes anteriores.
-  const { cantidadEste, valorEste, acumAnterior } = useMemo(() => {
-    const cant = {}; const val = {}; const acum = {};
+  const { cantidadEste, valorEste, directoEste, acumAnterior } = useMemo(() => {
+    const cant = {}; const val = {}; const dir = {}; const acum = {};
     if (corte) {
       (corte.items || []).forEach((ci) => {
         if (ci.cantidad_medida != null) cant[ci.presupuesto_item_id] = Number(ci.cantidad_medida);
-        val[ci.presupuesto_item_id] = Number(ci.valor_ejecutado || 0);
+        if (ci.valor_directo != null) dir[ci.presupuesto_item_id] = Number(ci.valor_directo);
+        val[ci.presupuesto_item_id] = Number(ci.valor_ejecutado || 0); // ya incluye el valor directo
       });
     } else {
       Object.assign(cant, enCurso);
+      Object.assign(dir, directoEnCurso);
       Object.entries(valoresEnCurso || {}).forEach(([id, v]) => { val[id] = Number(v.valor || 0); });
+      Object.entries(directoEnCurso).forEach(([id, v]) => { val[id] = (val[id] || 0) + v; });
     }
     cortes.filter((c) => c.numero < numero).forEach((c) => (c.items || []).forEach((ci) => {
       if (ci.cantidad_medida != null) acum[ci.presupuesto_item_id] = (acum[ci.presupuesto_item_id] || 0) + Number(ci.cantidad_medida);
     }));
-    return { cantidadEste: cant, valorEste: val, acumAnterior: acum };
-  }, [corte, enCurso, valoresEnCurso, cortes, numero]);
+    return { cantidadEste: cant, valorEste: val, directoEste: dir, acumAnterior: acum };
+  }, [corte, enCurso, directoEnCurso, valoresEnCurso, cortes, numero]);
+
+  async function guardarDirecto(itemId, texto) {
+    const limpio = String(texto ?? '').trim();
+    const nuevo = limpio === '' ? null : Number(limpio);
+    if (nuevo !== null && (Number.isNaN(nuevo) || nuevo < 0)) { setError('Escribe un valor mayor o igual a 0.'); return; }
+    const anterior = directoEste[itemId] ?? null;
+    if ((anterior || null) === (nuevo || null)) return;
+    setError(''); setEstado('Guardando…');
+    const { error: e } = await crearClienteSupabase().rpc('guardar_valor_directo', {
+      p_presupuesto: presupuesto.id, p_item: itemId, p_valor: nuevo, p_corte: corte ? corte.id : null,
+    });
+    if (e) { setEstado(''); setError(e.message); return; }
+    setEstado('Guardado'); setTimeout(() => setEstado(''), 1500);
+    if (corte) { if (onGuardado) onGuardado(); } else await cargarEnCurso();
+  }
 
   async function guardar(itemId, texto) {
     const limpio = String(texto ?? '').trim().replace(',', '.');
@@ -70,7 +95,7 @@ export default function CantidadesCorte({ presupuesto, capitulos, cortes, corte,
     if (corte) { if (onGuardado) onGuardado(); } else await cargarEnCurso();
   }
 
-  const conDatos = (id) => (valorEste[id] || 0) !== 0 || cantidadEste[id] != null;
+  const conDatos = (id) => (valorEste[id] || 0) !== 0 || cantidadEste[id] != null || directoEste[id] != null;
 
   return (
     <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4" onClick={onClose}>
@@ -118,12 +143,13 @@ export default function CantidadesCorte({ presupuesto, capitulos, cortes, corte,
 
         <div className="overflow-auto">
           {cargando ? <p className="p-5 text-sm text-neutral-500">Cargando…</p> : (
-            <table className="w-full text-sm min-w-[860px]">
+            <table className="w-full text-sm min-w-[1000px]">
               <thead className="sticky top-0 bg-gris-calido/40 text-left text-xs text-neutral-600">
                 <tr>
                   <th className="p-2 w-16">Ítem</th><th className="p-2">Descripción</th><th className="p-2 w-12">Un</th>
                   <th className="p-2 w-24 text-right">Presupuesto</th><th className="p-2 w-28 text-right">Acum. anterior</th>
                   <th className="p-2 w-28 text-right">Este corte</th><th className="p-2 w-28 text-right">Acumulado</th>
+                  <th className="p-2 w-36 text-right" title="Costos que el cliente paga directo y no tienen OC (ej. residente de obra). Se suman al valor del corte.">Pagado directo (sin OC)</th>
                   <th className="p-2 w-32 text-right">Valor del corte</th>
                 </tr>
               </thead>
@@ -133,7 +159,7 @@ export default function CantidadesCorte({ presupuesto, capitulos, cortes, corte,
                   if (!items.length) return null;
                   return (
                     <Fragment key={cap.id}>
-                      <tr className="bg-gris-calido/15 font-semibold text-xs"><td className="p-2" colSpan={8}>{cap.codigo} · {cap.nombre}</td></tr>
+                      <tr className="bg-gris-calido/15 font-semibold text-xs"><td className="p-2" colSpan={9}>{cap.codigo} · {cap.nombre}</td></tr>
                       {items.map((it) => {
                         const pres = Number(it.cantidad || 0);
                         const ant = acumAnterior[it.id] || 0;
@@ -158,6 +184,14 @@ export default function CantidadesCorte({ presupuesto, capitulos, cortes, corte,
                             <td className={`p-2 text-right tabular-nums font-medium ${pasa ? 'text-red-600' : ''}`}
                               title={pasa ? 'Supera la cantidad presupuestada' : ''}>
                               {total ? Number(total.toFixed(4)) : '—'}{pres > 0 && total ? <span className="block text-[10px] font-normal">{Math.round((total / pres) * 100)}%</span> : null}
+                            </td>
+                            <td className="p-1 text-right">
+                              {editableDirecto ? (
+                                <input key={`d-${it.id}-${directoEste[it.id] ?? ''}`} type="number" min="0" step="any" defaultValue={directoEste[it.id] ?? ''}
+                                  aria-label={`Pagado directo sin OC del corte ${numero} · ${it.codigo}`}
+                                  onBlur={(e) => guardarDirecto(it.id, e.target.value)}
+                                  className="w-32 border rounded px-2 py-1 text-right bg-hueso/50 focus:bg-white" />
+                              ) : (directoEste[it.id] ? <span className="tabular-nums">{formatoPesos(directoEste[it.id])}</span> : '—')}
                             </td>
                             <td className="p-2 text-right tabular-nums text-neutral-600">{valorEste[it.id] ? formatoPesos(valorEste[it.id]) : '—'}</td>
                           </tr>
