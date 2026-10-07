@@ -101,6 +101,8 @@ export async function exportarControlPresupuestal({ proyecto, presupuesto, capit
     columnas.push({ width: 2 }, { width: 11 }, { width: 14 }, { width: 15 });
   });
   columnas.push({ width: 2 }, { width: 11 }, { width: 14 }, { width: 15 });
+  // Semáforo después del acumulado: separador + % ejecutado + estado.
+  columnas.push({ width: 2 }, { width: 10 }, { width: 15 });
   hoja.columns = columnas;
 
   // Posiciones de columna: cada bloque (corte j, o el acumulado) ocupa 1
@@ -110,6 +112,8 @@ export async function exportarControlPresupuestal({ proyecto, presupuesto, capit
   const colVrParcialCorte = (j) => colBloqueCorte(j) + 2;
   const colBloqueTotalAcum = baseCol + 1 + 4 * numCortes;
   const colVrParcialTotalAcum = colBloqueTotalAcum + 2;
+  const colPctSemaforo = colVrParcialTotalAcum + 2;
+  const colEstadoSemaforo = colPctSemaforo + 1;
   const totalColumnas = columnas.length;
 
   // ---------- Encabezado de proyecto ----------
@@ -162,6 +166,16 @@ export async function exportarControlPresupuestal({ proyecto, presupuesto, capit
     const celda = hoja.getCell(filaSub, inicioTotal + k);
     celda.value = titulo;
     estilizarCelda(celda, { negrita: true, relleno: DORADO, colorTexto: HUESO, numero: false, alineacion: 'center' });
+  });
+
+  hoja.mergeCells(filaGrupo, colPctSemaforo, filaGrupo, colEstadoSemaforo);
+  const celdaSemGrupo = hoja.getCell(filaGrupo, colPctSemaforo);
+  celdaSemGrupo.value = 'SEMÁFORO';
+  estilizarCelda(celdaSemGrupo, { negrita: true, relleno: CARBON, colorTexto: HUESO, numero: false, alineacion: 'center' });
+  ['% EJEC.', 'ESTADO'].forEach((titulo, k) => {
+    const celda = hoja.getCell(filaSub, colPctSemaforo + k);
+    celda.value = titulo;
+    estilizarCelda(celda, { negrita: true, relleno: GRIS_CALIDO, colorTexto: CARBON, numero: false, alineacion: 'center' });
   });
 
   // ---------- Filas de capítulos / ítems ----------
@@ -392,6 +406,41 @@ export async function exportarControlPresupuestal({ proyecto, presupuesto, capit
     return actual - anterior;
   });
   const anticiposPendientes = numCortes > 0 ? Number(cortesAIncluir[numCortes - 1].anticipos_pendientes || 0) : 0;
+
+  // ---------- Semáforo (después del acumulado) ----------
+  // % ejecutado = acumulado / presupuesto de la misma fila. Mismo criterio del
+  // formato financiero: 🟢 OK · 🟡 ALERTA (≥ 90%) · 🔴 SOBREGIRO (> 100%).
+  // Aplica a ítems, capítulos, totales de directos/indirectos y valor total.
+  {
+    const letraPres = columnaLetra(6);
+    const letraAcumSem = columnaLetra(colVrParcialTotalAcum);
+    const letraPctSem = columnaLetra(colPctSemaforo);
+    const primeraFila = filaSub + 1;
+    for (let r = primeraFila; r < fila; r += 1) {
+      const pres = hoja.getCell(r, 6).value;
+      const acum = hoja.getCell(r, colVrParcialTotalAcum).value;
+      if (pres === null || pres === undefined || pres === '' || acum === null || acum === undefined) continue;
+      const celdaPct = hoja.getCell(r, colPctSemaforo);
+      celdaPct.value = { formula: `IFERROR(IF(${letraPres}${r}>0,${letraAcumSem}${r}/${letraPres}${r},""),"")` };
+      estilizarCelda(celdaPct, { alineacion: 'right', numero: false });
+      celdaPct.numFmt = '0.0%';
+      const celdaEst = hoja.getCell(r, colEstadoSemaforo);
+      celdaEst.value = { formula: `IF(${letraPctSem}${r}="","",IF(${letraPctSem}${r}>1,"🔴 SOBREGIRO",IF(${letraPctSem}${r}>=0.9,"🟡 ALERTA","🟢 OK")))` };
+      estilizarCelda(celdaEst, { negrita: true, alineacion: 'center', numero: false });
+      const negrita = hoja.getCell(r, 1).font?.bold;
+      if (negrita) { celdaPct.font = { bold: true }; }
+    }
+    const ref = `${letraPctSem}${primeraFila}:${columnaLetra(colEstadoSemaforo)}${fila - 1}`;
+    const pctRel = `$${letraPctSem}${primeraFila}`;
+    hoja.addConditionalFormatting({
+      ref,
+      rules: [
+        { type: 'expression', priority: 1, formulae: [`AND(ISNUMBER(${pctRel}),${pctRel}>1)`], style: { fill: { type: 'pattern', pattern: 'solid', bgColor: { argb: 'FFF4CCCC' } }, font: { color: { argb: 'FF9C1C1C' } } } },
+        { type: 'expression', priority: 2, formulae: [`AND(ISNUMBER(${pctRel}),${pctRel}>=0.9)`], style: { fill: { type: 'pattern', pattern: 'solid', bgColor: { argb: 'FFFFF0C2' } }, font: { color: { argb: 'FF7A5A00' } } } },
+        { type: 'expression', priority: 3, formulae: [`ISNUMBER(${pctRel})`], style: { fill: { type: 'pattern', pattern: 'solid', bgColor: { argb: 'FFE2F0D9' } }, font: { color: { argb: 'FF2E6B1F' } } } },
+      ],
+    });
+  }
 
   const filaAnticipos = fila;
   hoja.mergeCells(fila, 1, fila, 5);
