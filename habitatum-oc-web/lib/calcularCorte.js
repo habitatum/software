@@ -255,3 +255,36 @@ export function construirCorteVirtual(pendiente, mapaItems, numero) {
     ordenesResumen: pendiente.ocs || [],
   };
 }
+
+// Anticipos de la obra y las amortizaciones que los descuentan, para la
+// pestaña "ANTICIPOS" del Excel del control presupuestal. Cada anticipo y
+// cada amortización se asignan al corte por su fecha (igual que el saldo de
+// anticipos pendientes que congela cada corte).
+export async function obtenerAnticiposDelProyecto(supabase, proyectoId) {
+  const [{ data: ocs, error: e1 }, { data: calc, error: e2 }] = await Promise.all([
+    supabase.from('ordenes_compra')
+      .select('id, folio, fecha, descripcion, tipo_pago, estado, excluir_control, referencia_anticipo_id, proveedores(nombre), contratos(numero_contrato)')
+      .eq('proyecto_id', proyectoId).neq('estado', 'ANULADA'),
+    supabase.from('v_ordenes_compra_calculadas')
+      .select('id, subtotal, valor_amortizacion')
+      .eq('proyecto_id', proyectoId).neq('estado', 'ANULADA'),
+  ]);
+  if (e1) throw e1;
+  if (e2) throw e2;
+  const valores = new Map((calc || []).map((v) => [v.id, v]));
+  const anticipos = (ocs || [])
+    .filter((o) => o.tipo_pago === 'ANTICIPO' && !o.excluir_control)
+    .map((o) => ({
+      id: o.id, folio: o.folio, fecha: o.fecha,
+      contratista: (o.proveedores?.nombre || '').trim(),
+      concepto: (o.descripcion || '').trim(),
+      contrato: o.contratos?.numero_contrato || '',
+      valor: Number(valores.get(o.id)?.subtotal || 0),
+    }))
+    .sort((a, b) => (a.fecha < b.fecha ? -1 : a.fecha > b.fecha ? 1 : a.folio.localeCompare(b.folio)));
+  const ids = new Set(anticipos.map((a) => a.id));
+  const amortizaciones = (ocs || [])
+    .filter((o) => o.referencia_anticipo_id && ids.has(o.referencia_anticipo_id) && Number(valores.get(o.id)?.valor_amortizacion || 0) > 0)
+    .map((o) => ({ folio: o.folio, fecha: o.fecha, anticipo_id: o.referencia_anticipo_id, valor: Number(valores.get(o.id).valor_amortizacion) }));
+  return { anticipos, amortizaciones };
+}

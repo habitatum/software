@@ -5,7 +5,7 @@ import { useProyectoActual } from '@/lib/useProyectoActual';
 import { crearClienteSupabase } from '@/lib/supabaseClient';
 import { formatoPesos } from '@/lib/calculosOC';
 import { parsearPresupuesto } from '@/lib/parsePresupuesto';
-import { calcularPendientePorCortar, cerrarCorte, mapaItemsPresupuesto, construirCorteVirtual, obtenerOCsEnRango } from '@/lib/calcularCorte';
+import { calcularPendientePorCortar, cerrarCorte, mapaItemsPresupuesto, construirCorteVirtual, obtenerOCsEnRango, obtenerAnticiposDelProyecto } from '@/lib/calcularCorte';
 import { exportarControlPresupuestal, prepararCortesParaExportar } from '@/lib/exportarControlPresupuestal';
 import CantidadesCorte from '@/lib/CantidadesCorte';
 import NavBar from '@/components/NavBar';
@@ -129,7 +129,8 @@ export default function Presupuesto() {
         : [];
       const cortesConResumen = cortes.map((c) => (c.numero === hastaNumero ? { ...c, ordenesResumen } : c));
       const cortesPreparados = prepararCortesParaExportar(cortesConResumen, capitulos);
-      await exportarControlPresupuestal({ proyecto, presupuesto, capitulos, cortes: cortesPreparados, hastaNumero });
+      const anticipos = await obtenerAnticiposDelProyecto(supabase, proyecto.id);
+      await exportarControlPresupuestal({ proyecto, presupuesto, capitulos, cortes: cortesPreparados, hastaNumero, anticipos });
     } catch (err) {
       setError(err.message || 'No se pudo exportar el control presupuestal.');
     } finally {
@@ -148,6 +149,7 @@ export default function Presupuesto() {
       const numeroVirtual = cortes.length + 1;
       const corteVirtual = construirCorteVirtual(pendiente, mapaItemsPresupuesto(capitulos), numeroVirtual);
       const cortesPreparados = prepararCortesParaExportar([...cortes, corteVirtual], capitulos);
+      const anticipos = await obtenerAnticiposDelProyecto(crearClienteSupabase(), proyecto.id);
       await exportarControlPresupuestal({
         proyecto,
         presupuesto,
@@ -155,6 +157,7 @@ export default function Presupuesto() {
         cortes: cortesPreparados,
         hastaNumero: numeroVirtual,
         esPreview: true,
+        anticipos,
       });
     } catch (err) {
       setError(err.message || 'No se pudo exportar la vista previa del control presupuestal.');

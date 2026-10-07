@@ -73,7 +73,7 @@ function columnaLetra(n) {
 // en realidad es un corte virtual (ver construirCorteVirtual en calcularCorte.js)
 // que todavía no se ha cerrado en la base de datos — solo cambia las
 // etiquetas del Excel para dejarlo claro (no afecta los cálculos).
-export async function exportarControlPresupuestal({ proyecto, presupuesto, capitulos, cortes, hastaNumero, esPreview = false }) {
+export async function exportarControlPresupuestal({ proyecto, presupuesto, capitulos, cortes, hastaNumero, esPreview = false, anticipos = null }) {
   const cortesAIncluir = cortes.filter((c) => c.numero <= hastaNumero).sort((a, b) => a.numero - b.numero);
   const numCortes = cortesAIncluir.length;
 
@@ -607,6 +607,8 @@ export async function exportarControlPresupuestal({ proyecto, presupuesto, capit
     hojaOC.views = [{ state: 'frozen', ySplit: 1 }];
   }
 
+  if (anticipos) agregarHojaAnticipos(workbook, { proyecto, cortes: cortesAIncluir, anticipos, esPreview, hastaNumero });
+
   const buffer = await workbook.xlsx.writeBuffer();
   const blob = new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
   const url = URL.createObjectURL(blob);
@@ -637,4 +639,165 @@ export function prepararCortesParaExportar(cortes, capitulos) {
     });
     return { ...c, _capCantidad: capCantidad, _capValor: capValor };
   });
+}
+
+
+// ---------- Pestaña ANTICIPOS ----------
+// Una sola pestaña que se actualiza con cada corte: los anticipos agrupados
+// por el corte en que sumaron (se entregaron), lo amortizado en cada corte y
+// el saldo pendiente. Su total cuadra con la fila "Anticipos pendientes de
+// amortizar" del último corte (salvo centavos de redondeo, que se muestran).
+function fechaExcel(iso) {
+  if (!iso) return null;
+  const [y, m, d] = String(iso).slice(0, 10).split('-').map(Number);
+  return new Date(Date.UTC(y, m - 1, d));
+}
+function diaSiguiente(iso) {
+  const d = fechaExcel(iso);
+  d.setUTCDate(d.getUTCDate() + 1);
+  return d.toISOString().slice(0, 10);
+}
+function textoFecha(iso) {
+  if (!iso) return '';
+  const [y, m, d] = String(iso).slice(0, 10).split('-');
+  return `${d}/${m}/${y}`;
+}
+
+function agregarHojaAnticipos(workbook, { proyecto, cortes, anticipos, esPreview, hastaNumero }) {
+  if (!cortes.length) return;
+  const hoja = workbook.addWorksheet('ANTICIPOS');
+  const ultimo = cortes[cortes.length - 1];
+  const nombreCorte = (c) => (esPreview && c.numero === hastaNumero ? `Corte ${c.numero} (a hoy)` : `Corte ${c.numero}`);
+  // Corte al que pertenece una fecha: el primero cuyo fecha_hasta la incluye.
+  const corteDe = (fecha) => {
+    const f = String(fecha || '').slice(0, 10);
+    return cortes.find((c) => c.fecha_hasta && f <= String(c.fecha_hasta).slice(0, 10)) || null;
+  };
+
+  const lista = (anticipos.anticipos || []).map((a) => ({ ...a, corte: corteDe(a.fecha) })).filter((a) => a.corte);
+  const amortPor = {}; // anticipo_id -> { numeroCorte: valor }
+  (anticipos.amortizaciones || []).forEach((am) => {
+    const c = corteDe(am.fecha);
+    if (!c) return;
+    amortPor[am.anticipo_id] = amortPor[am.anticipo_id] || {};
+    amortPor[am.anticipo_id][c.numero] = (amortPor[am.anticipo_id][c.numero] || 0) + am.valor;
+  });
+
+  const base = [
+    { key: 'folio', width: 14 }, { key: 'fecha', width: 11 }, { key: 'contratista', width: 30 },
+    { key: 'concepto', width: 36 }, { key: 'contrato', width: 12 }, { key: 'valor', width: 15 },
+  ];
+  hoja.columns = [...base, ...cortes.map((c) => ({ key: `c${c.numero}`, width: 15 })), { key: 'saldo', width: 15 }];
+  const nCols = base.length + cortes.length + 1;
+  const colValor = 6;
+  const colPrimerCorte = 7;
+  const colSaldo = nCols;
+  const L = columnaLetra;
+  const rellenar = (fila, argb) => { for (let c = 1; c <= nCols; c += 1) hoja.getCell(fila, c).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb } }; };
+
+  // Encabezado
+  hoja.mergeCells(1, 1, 1, nCols);
+  hoja.getCell(1, 1).value = `ANTICIPOS Y AMORTIZACIONES · ${proyecto?.nombre || ''}`;
+  hoja.getCell(1, 1).font = { bold: true, size: 13, color: { argb: HUESO } };
+  rellenar(1, CARBON);
+  hoja.mergeCells(2, 1, 2, nCols);
+  hoja.getCell(2, 1).value = `Hasta el ${nombreCorte(ultimo)} · ${textoFecha(ultimo.fecha_hasta)}`;
+  hoja.getCell(2, 1).font = { bold: true, color: { argb: DORADO } };
+  rellenar(2, CARBON);
+  hoja.mergeCells(3, 1, 3, nCols);
+  hoja.getCell(3, 1).value = 'Cada anticipo suma en el corte en que se entregó. Después, cuando la obra se ejecuta, se descuenta (amortiza) en los cortes siguientes y ese valor pasa a los ítems de obra.';
+  hoja.getCell(3, 1).font = { italic: true, size: 9, color: { argb: 'FF6B655D' } };
+  hoja.getCell(3, 1).alignment = { wrapText: true, vertical: 'top' };
+  hoja.getRow(3).height = 28;
+
+  const titulos = ['Anticipo', 'Fecha', 'Contratista', 'Concepto', 'Contrato', 'Valor anticipo',
+    ...cortes.map((c) => `Amortizado en ${nombreCorte(c)}`), 'Saldo pendiente'];
+  const filaEnc = 5;
+  titulos.forEach((t, i) => {
+    const celda = hoja.getCell(filaEnc, i + 1);
+    celda.value = t;
+    estilizarCelda(celda, { negrita: true, relleno: CARBON, colorTexto: HUESO, alineacion: i >= colValor - 1 ? 'right' : 'left', numero: false });
+    celda.alignment = { ...celda.alignment, wrapText: true };
+  });
+  hoja.getRow(filaEnc).height = 30;
+
+  let fila = filaEnc + 1;
+  const filasSubtotal = [];
+  const letras = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
+  cortes.forEach((c, gi) => {
+    const grupo = lista.filter((a) => a.corte.numero === c.numero);
+    if (!grupo.length) return;
+    const desde = gi === 0 ? null : cortes[gi - 1].fecha_hasta;
+    hoja.mergeCells(fila, 1, fila, nCols);
+    hoja.getCell(fila, 1).value = `${letras[filasSubtotal.length] || '·'}. Anticipos que sumaron en el ${nombreCorte(c)} `
+      + (desde ? `(entregados entre el ${textoFecha(diaSiguiente(desde))} y el ${textoFecha(c.fecha_hasta)})` : `(entregados hasta el ${textoFecha(c.fecha_hasta)})`);
+    hoja.getCell(fila, 1).font = { bold: true, color: { argb: 'FF7A5A32' } };
+    rellenar(fila, DORADO_CLARO);
+    fila += 1;
+    const ini = fila;
+    grupo.forEach((a) => {
+      const valores = [a.folio, fechaExcel(a.fecha), a.contratista, a.concepto, a.contrato, a.valor];
+      valores.forEach((v, i) => {
+        const celda = hoja.getCell(fila, i + 1);
+        celda.value = v;
+        estilizarCelda(celda, { negrita: i === 0, alineacion: i >= colValor - 1 ? 'right' : (i === 1 ? 'center' : 'left'), numero: i === colValor - 1 });
+        if (i === 1) celda.numFmt = 'dd/mm/yyyy';
+      });
+      cortes.forEach((ck, k) => {
+        const celda = hoja.getCell(fila, colPrimerCorte + k);
+        const v = amortPor[a.id]?.[ck.numero] || 0;
+        celda.value = v;
+        estilizarCelda(celda, { negrita: v > 0, colorTexto: v > 0 ? 'FF7A5A32' : undefined });
+      });
+      const celdaSaldo = hoja.getCell(fila, colSaldo);
+      celdaSaldo.value = { formula: `${L(colValor)}${fila}-SUM(${L(colPrimerCorte)}${fila}:${L(colSaldo - 1)}${fila})` };
+      estilizarCelda(celdaSaldo, { negrita: true });
+      fila += 1;
+    });
+    const fin = fila - 1;
+    hoja.mergeCells(fila, 1, fila, colValor - 1);
+    hoja.getCell(fila, 1).value = `Subtotal ${letras[filasSubtotal.length] || ''}`;
+    for (let col = colValor; col <= nCols; col += 1) {
+      const celda = hoja.getCell(fila, col);
+      celda.value = { formula: `SUM(${L(col)}${ini}:${L(col)}${fin})` };
+      estilizarCelda(celda, { negrita: true, relleno: HUESO });
+    }
+    estilizarCelda(hoja.getCell(fila, 1), { negrita: true, relleno: HUESO, alineacion: 'right', numero: false });
+    filasSubtotal.push(fila);
+    fila += 2;
+  });
+
+  if (!filasSubtotal.length) {
+    hoja.getCell(fila, 1).value = 'No hay anticipos registrados hasta este corte.';
+    return;
+  }
+  // Total
+  hoja.mergeCells(fila, 1, fila, colValor - 1);
+  hoja.getCell(fila, 1).value = 'TOTAL';
+  for (let col = colValor; col <= nCols; col += 1) {
+    const celda = hoja.getCell(fila, col);
+    celda.value = { formula: filasSubtotal.map((f) => `${L(col)}${f}`).join('+') };
+    estilizarCelda(celda, { negrita: true, relleno: CARBON, colorTexto: col === colSaldo ? DORADO : HUESO });
+  }
+  estilizarCelda(hoja.getCell(fila, 1), { negrita: true, relleno: CARBON, colorTexto: HUESO, alineacion: 'right', numero: false });
+  const filaTotal = fila;
+
+  // Cuadre con el control presupuestal
+  const saldoControl = Number(ultimo.anticipos_pendientes);
+  if (Number.isFinite(saldoControl)) {
+    fila += 2;
+    hoja.mergeCells(fila, 1, fila, colSaldo - 1);
+    hoja.getCell(fila, 1).value = `Saldo de anticipos pendientes de amortizar en el control presupuestal (${nombreCorte(ultimo)})`;
+    estilizarCelda(hoja.getCell(fila, 1), { alineacion: 'right', numero: false });
+    hoja.getCell(fila, colSaldo).value = saldoControl;
+    estilizarCelda(hoja.getCell(fila, colSaldo), { negrita: true });
+    fila += 1;
+    hoja.mergeCells(fila, 1, fila, colSaldo - 1);
+    hoja.getCell(fila, 1).value = 'Diferencia por redondeo de centavos (cortes anteriores)';
+    estilizarCelda(hoja.getCell(fila, 1), { alineacion: 'right', numero: false });
+    hoja.getCell(fila, colSaldo).value = { formula: `${L(colSaldo)}${fila - 1}-${L(colSaldo)}${filaTotal}` };
+    estilizarCelda(hoja.getCell(fila, colSaldo), {});
+    hoja.getCell(fila, colSaldo).numFmt = '#,##0.00';
+  }
+  hoja.views = [{ state: 'frozen', ySplit: filaEnc }];
 }
