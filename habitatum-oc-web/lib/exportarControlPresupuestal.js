@@ -228,6 +228,8 @@ export async function exportarControlPresupuestal({ proyecto, presupuesto, capit
       [1, 2, 3, 4, 5, 6].forEach((c) => estilizarCelda(hoja.getCell(fila, c), { numero: c >= 4, alineacion: c <= 2 ? 'left' : 'right' }));
 
       let acumVal = 0;
+      let acumCant = 0;
+      let hayCantidad = false;
       cortesAIncluir.forEach((c, j) => {
         const registro = (c.items || []).find((ci) => ci.presupuesto_item_id === it.id);
         const val = Number(registro?.valor_ejecutado || 0);
@@ -238,8 +240,12 @@ export async function exportarControlPresupuestal({ proyecto, presupuesto, capit
         // Cantidad de este corte: la cantidad medida registrada en la app
         // (052). Si no se registró, queda en blanco para llenarla a mano.
         const cantMedida = registro?.cantidad_medida;
-        hoja.getCell(fila, col).value = cantMedida === null || cantMedida === undefined ? null : Number(cantMedida);
-        hoja.getCell(fila, col + 1).value = { formula: `IFERROR(${columnaLetra(col + 2)}${fila}/${columnaLetra(col)}${fila},"")` };
+        const tieneCant = !(cantMedida === null || cantMedida === undefined);
+        if (tieneCant) { acumCant += Number(cantMedida); hayCantidad = true; }
+        hoja.getCell(fila, col).value = tieneCant ? Number(cantMedida) : null;
+        // Resultado precalculado del Vr Unitario (se ve en cualquier visor, no solo en Excel).
+        const unitCorte = tieneCant && Number(cantMedida) > 0 && val ? val / Number(cantMedida) : '';
+        hoja.getCell(fila, col + 1).value = { formula: `IFERROR(${columnaLetra(col + 2)}${fila}/${columnaLetra(col)}${fila},"")`, result: unitCorte };
         hoja.getCell(fila, col + 2).value = val || null;
         [col, col + 1, col + 2].forEach((cc) => estilizarCelda(hoja.getCell(fila, cc), { alineacion: 'right' }));
       });
@@ -253,7 +259,7 @@ export async function exportarControlPresupuestal({ proyecto, presupuesto, capit
       // llenando en cada bloque de corte).
       if (numCortes > 0) {
         const sumaCantidades = cortesAIncluir.map((c, j) => `${columnaLetra(colBloqueCorte(j))}${fila}`).join('+');
-        hoja.getCell(fila, colCantAcum).value = { formula: sumaCantidades };
+        hoja.getCell(fila, colCantAcum).value = { formula: sumaCantidades, result: hayCantidad ? acumCant : 0 };
       } else {
         hoja.getCell(fila, colCantAcum).value = null;
       }
@@ -265,7 +271,7 @@ export async function exportarControlPresupuestal({ proyecto, presupuesto, capit
       } else {
         hoja.getCell(fila, colVrParcialTotalAcum).value = null;
       }
-      hoja.getCell(fila, colUnitAcum).value = { formula: `IFERROR(${columnaLetra(colVrParcialTotalAcum)}${fila}/${columnaLetra(colCantAcum)}${fila},"")` };
+      hoja.getCell(fila, colUnitAcum).value = { formula: `IFERROR(${columnaLetra(colVrParcialTotalAcum)}${fila}/${columnaLetra(colCantAcum)}${fila},"")`, result: hayCantidad && acumCant > 0 && acumVal ? acumVal / acumCant : '' };
       [colCantAcum, colUnitAcum, colVrParcialTotalAcum].forEach((cc) => estilizarCelda(hoja.getCell(fila, cc), { relleno: DORADO_CLARO, alineacion: 'right' }));
 
       fila += 1;
