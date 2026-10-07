@@ -416,19 +416,31 @@ export async function exportarControlPresupuestal({ proyecto, presupuesto, capit
     const letraAcumSem = columnaLetra(colVrParcialTotalAcum);
     const letraPctSem = columnaLetra(colPctSemaforo);
     const primeraFila = filaSub + 1;
+    // Valor numérico de una celda (número o resultado precalculado de una fórmula).
+    const num = (v) => (typeof v === 'number' ? v : (v && typeof v === 'object' && typeof v.result === 'number' ? v.result : null));
+    const COLORES = {
+      '🔴 SOBREGIRO': { fondo: 'FFF4CCCC', texto: 'FF9C1C1C' },
+      '🟡 ALERTA': { fondo: 'FFFFF0C2', texto: 'FF7A5A00' },
+      '🟢 OK': { fondo: 'FFE2F0D9', texto: 'FF2E6B1F' },
+    };
     for (let r = primeraFila; r < fila; r += 1) {
       const pres = hoja.getCell(r, 6).value;
       const acum = hoja.getCell(r, colVrParcialTotalAcum).value;
       if (pres === null || pres === undefined || pres === '' || acum === null || acum === undefined) continue;
+      // Resultado precalculado: así se ve en cualquier visor (iPhone, vista previa),
+      // no solo en Excel de computador.
+      const presN = num(pres); const acumN = num(acum);
+      const pctN = presN && presN > 0 && acumN !== null ? acumN / presN : null;
+      const estado = pctN === null ? '' : (pctN > 1 ? '🔴 SOBREGIRO' : (pctN >= 0.9 ? '🟡 ALERTA' : '🟢 OK'));
       const celdaPct = hoja.getCell(r, colPctSemaforo);
-      celdaPct.value = { formula: `IFERROR(IF(${letraPres}${r}>0,${letraAcumSem}${r}/${letraPres}${r},""),"")` };
-      estilizarCelda(celdaPct, { alineacion: 'right', numero: false });
+      celdaPct.value = { formula: `IFERROR(IF(${letraPres}${r}>0,${letraAcumSem}${r}/${letraPres}${r},""),"")`, result: pctN === null ? '' : pctN };
+      estilizarCelda(celdaPct, { alineacion: 'right', numero: false, relleno: estado ? COLORES[estado].fondo : undefined, colorTexto: estado ? COLORES[estado].texto : undefined });
       celdaPct.numFmt = '0.0%';
       const celdaEst = hoja.getCell(r, colEstadoSemaforo);
-      celdaEst.value = { formula: `IF(${letraPctSem}${r}="","",IF(${letraPctSem}${r}>1,"🔴 SOBREGIRO",IF(${letraPctSem}${r}>=0.9,"🟡 ALERTA","🟢 OK")))` };
-      estilizarCelda(celdaEst, { negrita: true, alineacion: 'center', numero: false });
+      celdaEst.value = { formula: `IF(${letraPctSem}${r}="","",IF(${letraPctSem}${r}>1,"🔴 SOBREGIRO",IF(${letraPctSem}${r}>=0.9,"🟡 ALERTA","🟢 OK")))`, result: estado };
+      estilizarCelda(celdaEst, { negrita: true, alineacion: 'center', numero: false, relleno: estado ? COLORES[estado].fondo : undefined, colorTexto: estado ? COLORES[estado].texto : undefined });
       const negrita = hoja.getCell(r, 1).font?.bold;
-      if (negrita) { celdaPct.font = { bold: true }; }
+      if (negrita) { celdaPct.font = { ...celdaPct.font, bold: true }; }
     }
     const ref = `${letraPctSem}${primeraFila}:${columnaLetra(colEstadoSemaforo)}${fila - 1}`;
     const pctRel = `$${letraPctSem}${primeraFila}`;
@@ -490,7 +502,9 @@ export async function exportarControlPresupuestal({ proyecto, presupuesto, capit
   const celdaPct = hoja.getCell(fila, 6);
   celdaPct.value = pctAdminInicial > 0 ? pctAdminInicial : null;
   estilizarCelda(celdaPct, { negrita: true, relleno: HUESO, colorTexto: CARBON, numero: false });
-  celdaPct.numFmt = '0.00"%"';
+  celdaPct.numFmt = '0.00%';
+  // Acepta que se escriba 12 o 12% (Excel guarda 12% como 0,12).
+  const pctExpr = `IF(${letraPct}${filaAdmin}>1,${letraPct}${filaAdmin}/100,${letraPct}${filaAdmin})`;
 
   const colsCorteAdmin = [];
   cortesAIncluir.forEach((c, j) => {
@@ -501,9 +515,9 @@ export async function exportarControlPresupuestal({ proyecto, presupuesto, capit
     const valorCorte = 0;
     const celda = hoja.getCell(fila, col + 2);
     // Administración de este corte = (Directos + Anticipos de este corte) × %
-    // (celda de la izquierda, la misma para todas las columnas).
+    // (celda de la izquierda, la misma para todas las columnas; 12 o 12%).
     celda.value = {
-      formula: `(${letraCorte}${filaDirectos}+${letraCorte}${filaAnticipos})*${letraPct}${filaAdmin}/100`,
+      formula: `(${letraCorte}${filaDirectos}+${letraCorte}${filaAnticipos})*${pctExpr}`,
       result: valorCorte,
     };
     estilizarCelda(celda, { negrita: true, relleno: CARBON, colorTexto: HUESO });
@@ -517,7 +531,7 @@ export async function exportarControlPresupuestal({ proyecto, presupuesto, capit
     celdaAdmin.value = { formula: sumaAdmin, result: valorAdministracionAcum };
   } else {
     celdaAdmin.value = {
-      formula: `(${letraAcum}${filaDirectos}+${letraAcum}${filaAnticipos})*${letraPct}${filaAdmin}/100`,
+      formula: `(${letraAcum}${filaDirectos}+${letraAcum}${filaAnticipos})*${pctExpr}`,
       result: valorAdministracionAcum,
     };
   }
