@@ -489,7 +489,9 @@ export async function exportarControlPresupuestal({ proyecto, presupuesto, capit
   // el usuario a mano en la celda de "Presupuesto" de esta fila (columna F):
   // la celda sale vacía y todas las columnas se recalculan al escribirlo.
   const filaAdmin = fila;
-  const pctAdminInicial = 0;
+  // Sale con el % del proyecto (Proyectos > Editar) si está configurado; si no,
+  // vacío. En ambos casos se puede cambiar a mano en Excel (12 o 12%).
+  const pctAdminInicial = Number(proyecto?.porcentaje_administracion || 0) / 100;
   const letraPct = columnaLetra(6);
 
   hoja.mergeCells(fila, 1, fila, 5);
@@ -500,7 +502,7 @@ export async function exportarControlPresupuestal({ proyecto, presupuesto, capit
 
   // Celda editable del %: no es fórmula, la escribe el usuario en Excel.
   const celdaPct = hoja.getCell(fila, 6);
-  celdaPct.value = pctAdminInicial > 0 ? pctAdminInicial : null;
+  celdaPct.value = pctAdminInicial > 0 ? pctAdminInicial : null; // 0,12 = 12%
   estilizarCelda(celdaPct, { negrita: true, relleno: HUESO, colorTexto: CARBON, numero: false });
   celdaPct.numFmt = '0.00%';
   // Acepta que se escriba 12 o 12% (Excel guarda 12% como 0,12).
@@ -512,7 +514,7 @@ export async function exportarControlPresupuestal({ proyecto, presupuesto, capit
     colsCorteAdmin.push(col + 2);
     [col, col + 1].forEach((cc) => estilizarCelda(hoja.getCell(fila, cc), { negrita: true, relleno: CARBON, colorTexto: HUESO, numero: false }));
     const letraCorte = columnaLetra(col + 2);
-    const valorCorte = 0;
+    const valorCorte = (sumaDirectoPorCorte[j] + (anticiposPorCorte[j] || 0)) * pctAdminInicial;
     const celda = hoja.getCell(fila, col + 2);
     // Administración de este corte = (Directos + Anticipos de este corte) × %
     // (celda de la izquierda, la misma para todas las columnas; 12 o 12%).
@@ -525,7 +527,7 @@ export async function exportarControlPresupuestal({ proyecto, presupuesto, capit
 
   [colVrParcialTotalAcum - 2, colVrParcialTotalAcum - 1].forEach((cc) => estilizarCelda(hoja.getCell(fila, cc), { negrita: true, relleno: CARBON, colorTexto: HUESO, numero: false }));
   const celdaAdmin = hoja.getCell(fila, colVrParcialTotalAcum);
-  const valorAdministracionAcum = 0;
+  const valorAdministracionAcum = cortesAIncluir.reduce((acc, c, j) => acc + (sumaDirectoPorCorte[j] + (anticiposPorCorte[j] || 0)) * pctAdminInicial, 0);
   if (colsCorteAdmin.length > 0) {
     const sumaAdmin = colsCorteAdmin.map((c) => `${columnaLetra(c)}${filaAdmin}`).join('+');
     celdaAdmin.value = { formula: sumaAdmin, result: valorAdministracionAcum };
