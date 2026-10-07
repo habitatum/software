@@ -18,13 +18,22 @@ const EDIT = 'bg-[#b88a52]/[0.14]';
 const cant = (v) => (v ? Number(v).toLocaleString('es-CO', { maximumFractionDigits: 3 }) : '');
 const $ = (v) => (Number(v) ? formatoPesos(Math.round(Number(v) * 100) / 100) : '$ -');
 const fecha = (f) => { if (!f) return ''; const p = String(f).slice(0, 10).split('-'); return `${p[2]}/${p[1]}/${p[0]}`; };
-const TD = 'px-2 py-1.5 text-xs whitespace-nowrap';
+const TD = 'px-2 py-1.5 text-xs whitespace-nowrap border-b border-neutral-200';
 const LINEA = 'w-2 bg-white border-r border-[#cec5ba]';
 const SEP = <td className={LINEA} />;
+// Columnas fijas a la izquierda (Ítem y Descripción) para no perder el ítem al desplazarse.
+const FIJA1 = 'sticky left-0 z-10 w-14 min-w-[3.5rem] max-w-[3.5rem]';
+const FIJA2 = 'sticky left-14 z-10 shadow-[1px_0_0_#cec5ba]';
 
 export default function SabanaCortes({ m, contrato, edicion, onPdf, hrefCorte, puedeEditarCorte }) {
   const cols = m.columnas;
   const [nuevo, setNuevo] = useState({ descripcion: '', unidad: '', valor_unitario: '', capitulo_id: '', cantidad: '' });
+  // Fila seleccionada (clic) para seguirla de lado a lado; otro clic la desmarca.
+  const [seleccion, setSeleccion] = useState(null);
+  function alternarSeleccion(e, id) {
+    if (e.target.closest('input, button, select, a, textarea')) return;
+    setSeleccion((s) => (s === id ? null : id));
+  }
 
   function agregar() {
     if (!nuevo.descripcion.trim() || !(Number(nuevo.valor_unitario) > 0) || !nuevo.capitulo_id) {
@@ -75,10 +84,13 @@ export default function SabanaCortes({ m, contrato, edicion, onPdf, hrefCorte, p
   function filaItem(item, contractual) {
     const aq = m.acumulado.cantidad(item.id);
     const excede = m.excede(item);
+    const sel = seleccion === item.id;
+    const fondoFijo = sel ? 'bg-[#f1e7da]' : 'bg-white group-hover:bg-[#f7f5f1]';
     return (
-      <tr key={item.id} className="border-b border-neutral-200 hover:bg-hueso/40">
-        <td className={`${TD} font-semibold`}>{item.codigo || (contractual ? '' : 'AD')}</td>
-        <td className="px-2 py-1.5 text-xs min-w-[280px] max-w-[380px]">
+      <tr key={item.id} onClick={(e) => alternarSeleccion(e, item.id)} aria-selected={sel}
+        className={`group cursor-pointer border-b border-neutral-200 ${sel ? 'bg-[#f1e7da]' : 'hover:bg-[#f7f5f1]'}`}>
+        <td className={`${TD} font-semibold ${FIJA1} ${fondoFijo} ${sel ? 'border-l-4 border-l-[#b88a52]' : ''}`}>{item.codigo || (contractual ? '' : 'AD')}</td>
+        <td className={`px-2 py-1.5 text-xs min-w-[280px] max-w-[380px] border-b border-neutral-200 ${FIJA2} ${fondoFijo}`}>
           {item.descripcion}
           {item.es_nuevo && edicion?.puedeEditar && (
             <button onClick={() => edicion.onQuitarNuevo(item.tmpId)} className="ml-2 text-[10px] text-red-600 underline">quitar</button>
@@ -102,8 +114,8 @@ export default function SabanaCortes({ m, contrato, edicion, onPdf, hrefCorte, p
   function filaCierre({ izquierda, valorIzq, etiquetaCorte, valorCorte, etiquetaAcum, valorAcum, gris, controlEdicion }) {
     return (
       <tr className="border-b border-neutral-200">
-        <td className={TD} />
-        <td className={`${TD} font-semibold`}>{izquierda || ''}</td>
+        <td className={`${TD} ${FIJA1} bg-white`} />
+        <td className={`${TD} font-semibold ${FIJA2} bg-white`}>{izquierda || ''}</td>
         <td className={TD} colSpan={3} />
         <td className={`${TD} text-right font-bold ${valorIzq !== undefined ? GRIS : ''}`}>{valorIzq !== undefined ? $(valorIzq) : ''}</td>
         {cols.map((c) => (
@@ -139,9 +151,9 @@ export default function SabanaCortes({ m, contrato, edicion, onPdf, hrefCorte, p
   );
 
   return (
-    <div className="bg-white rounded-lg border overflow-x-auto">
-      <table className="text-sm border-collapse">
-        <thead>
+    <div className="bg-white rounded-lg border overflow-auto max-h-[calc(100vh-11rem)]">
+      <table className="text-sm border-separate border-spacing-0">
+        <thead className="sticky top-0 z-20 bg-white shadow-[0_1px_0_#cec5ba]">
           <tr>
             <th className={`${TD} ${GRIS} text-left`} colSpan={6}>ITEMS Y ELEMENTOS CONTRACTUALES (APROBADOS)</th>
             {cols.map((c) => (
@@ -167,8 +179,8 @@ export default function SabanaCortes({ m, contrato, edicion, onPdf, hrefCorte, p
             <th className={`${TD} ${GRIS} text-center`} colSpan={3}>ACUMULADOS TOTALES CORTES</th>
           </tr>
           <tr className={`${GRIS} text-left`}>
-            <th className={TD}>Ítem</th>
-            <th className={`${TD}`}>Descripción</th>
+            <th className={`${TD} ${FIJA1} ${GRIS} z-30`}>Ítem</th>
+            <th className={`${TD} ${FIJA2} ${GRIS} z-30`}>Descripción</th>
             <th className={TD}>Unidad</th><th className={`${TD} text-right`}>Cantidad</th>
             <th className={`${TD} text-right`}>Valor Unit</th><th className={`${TD} text-right`}>SUBTOTAL</th>
             {cols.map((c) => (
