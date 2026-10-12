@@ -9,11 +9,15 @@
 // instalada. En navegadores de escritorio (sin Web Share de archivos) se
 // hace en su lugar una descarga directa del blob.
 export async function compartirOAbrirArchivo(url, nombreArchivo, opciones = {}) {
-  const { tipo = 'application/pdf' } = opciones;
+  const { tipo = 'application/pdf', transformar = null } = opciones;
   try {
     const respuesta = await fetch(url);
     if (!respuesta.ok) throw new Error('No se pudo generar el archivo.');
-    const blob = await respuesta.blob();
+    let blob = await respuesta.blob();
+    // Ej.: agregar los comprobantes al PDF de la OC. Si falla, se entrega el PDF original.
+    if (transformar) {
+      try { blob = await transformar(blob); } catch (e) { console.error('No se pudieron adjuntar los comprobantes', e); }
+    }
     const archivo = new File([blob], nombreArchivo, { type: tipo });
 
     // Solo en celular/tablet usamos la hoja nativa de compartir: es la única

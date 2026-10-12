@@ -10,6 +10,7 @@ import NavBar from '@/components/NavBar';
 import BotonVolver from '@/components/BotonVolver';
 import { BotonComprobante, GastosCajaMenor } from '@/lib/Comprobantes';
 import { compartirOAbrirArchivo } from '@/lib/compartirArchivo';
+import { adjuntarComprobantesOC, fechaCorta, pesos } from '@/lib/adjuntarComprobantesOC';
 
 export default function DetalleOrdenCompra() {
   const { id } = useParams();
@@ -108,7 +109,20 @@ export default function DetalleOrdenCompra() {
 
   async function descargarPDF() {
     setGenerandoPDF(true);
-    await compartirOAbrirArchivo(`/api/ordenes-compra/${id}/pdf`, `${oc.folio}.pdf`);
+    // Comprobantes de la OC (factura del bot y gastos de caja menor) al final del PDF, dos por hoja.
+    const supabase = crearClienteSupabase();
+    const { data: gastos } = await supabase.from('caja_menor_gastos')
+      .select('fecha, valor, concepto, remitente, soporte_path').eq('oc_id', id).order('fecha').order('creado_en');
+    const comprobantes = [
+      ...(soportePath ? [{ ruta: soportePath, leyenda: `Factura / comprobante · ${oc.folio}` }] : []),
+      ...(gastos || []).filter((g) => g.soporte_path).map((g) => ({
+        ruta: g.soporte_path,
+        leyenda: `${fechaCorta(g.fecha)} · ${g.concepto || 'Gasto de caja menor'} · ${pesos(g.valor)}${g.remitente ? ` · ${g.remitente}` : ''}`,
+      })),
+    ];
+    await compartirOAbrirArchivo(`/api/ordenes-compra/${id}/pdf`, `${oc.folio}.pdf`, comprobantes.length ? {
+      transformar: (blob) => adjuntarComprobantesOC({ supabase, pdfBlob: blob, comprobantes, folio: oc.folio }),
+    } : {});
     setGenerandoPDF(false);
   }
 
