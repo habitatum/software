@@ -45,6 +45,8 @@ export default function EditarOrdenCompra() {
   const [usuarios, setUsuarios] = useState([]);
   const [presupuestoCapitulos, setPresupuestoCapitulos] = useState([]);
   const [ejecutadosPresupuesto, setEjecutadosPresupuesto] = useState({});
+  const [ejecutadosCapitulo, setEjecutadosCapitulo] = useState({});
+  const todoCosto = proyecto?.modelo_contratacion === 'TODO_COSTO';
   const [guardando, setGuardando] = useState(false);
   const [error, setError] = useState('');
   // 046: si la orden está en un corte de cobro cerrado, solo el admin la puede
@@ -133,6 +135,27 @@ export default function EditarOrdenCompra() {
           }));
         }
         setEjecutadosPresupuesto(mapaEjec);
+        // Todo costo: ejecutado por capítulo, sin las líneas que ESTA orden ya
+        // tenía guardadas (el formulario las vuelve a sumar).
+        if (proyecto.modelo_contratacion === 'TODO_COSTO') {
+          const { data: ctrl } = await supabase.rpc('control_todo_costo', { p_proyecto: proyecto.id });
+          const mapaCap = {};
+          (ctrl?.capitulos || []).forEach((c) => { mapaCap[c.id] = Number(c.ejecutado) || 0; });
+          if (ocData && ocData.estado !== 'ANULADA' && ocData.tipo_pago !== 'ANTICIPO') {
+            const capItem = {};
+            (caps || []).forEach((c) => (c.presupuesto_items || []).forEach((pi) => { capItem[pi.id] = c.id; }));
+            const fG = factorEjecutado(ocData, calcularOrdenCompra(ocData, itemsConAsignaciones));
+            itemsConAsignaciones.forEach((it) => {
+              const v = Number(it.cantidad || 0) * Number(it.valor_unitario || 0) * fG;
+              if ((it.asignaciones || []).length > 0) {
+                it.asignaciones.forEach((a) => { const c = capItem[a.presupuesto_item_id]; if (c) mapaCap[c] = (mapaCap[c] || 0) - v * Number(a.porcentaje || 0) / 100; });
+              } else if (it.capitulo_id) {
+                mapaCap[it.capitulo_id] = (mapaCap[it.capitulo_id] || 0) - v;
+              }
+            });
+          }
+          setEjecutadosCapitulo(mapaCap);
+        }
       }
     }
     cargar();
@@ -283,6 +306,8 @@ export default function EditarOrdenCompra() {
           proveedores={proveedores} contratos={contratos} anticipos={anticipos} usuarios={usuarios}
           presupuestoCapitulos={presupuestoCapitulos}
           ejecutadosPresupuesto={ejecutadosPresupuesto}
+          todoCosto={todoCosto}
+          ejecutadosCapitulo={ejecutadosCapitulo}
           calculo={calculo}
           referenciaAnticipoOriginalId={referenciaAnticipoOriginalId}
           valorAmortizacionGuardada={valorAmortizacionGuardada}

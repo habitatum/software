@@ -43,6 +43,8 @@ export default function NuevaOrdenCompra() {
   const [usuarios, setUsuarios] = useState([]);
   const [presupuestoCapitulos, setPresupuestoCapitulos] = useState([]);
   const [ejecutadosPresupuesto, setEjecutadosPresupuesto] = useState({});
+  const [ejecutadosCapitulo, setEjecutadosCapitulo] = useState({});
+  const todoCosto = proyecto?.modelo_contratacion === 'TODO_COSTO';
   const [guardando, setGuardando] = useState(false);
   const [error, setError] = useState('');
 
@@ -81,6 +83,13 @@ export default function NuevaOrdenCompra() {
         const mapaEjec = {};
         (ejec || []).forEach((e) => { mapaEjec[e.presupuesto_item_id] = Number(e.ejecutado) || 0; });
         setEjecutadosPresupuesto(mapaEjec);
+        // Todo costo: ejecutado por capítulo (incluye lo imputado directo al capítulo).
+        if (proyecto.modelo_contratacion === 'TODO_COSTO') {
+          const { data: ctrl } = await supabase.rpc('control_todo_costo', { p_proyecto: proyecto.id });
+          const mapaCap = {};
+          (ctrl?.capitulos || []).forEach((c) => { mapaCap[c.id] = Number(c.ejecutado) || 0; });
+          setEjecutadosCapitulo(mapaCap);
+        }
       }
     }
     cargarCatalogos();
@@ -190,6 +199,8 @@ export default function NuevaOrdenCompra() {
           proveedores={proveedores} contratos={contratos} anticipos={anticipos} usuarios={usuarios}
           presupuestoCapitulos={presupuestoCapitulos}
           ejecutadosPresupuesto={ejecutadosPresupuesto}
+          todoCosto={todoCosto}
+          ejecutadosCapitulo={ejecutadosCapitulo}
           calculo={calculo}
           referenciaAnticipoOriginalId=""
           valorAmortizacionGuardada={0}

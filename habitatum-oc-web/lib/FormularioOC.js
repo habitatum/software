@@ -1,6 +1,6 @@
 'use client';
 import { useState } from 'react';
-import { formatoPesos, anticiposElegibles, amortizacionConfigurada, validarAnticipoOC, factorEjecutado } from '@/lib/calculosOC';
+import { formatoPesos, anticiposElegibles, amortizacionConfigurada, validarAnticipoOC, factorEjecutado, nombreCapitulo } from '@/lib/calculosOC';
 
 // Antes esto vivía como .input dentro de <style jsx global> con @apply, pero
 // styled-jsx no pasa ese bloque por el pipeline de Tailwind: la clase nunca se
@@ -17,6 +17,11 @@ export default function FormularioOC({
   proveedores, contratos, anticipos, usuarios,
   presupuestoCapitulos = [],
   ejecutadosPresupuesto = {},
+  // Obras todo costo: una línea puede imputarse a un capítulo completo
+  // (items_oc.capitulo_id) en vez de a ítems. ejecutadosCapitulo = ejecutado
+  // base por capítulo (sin las líneas de esta orden).
+  todoCosto = false,
+  ejecutadosCapitulo = {},
   calculo,
   referenciaAnticipoOriginalId = '',
   valorAmortizacionGuardada = 0,
@@ -173,9 +178,9 @@ export default function FormularioOC({
                     </td>
                     <td className="py-2 px-3">
                       <button type="button" onClick={() => setModalImputacionIndex(i)}
-                        title={resumenImputacion(it.asignaciones)}
+                        title={resumenImputacion(it, presupuestoCapitulos, todoCosto)}
                         className="text-xs border rounded px-2 py-1.5 w-full text-left hover:bg-gris-calido/20 line-clamp-2 break-words">
-                        {resumenImputacion(it.asignaciones)}
+                        {resumenImputacion(it, presupuestoCapitulos, todoCosto)}
                       </button>
                     </td>
                     <td className="py-2 px-2 text-center">
@@ -417,7 +422,12 @@ export default function FormularioOC({
           items={items}
           presupuestoCapitulos={presupuestoCapitulos}
           ejecutadosPresupuesto={ejecutadosPresupuesto}
-          onChange={(nuevas) => actualizarItem(modalImputacionIndex, 'asignaciones', nuevas)}
+          todoCosto={todoCosto}
+          ejecutadosCapitulo={ejecutadosCapitulo}
+          onChange={({ asignaciones, capitulo_id }) => setItems((prev) => prev.map((it, idx) => (
+            idx !== modalImputacionIndex ? it
+              // En administración delegada no se toca el capítulo que ya tuviera la línea.
+              : todoCosto ? { ...it, asignaciones, capitulo_id } : { ...it, asignaciones })))}
           onClose={() => setModalImputacionIndex(null)}
         />
       )}
@@ -425,11 +435,39 @@ export default function FormularioOC({
   );
 }
 
-function resumenImputacion(asignaciones) {
-  const validas = (asignaciones || []).filter((a) => a.presupuesto_item_id);
+function resumenImputacion(it, presupuestoCapitulos = [], todoCosto = false) {
+  const validas = (it.asignaciones || []).filter((a) => a.presupuesto_item_id);
+  if (validas.length === 0 && todoCosto && it.capitulo_id) {
+    const cap = presupuestoCapitulos.find((c) => c.id === it.capitulo_id);
+    return cap ? `Cap. ${cap.codigo} · ${nombreCapitulo(cap.nombre)}` : 'Capítulo';
+  }
   if (validas.length === 0) return '— Sin vincular —';
   if (validas.length === 1) return '1 ítem · 100%';
   return `${validas.length} ítems del presupuesto`;
+}
+
+// Capítulo al que queda cargada una línea: el de sus ítems (si todos son del
+// mismo capítulo) o, si no tiene ítems, su capítulo directo.
+function capituloDeAsignaciones(asignaciones, mapaCapItem) {
+  const caps = [...new Set((asignaciones || []).filter((a) => a.presupuesto_item_id).map((a) => mapaCapItem[a.presupuesto_item_id]))];
+  return caps.length === 1 ? caps[0] || null : null;
+}
+
+// Ejecutado de un capítulo = base guardada (sin esta orden) + lo que le cargan
+// las líneas de este formulario (por ítems de ese capítulo o directo al capítulo).
+function ejecutadoCapituloConBorrador(capituloId, ejecutadosCapitulo, items, mapaCapItem, factor = 1, excluirIndice = -1) {
+  let total = Number(ejecutadosCapitulo[capituloId] || 0);
+  (items || []).forEach((it, idx) => {
+    if (idx === excluirIndice) return;
+    const valorFila = Number(it.cantidad || 0) * Number(it.valor_unitario || 0) * factor;
+    const validas = (it.asignaciones || []).filter((a) => a.presupuesto_item_id);
+    if (validas.length > 0) {
+      validas.forEach((a) => { if (mapaCapItem[a.presupuesto_item_id] === capituloId) total += valorFila * Number(a.porcentaje || 0) / 100; });
+    } else if (it.capitulo_id === capituloId) {
+      total += valorFila;
+    }
+  });
+  return total;
 }
 
 function ejecutadoConBorrador(presupuestoItemId, ejecutadosPresupuesto, items, factor = 1, excluirIndice = -1) {
@@ -521,8 +559,12 @@ function SelectorItemPresupuesto({ valor, presupuestoCapitulos, ejecutadosPresup
   );
 }
 
-function ModalImputacion({ item, indice = -1, factor = 1, items, presupuestoCapitulos, ejecutadosPresupuesto, onChange, onClose }) {
+function ModalImputacion({ item, indice = -1, factor = 1, items, presupuestoCapitulos, ejecutadosPresupuesto, todoCosto = false, ejecutadosCapitulo = {}, onChange, onClose }) {
   const [asignaciones, setAsignaciones] = useState(item.asignaciones || []);
+  const tieneItems = (item.asignaciones || []).some((a) => a.presupuesto_item_id);
+  // Solo en todo costo: imputar la línea a un capítulo completo (excluyente con ítems).
+  const [modo, setModo] = useState(todoCosto && !tieneItems && item.capitulo_id ? 'capitulo' : 'item');
+  const [capituloId, setCapituloId] = useState(item.capitulo_id || '');
   const [confirmandoCierre, setConfirmandoCierre] = useState(false);
   const valorItem = Number(item.cantidad || 0) * Number(item.valor_unitario || 0);
   // Lo que este ítem le suma al control presupuestal (con IVA/AIU, descuento y retención de la orden).
@@ -530,7 +572,19 @@ function ModalImputacion({ item, indice = -1, factor = 1, items, presupuestoCapi
   const sumaPct = asignaciones.reduce((acc, a) => acc + Number(a.porcentaje || 0), 0);
   const necesitaPct = asignaciones.length > 1;
   const sumaOk = asignaciones.length === 0 || (necesitaPct ? Math.abs(sumaPct - 100) < 0.01 : true);
-  const hayCambios = JSON.stringify(asignaciones) !== JSON.stringify(item.asignaciones || []);
+  const mapaCapItem = {};
+  presupuestoCapitulos.forEach((cap) => (cap.presupuesto_items || []).forEach((pi) => { mapaCapItem[pi.id] = cap.id; }));
+  const resultado = !todoCosto
+    ? { asignaciones, capitulo_id: item.capitulo_id || null }
+    : modo === 'capitulo'
+      ? { asignaciones: [], capitulo_id: capituloId || null }
+      : asignaciones.some((a) => a.presupuesto_item_id)
+        ? { asignaciones, capitulo_id: capituloDeAsignaciones(asignaciones, mapaCapItem) }
+        // Sin ítems elegidos: se conserva el capítulo que tuviera.
+        : { asignaciones, capitulo_id: item.capitulo_id || null };
+  const original = { asignaciones: item.asignaciones || [], capitulo_id: item.capitulo_id || null };
+  const hayCambios = JSON.stringify(todoCosto ? resultado : asignaciones)
+    !== JSON.stringify(todoCosto ? original : (item.asignaciones || []));
 
   const mapaItems = {};
   presupuestoCapitulos.forEach((cap) => {
@@ -571,7 +625,7 @@ function ModalImputacion({ item, indice = -1, factor = 1, items, presupuestoCapi
     }
   }
   function guardar() {
-    onChange(asignaciones);
+    onChange(resultado);
     onClose();
   }
 
@@ -586,7 +640,29 @@ function ModalImputacion({ item, indice = -1, factor = 1, items, presupuestoCapi
           </div>
           <button type="button" onClick={intentarCerrar} className="text-hueso hover:text-dorado text-lg leading-none px-2">✕</button>
         </div>
+        {todoCosto && (
+          <div className="px-5 pt-4 flex gap-2 text-sm">
+            {[['item', 'Ítem(s) del presupuesto'], ['capitulo', 'Capítulo completo']].map(([m, t]) => (
+              <button key={m} type="button" onClick={() => setModo(m)}
+                className={`px-3 py-1.5 rounded border ${modo === m ? 'bg-carbon text-hueso border-carbon' : 'border-neutral-300 hover:bg-gris-calido/20'}`}>
+                {t}
+              </button>
+            ))}
+          </div>
+        )}
+        {todoCosto && modo === 'capitulo' ? (
+          <SeccionCapitulo
+            capituloId={capituloId} setCapituloId={setCapituloId}
+            presupuestoCapitulos={presupuestoCapitulos}
+            ejecutadosCapitulo={ejecutadosCapitulo} items={items} mapaCapItem={mapaCapItem}
+            factor={factor} indice={indice} valorControl={valorControl}
+            descartaItems={tieneItems || asignaciones.some((a) => a.presupuesto_item_id)}
+          />
+        ) : (
         <div className="p-5 space-y-3">
+          {todoCosto && capituloId && !asignaciones.some((a) => a.presupuesto_item_id) && (
+            <p className="text-xs text-amber-700">Al elegir ítems, la línea deja de estar imputada al capítulo completo.</p>
+          )}
           {asignaciones.length === 0 && (
             <p className="text-sm text-neutral-500">Este ítem no está vinculado a ningún ítem del presupuesto.</p>
           )}
@@ -648,12 +724,13 @@ function ModalImputacion({ item, indice = -1, factor = 1, items, presupuestoCapi
             </p>
           )}
         </div>
+        )}
         <div className="px-5 py-3 border-t flex justify-end gap-2">
           <button type="button" onClick={intentarCerrar}
             className="border border-neutral-300 text-neutral-700 px-4 py-2 rounded text-sm hover:bg-neutral-50">
             Cancelar
           </button>
-          <button type="button" onClick={guardar} disabled={!sumaOk}
+          <button type="button" onClick={guardar} disabled={todoCosto && modo === 'capitulo' ? false : !sumaOk}
             className="bg-carbon text-hueso px-4 py-2 rounded text-sm disabled:opacity-50">
             Guardar
           </button>
@@ -676,6 +753,51 @@ function ModalImputacion({ item, indice = -1, factor = 1, items, presupuestoCapi
           </div>
         </div>
       )}
+    </div>
+  );
+}
+
+// Imputación de la línea a un capítulo completo (solo obras todo costo).
+function SeccionCapitulo({ capituloId, setCapituloId, presupuestoCapitulos, ejecutadosCapitulo, items, mapaCapItem, factor, indice, valorControl, descartaItems }) {
+  return (
+    <div className="p-5 space-y-3">
+      <p className="text-sm text-neutral-500">
+        La línea se carga completa al capítulo, sin repartirla en ítems (como lo hacen el bot y la caja menor).
+        {descartaItems && <span className="text-amber-700"> Al guardar se quita la imputación a ítems.</span>}
+      </p>
+      <div className="border rounded-md max-h-80 overflow-y-auto">
+        <div className="px-3 py-1.5 text-[10px] font-semibold text-neutral-400 flex items-center justify-between gap-3 border-b sticky top-0 bg-white">
+          <span>Capítulo</span>
+          <span className="flex items-center gap-3 shrink-0">
+            <span className="w-24 text-right">Presup.</span>
+            <span className="w-24 text-right">Ejec.</span>
+            <span className="w-24 text-right">Quedaría</span>
+          </span>
+        </div>
+        <button type="button" onClick={() => setCapituloId('')}
+          className={`w-full text-left px-3 py-2 text-sm text-neutral-400 hover:bg-gris-calido/20 border-b ${!capituloId ? 'bg-dorado/10' : ''}`}>
+          — Sin capítulo —
+        </button>
+        {presupuestoCapitulos.map((cap) => {
+          const pres = (cap.presupuesto_items || []).reduce((acc, pi) => acc + Number(pi.valor_parcial || 0), 0);
+          const ejec = ejecutadoCapituloConBorrador(cap.id, ejecutadosCapitulo, items, mapaCapItem, factor, indice);
+          const sal = pres - ejec - valorControl;
+          const pct = pres > 0 ? (ejec + valorControl) / pres : 0;
+          const color = sal < 0 ? 'text-red-600' : pct >= 0.9 ? 'text-amber-600' : 'text-green-600';
+          return (
+            <button key={cap.id} type="button" onClick={() => setCapituloId(cap.id)}
+              className={`w-full text-left px-3 py-2 text-sm hover:bg-gris-calido/20 flex items-center justify-between gap-3 border-b last:border-b-0 ${capituloId === cap.id ? 'bg-dorado/10 font-medium' : ''}`}>
+              <span className="truncate min-w-0 flex-1">Cap. {cap.codigo} · {nombreCapitulo(cap.nombre)}</span>
+              <span className="flex items-center gap-3 text-xs shrink-0 tabular-nums">
+                <span className="text-neutral-500 w-24 text-right">{formatoPesos(pres)}</span>
+                <span className="text-blue-600 w-24 text-right">{formatoPesos(ejec)}</span>
+                <span className={`w-24 text-right font-medium ${color}`}>{formatoPesos(sal)}</span>
+              </span>
+            </button>
+          );
+        })}
+      </div>
+      <p className="text-xs text-neutral-400">Quedaría = saldo del capítulo si se le carga esta línea ({formatoPesos(valorControl)}).</p>
     </div>
   );
 }

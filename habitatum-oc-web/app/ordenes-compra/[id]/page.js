@@ -5,7 +5,7 @@ import Link from 'next/link';
 import { useUsuarioActual } from '@/lib/useUsuarioActual';
 import { useProyectoActual } from '@/lib/useProyectoActual';
 import { crearClienteSupabase } from '@/lib/supabaseClient';
-import { formatoPesos } from '@/lib/calculosOC';
+import { formatoPesos, nombreCapitulo } from '@/lib/calculosOC';
 import NavBar from '@/components/NavBar';
 import BotonVolver from '@/components/BotonVolver';
 import { BotonComprobante, GastosCajaMenor } from '@/lib/Comprobantes';
@@ -42,7 +42,7 @@ export default function DetalleOrdenCompra() {
       .eq('id', id).single();
     const { data: itemsData } = await supabase
       .from('items_oc')
-      .select('*, items_oc_presupuesto(porcentaje, presupuesto_items(codigo, descripcion))')
+      .select('*, items_oc_presupuesto(porcentaje, presupuesto_items(codigo, descripcion)), presupuesto_capitulos(codigo, nombre)')
       .eq('orden_compra_id', id).order('orden').order('id');
     setOc(ocData);
     setItems(itemsData || []);
@@ -262,7 +262,7 @@ export default function DetalleOrdenCompra() {
                       <td className="py-2 px-3 text-right font-medium whitespace-nowrap">{formatoPesos(subtotalItem)}</td>
                       <td className="py-2 px-3 text-right text-neutral-500 whitespace-nowrap">{porcentaje.toFixed(1)}%</td>
                       <td className="py-2 px-3 text-neutral-500">
-                        {imputacionTexto(it.items_oc_presupuesto)}
+                        {imputacionTexto(it.items_oc_presupuesto, it.presupuesto_capitulos)}
                       </td>
                     </tr>
                   );
@@ -345,8 +345,10 @@ export default function DetalleOrdenCompra() {
   );
 }
 
-function imputacionTexto(asignaciones) {
+function imputacionTexto(asignaciones, capitulo) {
   const validas = (asignaciones || []).filter((a) => a.presupuesto_items);
+  // Línea imputada a un capítulo completo (todo costo: bot, caja menor o formulario).
+  if (validas.length === 0 && capitulo) return `Cap. ${capitulo.codigo} · ${nombreCapitulo(capitulo.nombre)}`;
   if (validas.length === 0) return '—';
   if (validas.length === 1) {
     const p = validas[0].presupuesto_items;

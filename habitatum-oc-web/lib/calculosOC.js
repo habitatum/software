@@ -275,3 +275,12 @@ export function factorEjecutado(oc, calculo) {
     - (Number(calculo.valor_retenido || 0) - Number(oc?.devolucion_retenido || 0));
   return 1 + ajuste / base;
 }
+
+// "ADICIONALES DE OBRA" → "Adicionales de obra" (los capítulos vienen en mayúsculas).
+export function nombreCapitulo(nombre) {
+  const t = String(nombre || '').trim();
+  if (!t || t !== t.toUpperCase()) return t;
+  const l = t.toLowerCase();
+  return l.charAt(0).toUpperCase() + l.slice(1);
+}
+
