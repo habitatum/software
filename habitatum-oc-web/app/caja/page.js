@@ -35,7 +35,7 @@ function fecha(f) {
   return `${p[2]}/${p[1]}/${p[0]}`;
 }
 
-function Fila({ etiqueta, valor, signo, fuerte, sub, nota, onClick, abierto }) {
+function Fila({ etiqueta, valor, signo, fuerte, sub, nota, onClick, abierto, color = '' }) {
   return (
     <div className={`py-1.5 ${fuerte ? 'font-semibold border-t border-dorado mt-1 pt-2' : ''}`}>
       <div className={`flex justify-between gap-3 ${sub ? 'pl-4 text-xs text-neutral-500' : 'text-sm'}`}>
@@ -44,7 +44,7 @@ function Fila({ etiqueta, valor, signo, fuerte, sub, nota, onClick, abierto }) {
             {abierto ? '▾' : '▸'} {etiqueta}
           </button>
         ) : <span>{etiqueta}</span>}
-        <span className="whitespace-nowrap tabular-nums">{signo === '-' && Number(valor) ? '− ' : signo === '+' ? '+ ' : ''}{formatoPesos(Math.abs(Number(valor) || 0))}</span>
+        <span className={`whitespace-nowrap tabular-nums ${color}`}>{signo === '-' && Number(valor) ? '− ' : signo === '+' ? '+ ' : ''}{formatoPesos(Math.abs(Number(valor) || 0))}</span>
       </div>
       {nota && <p className={`text-[11px] font-normal text-neutral-500 mt-0.5 ${sub ? 'pl-4' : ''}`}>{nota}</p>}
     </div>
@@ -94,7 +94,9 @@ export default function Caja() {
   const [libroAbierto, setLibroAbierto] = useState(false);
   const [filtroLibro, setFiltroLibro] = useState('TODOS');
   const [busqueda, setBusqueda] = useState('');
-  const [mesAbierto, setMesAbierto] = useState({});
+  const [recientesPrimero, setRecientesPrimero] = useState(false);
+  // Costo que falta por ejecutar: lo pone el admin según su proyección interna (054).
+  const [editCosto, setEditCosto] = useState(null); // null = no editando; string = valor en edición
 
   const esAdmin = usuario?.rol === 'admin';
   const todoCosto = proyecto?.modelo_contratacion === 'TODO_COSTO';
@@ -151,6 +153,15 @@ export default function Caja() {
     ejecutar(async (s) => { const { error: e } = await s.from('movimientos_caja').delete().eq('id', m.id); if (e) throw e; });
   }
 
+  function guardarCostoPorEjecutar(valor) {
+    if (valor !== null && !(Number(valor) >= 0)) { setError('Escribe un valor válido para el costo por ejecutar.'); return; }
+    ejecutar(async (s) => {
+      const { error: e } = await s.rpc('guardar_costo_por_ejecutar', { p_proyecto: proyecto.id, p_valor: valor === null ? null : Number(valor) });
+      if (e) throw e;
+      setEditCosto(null);
+    });
+  }
+
   function guardarConciliacion() {
     if (conc.saldo_banco === '') { setError('Escribe el saldo real de la cuenta.'); return; }
     ejecutar(async (s) => {
@@ -205,59 +216,47 @@ export default function Caja() {
     return { k, t, filas, total: filas.reduce((a, r) => a + Number(r.egreso || 0), 0) };
   }).filter((g) => g.filas.length > 0);
 
-  // Libro de movimientos: ingresos/retiros/ajustes (con su id para poder eliminarlos)
-  // + egresos del histórico V1, de las OC y de la caja menor por legalizar.
-  const filasLibro = [
-    ...(d?.movimientos || []).map((m) => ({
-      key: `m-${m.id}`, fecha: m.fecha, mov: m,
-      clase: m.tipo === 'INGRESO_CLIENTE' ? 'INGRESOS' : m.tipo === 'RETIRO_UTILIDAD' ? 'RETIROS' : (Number(m.valor) < 0 ? 'EGRESOS' : 'INGRESOS'),
-      valor: m.tipo === 'RETIRO_UTILIDAD' ? -Math.abs(Number(m.valor)) : Number(m.valor),
-      concepto: `${m.concepto}${m.beneficiario ? ` · ${m.beneficiario}` : ''}`,
-      etiqueta: TIPOS[m.tipo], v1: String(m.concepto || '').endsWith('(V1)'),
-    })),
-    ...(libro || []).filter((r) => Number(r.orden_tipo) !== 1).map((r, i) => ({
-      key: `l-${i}`, fecha: r.fecha, clase: 'EGRESOS', valor: -Number(r.egreso || 0),
-      concepto: r.concepto, etiqueta: r.origen === 'V1' ? `Cap. ${r.capitulo}` : `${r.origen} · Cap. ${r.capitulo}`, v1: r.origen === 'V1',
-    })),
-  ];
+  // ---------- Libro de movimientos, igual a la hoja CAJA-DIRECTA de la V1 ----------
+  // FECHA · INGRESO · EGRESO · CONCEPTO · CAPÍTULO · SALDO (saldo acumulado en orden cronológico).
+  const usados = new Set();
+  let saldoAcum = 0;
+  const filasLibro = (libro || []).map((r, i) => {
+    saldoAcum += Number(r.ingreso || 0) - Number(r.egreso || 0);
+    let mov = null;
+    if (Number(r.orden_tipo) === 1 && d) {
+      // Movimiento registrado (ingreso/retiro/ajuste): se ubica para poder eliminarlo.
+      mov = (d.movimientos || []).find((m) => !usados.has(m.id) && m.tipo === r.tipo && String(m.fecha) === String(r.fecha)
+        && Math.abs(Math.abs(Number(m.valor)) - (Number(r.ingreso) + Number(r.egreso))) < 0.01) || null;
+      if (mov) usados.add(mov.id);
+    }
+    const clase = r.tipo === 'RETIRO_UTILIDAD' ? 'RETIROS' : Number(r.ingreso) > 0 ? 'INGRESOS' : 'EGRESOS';
+    return { ...r, i, saldo: saldoAcum, mov, clase };
+  });
   const q = busqueda.trim().toLowerCase();
   const filtradas = filasLibro
     .filter((f) => filtroLibro === 'TODOS' || f.clase === filtroLibro)
-    .filter((f) => !q || `${f.concepto} ${f.etiqueta}`.toLowerCase().includes(q))
-    .sort((a, b) => String(b.fecha).localeCompare(String(a.fecha)));
-  // El histórico V1 se agrupa por mes; lo demás va renglón a renglón.
-  const bloques = [];
-  const porMes = {};
-  filtradas.forEach((f) => {
-    if (f.v1) {
-      const ym = String(f.fecha).slice(0, 7);
-      if (!porMes[ym]) { porMes[ym] = { tipo: 'MES', ym, filas: [] }; bloques.push(porMes[ym]); }
-      porMes[ym].filas.push(f);
-    } else bloques.push({ tipo: 'FILA', f });
-  });
-  const totalFiltrado = filtradas.reduce((a, f) => a + f.valor, 0);
+    .filter((f) => !q || `${f.concepto} ${f.capitulo} ${f.origen}`.toLowerCase().includes(q));
+  const ordenadas = recientesPrimero ? [...filtradas].reverse() : filtradas;
+  const filIng = filtradas.reduce((a, f) => a + Number(f.ingreso || 0), 0);
+  const filEgr = filtradas.reduce((a, f) => a + Number(f.egreso || 0), 0);
 
-  function RenglonLibro({ f, sangria }) {
-    return (
-      <div className={`flex items-start justify-between gap-3 py-2 border-t text-sm ${sangria ? 'pl-4 bg-neutral-50/60' : ''}`}>
-        <div className="min-w-0">
-          <p className="text-xs text-neutral-500">{fecha(f.fecha)} · {f.etiqueta}</p>
-          <p className="break-words">{f.concepto}</p>
-        </div>
-        <div className="text-right shrink-0">
-          <p className={`whitespace-nowrap tabular-nums ${f.valor >= 0 ? 'text-green-700' : f.clase === 'RETIROS' ? 'text-red-700' : 'text-neutral-800'}`}>
-            {f.valor < 0 ? '− ' : ''}{formatoPesos(Math.abs(f.valor))}
-          </p>
-          {f.mov && <button onClick={() => eliminarMovimiento(f.mov)} className="text-[11px] text-neutral-400 hover:text-red-600">Eliminar</button>}
-        </div>
-      </div>
-    );
-  }
+  // Barra "¿A dónde fue el dinero del cliente?"
+  const ingresos = Number(d?.ingresos || 0);
+  const segmentos = d ? [
+    { t: 'Histórico V1', v: Number(d.egresos.historico || 0), cls: 'bg-[#9b9187]' },
+    { t: 'Órdenes de Compra', v: Number(d.egresos.ordenes_compra || 0), cls: 'bg-carbon' },
+    { t: 'Retiros de utilidad', v: Number(d.retiros_utilidad || 0), cls: 'bg-dorado' },
+    { t: 'Saldo en libros', v: Math.max(Number(d.saldo_libros || 0), 0), cls: 'bg-green-600' },
+  ].filter((x) => x.v > 0) : [];
+  const pct = (v) => (ingresos > 0 ? (v / ingresos) * 100 : 0);
+  const saldoPositivo = Number(d?.saldo_libros || 0) >= 0;
+  const cierre = Number(d?.caja_proyectada_cierre || 0);
+  const retiroHoy = c ? d?.retiro_maximo_banco : d?.retiro_maximo_libros;
 
   return (
     <div>
       <NavBar usuario={usuario} proyecto={proyecto} />
-      <main className="p-4 sm:p-8 max-w-4xl mx-auto space-y-5">
+      <main className="p-4 sm:p-8 max-w-5xl mx-auto space-y-5">
         <div className="flex flex-wrap items-end justify-between gap-3">
           <div>
             <h1 className="text-2xl font-semibold">Caja del proyecto</h1>
@@ -270,7 +269,7 @@ export default function Caja() {
               opciones={OPCIONES_MOV.map(([k, t]) => [k, t, () => { setMov({ ...mov, tipo: k }); setPanel('MOV'); }])} />
             <Desplegable etiqueta="Más opciones" opciones={[
               ['CONC', 'Conciliar con banco', () => setPanel('CONC')],
-              ['DIR', 'Caja directa (saldo por renglón y Excel)', () => router.push('/caja/directa')],
+              ['DIR', 'Caja directa (Excel)', () => router.push('/caja/directa')],
             ]} />
           </div>
         </div>
@@ -278,7 +277,7 @@ export default function Caja() {
         {error && <p className="text-red-600 text-sm bg-red-50 border border-red-200 rounded p-3">{error}</p>}
 
         {panel === 'MOV' && (
-          <section className="bg-white rounded-lg border border-dorado p-4 space-y-2">
+          <section className={`bg-white rounded-lg border-2 p-4 space-y-2 ${mov.tipo === 'INGRESO_CLIENTE' ? 'border-green-600' : mov.tipo === 'RETIRO_UTILIDAD' ? 'border-dorado' : 'border-carbon'}`}>
             <div className="flex items-center justify-between">
               <h2 className="font-semibold">Registrar · {OPCIONES_MOV.find(([k]) => k === mov.tipo)?.[1]}</h2>
               <button onClick={() => setPanel(null)} className="text-neutral-400 hover:text-carbon px-2">✕</button>
@@ -297,7 +296,7 @@ export default function Caja() {
         )}
 
         {panel === 'CONC' && d && (
-          <section className="bg-white rounded-lg border border-dorado p-4 space-y-2">
+          <section className="bg-white rounded-lg border-2 border-carbon p-4 space-y-2">
             <div className="flex items-center justify-between">
               <h2 className="font-semibold">Conciliar con el banco</h2>
               <button onClick={() => setPanel(null)} className="text-neutral-400 hover:text-carbon px-2">✕</button>
@@ -305,7 +304,7 @@ export default function Caja() {
             {c && (
               <p className="text-sm">
                 Último saldo real: <strong>{formatoPesos(c.saldo_banco)}</strong> al {fecha(c.fecha)} · diferencia con libros{' '}
-                <span className={Math.abs(Number(c.diferencia)) > 1 ? 'text-red-700' : ''}>{Number(c.diferencia) < 0 ? '−' : '+'}{formatoPesos(Math.abs(c.diferencia))}</span>
+                <span className={Math.abs(Number(c.diferencia)) > 1 ? 'text-red-700 font-semibold' : 'text-green-700'}>{Number(c.diferencia) < 0 ? '−' : '+'}{formatoPesos(Math.abs(c.diferencia))}</span>
               </p>
             )}
             <div className="grid grid-cols-2 gap-2">
@@ -326,164 +325,281 @@ export default function Caja() {
 
         {!d ? <p className="text-sm text-neutral-500">Cargando caja...</p> : (
           <>
-            <section className="bg-white rounded-lg border border-t-2 border-t-dorado p-4">
-              <h2 className="font-semibold mb-2">Flujo de caja</h2>
-              <Fila etiqueta="Ingresos del cliente" valor={d.ingresos} />
-              <Fila etiqueta="Egresos de obra" valor={d.egresos.total} signo="-"
-                nota="Solo lo pagado desde la cuenta de la obra; lo que pagó el cliente directo no suma aquí." />
-              {Number(d.egresos.historico) > 0 && <Fila sub etiqueta="Histórico (formato anterior)" valor={d.egresos.historico} />}
-              <Fila sub etiqueta="Órdenes de Compra" valor={d.egresos.ordenes_compra}
-                onClick={gruposOC.length > 0 ? () => setVerOC(!verOC) : undefined} abierto={verOC} />
-              {verOC && (
-                <div className="ml-4 mb-2 border-l-2 border-gris-calido pl-3 text-xs">
-                  {gruposOC.map((g) => (
-                    <div key={g.k} className="py-1">
-                      <button type="button" onClick={() => setGrupoAbierto(grupoAbierto === g.k ? '' : g.k)}
-                        className="w-full flex justify-between gap-3 text-neutral-700 hover:text-carbon">
-                        <span>{grupoAbierto === g.k ? '▾' : '▸'} {g.t} ({g.filas.length})</span>
-                        <span className="tabular-nums">{formatoPesos(Math.round(g.total))}</span>
-                      </button>
-                      {grupoAbierto === g.k && (
-                        <div className="mt-1 space-y-1">
-                          {[...g.filas].reverse().map((r, i) => (
-                            <div key={i} className="flex justify-between gap-3 text-neutral-500 pl-3">
-                              <span className="min-w-0 break-words">{fecha(r.fecha)} · {r.concepto}</span>
-                              <span className="tabular-nums whitespace-nowrap">{formatoPesos(Math.round(Number(r.egreso)))}</span>
-                            </div>
-                          ))}
-                        </div>
-                      )}
-                    </div>
-                  ))}
+            {/* ---------- FLUJO DE CAJA ---------- */}
+            <section className="bg-white rounded-lg border overflow-hidden">
+              <div className="bg-carbon text-hueso px-4 py-2.5 flex items-center justify-between">
+                <h2 className="font-semibold tracking-wide">Flujo de caja</h2>
+                <span className="text-[11px] text-gris-calido">al {new Date().toLocaleDateString('es-CO')}</span>
+              </div>
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-px bg-gris-calido/60">
+                <div className="bg-green-50 p-3 border-l-4 border-green-600">
+                  <p className="text-[11px] uppercase tracking-wide text-green-800">Ingresos del cliente</p>
+                  <p className="text-lg font-semibold text-green-700 tabular-nums">{formatoPesos(Math.round(ingresos))}</p>
+                </div>
+                <div className="bg-white p-3 border-l-4 border-carbon">
+                  <p className="text-[11px] uppercase tracking-wide text-neutral-500">Egresos de obra</p>
+                  <p className="text-lg font-semibold text-carbon tabular-nums">− {formatoPesos(Math.round(d.egresos.total))}</p>
+                </div>
+                <div className="bg-[#f6efe6] p-3 border-l-4 border-dorado">
+                  <p className="text-[11px] uppercase tracking-wide text-[#7a5a30]">Retiros de utilidad</p>
+                  <p className="text-lg font-semibold text-[#8a6534] tabular-nums">− {formatoPesos(Math.round(d.retiros_utilidad))}</p>
+                </div>
+                <div className="bg-carbon p-3 border-l-4 border-dorado">
+                  <p className="text-[11px] uppercase tracking-wide text-gris-calido">Saldo en libros</p>
+                  <p className={`text-lg font-semibold tabular-nums ${saldoPositivo ? 'text-green-400' : 'text-red-400'}`}>{formatoPesos(Math.round(d.saldo_libros))}</p>
+                </div>
+              </div>
+
+              {ingresos > 0 && (
+                <div className="px-4 pt-4">
+                  <p className="text-xs text-neutral-500 mb-1.5">¿A dónde ha ido el dinero del cliente?</p>
+                  <div className="flex h-3 rounded-full overflow-hidden bg-hueso">
+                    {segmentos.map((x) => <div key={x.t} className={x.cls} style={{ width: `${pct(x.v)}%` }} title={`${x.t}: ${formatoPesos(Math.round(x.v))}`} />)}
+                  </div>
+                  <div className="flex flex-wrap gap-x-4 gap-y-1 mt-2 text-[11px] text-neutral-600">
+                    {segmentos.map((x) => (
+                      <span key={x.t} className="flex items-center gap-1.5"><span className={`inline-block w-2.5 h-2.5 rounded-sm ${x.cls}`} />{x.t} {Math.round(pct(x.v))}%</span>
+                    ))}
+                  </div>
                 </div>
               )}
-              <Fila etiqueta="Retiros de utilidad" valor={d.retiros_utilidad} signo="-" />
-              {Number(d.ajustes) !== 0 && <Fila etiqueta="Ajustes" valor={d.ajustes} signo={Number(d.ajustes) < 0 ? '-' : '+'} />}
-              <Fila fuerte etiqueta="Saldo en libros" valor={d.saldo_libros}
-                nota="Lo que debería haber hoy en la cuenta según lo registrado. Si el banco muestra menos, falta registrar algún movimiento (por ejemplo, un retiro de utilidad)." />
+
+              <div className="p-4">
+                <Fila etiqueta="Ingresos del cliente" valor={d.ingresos} color="text-green-700" />
+                <Fila etiqueta="Egresos de obra" valor={d.egresos.total} signo="-"
+                  nota="Solo lo pagado desde la cuenta de la obra; lo que pagó el cliente directo no suma aquí." />
+                {Number(d.egresos.historico) > 0 && <Fila sub etiqueta="Histórico (formato anterior)" valor={d.egresos.historico} />}
+                <Fila sub etiqueta="Órdenes de Compra" valor={d.egresos.ordenes_compra}
+                  onClick={gruposOC.length > 0 ? () => setVerOC(!verOC) : undefined} abierto={verOC} />
+                {verOC && (
+                  <div className="ml-4 mb-2 border-l-2 border-dorado pl-3 text-xs">
+                    {gruposOC.map((g) => (
+                      <div key={g.k} className="py-1">
+                        <button type="button" onClick={() => setGrupoAbierto(grupoAbierto === g.k ? '' : g.k)}
+                          className="w-full flex justify-between gap-3 text-neutral-700 hover:text-carbon">
+                          <span>{grupoAbierto === g.k ? '▾' : '▸'} {g.t} ({g.filas.length})</span>
+                          <span className="tabular-nums">{formatoPesos(Math.round(g.total))}</span>
+                        </button>
+                        {grupoAbierto === g.k && (
+                          <div className="mt-1 space-y-1">
+                            {[...g.filas].reverse().map((r, i) => (
+                              <div key={i} className="flex justify-between gap-3 text-neutral-500 pl-3">
+                                <span className="min-w-0 break-words">{fecha(r.fecha)} · {r.concepto}</span>
+                                <span className="tabular-nums whitespace-nowrap">{formatoPesos(Math.round(Number(r.egreso)))}</span>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                )}
+                <Fila etiqueta="Retiros de utilidad" valor={d.retiros_utilidad} signo="-" color="text-[#8a6534]" />
+                {Number(d.ajustes) !== 0 && <Fila etiqueta="Ajustes" valor={d.ajustes} signo={Number(d.ajustes) < 0 ? '-' : '+'} />}
+                <Fila fuerte etiqueta="Saldo en libros" valor={d.saldo_libros} color={saldoPositivo ? 'text-green-700' : 'text-red-700'}
+                  nota="Lo que debería haber hoy en la cuenta según lo registrado. Si el banco muestra menos, falta registrar algún movimiento (por ejemplo, un retiro de utilidad)." />
+              </div>
             </section>
 
             {c && Number(d.deficit_banco) < 0 && (
               <div className="bg-red-50 border border-red-200 text-red-900 rounded p-3 text-sm">
                 Con el saldo real de la cuenta, la obra está <strong>desfinanciada en {formatoPesos(Math.abs(d.deficit_banco))}</strong>:
                 el dinero en banco más lo que falta por cobrar no alcanza para el costo pendiente y los retenidos por devolver.
-                Con el saldo en libros, el retiro máximo sería {formatoPesos(d.retiro_maximo_libros)}. La diferencia de {formatoPesos(Math.abs(c.diferencia))} entre libros y banco debe explicarse.
+                La diferencia de {formatoPesos(Math.abs(c.diferencia))} entre libros y banco debe explicarse.
               </div>
             )}
 
-            <section className="bg-white rounded-lg border">
-              <button type="button" onClick={() => setLibroAbierto(!libroAbierto)} className="w-full flex items-center justify-between p-4">
+            {/* ---------- PROYECCIÓN AL CIERRE ---------- */}
+            <section className="bg-white rounded-lg border overflow-hidden">
+              <div className="bg-hueso border-b border-gris-calido px-4 py-2.5"><h2 className="font-semibold">Proyección al cierre</h2></div>
+              <div className="p-4">
+                <Fila etiqueta="Saldo en libros" valor={d.saldo_libros} />
+                <Fila etiqueta="Por cobrar al cliente" valor={d.por_cobrar} signo="+" color="text-green-700" nota={`De ${formatoPesos(d.contrato.total)} pactados (contrato + adicionales)`} />
+                <div className="py-1.5">
+                  <div className="flex justify-between gap-3 text-sm">
+                    <span>Costo que falta por ejecutar</span>
+                    {editCosto === null ? (
+                      <span className="flex items-center gap-2">
+                        <span className="whitespace-nowrap tabular-nums">− {formatoPesos(Math.round(Number(comp.costo_por_ejecutar || 0)))}</span>
+                        <button type="button" onClick={() => setEditCosto(String(Math.round(Number(comp.costo_por_ejecutar || 0))))}
+                          className="text-xs border border-dorado text-[#8a6534] rounded px-2 py-0.5 hover:bg-hueso">✎ Editar</button>
+                      </span>
+                    ) : (
+                      <span className="flex items-center gap-2">
+                        <input type="number" inputMode="decimal" autoFocus value={editCosto} onChange={(e) => setEditCosto(e.target.value)}
+                          className="border rounded px-2 py-1 text-sm w-36 text-right" />
+                        <button type="button" disabled={guardando} onClick={() => guardarCostoPorEjecutar(editCosto)} className="bg-carbon text-hueso text-xs rounded px-2 py-1">Guardar</button>
+                        <button type="button" onClick={() => setEditCosto(null)} className="text-xs text-neutral-500 px-1">✕</button>
+                      </span>
+                    )}
+                  </div>
+                  <p className="text-[11px] text-neutral-500 mt-0.5">
+                    {comp.costo_por_ejecutar_manual
+                      ? <>Valor manual (proyección interna){comp.costo_por_ejecutar_fecha ? ` · ${fecha(comp.costo_por_ejecutar_fecha)}` : ''} · cálculo automático {formatoPesos(Math.round(Number(comp.costo_por_ejecutar_calculado || 0)))}{' · '}
+                          <button type="button" disabled={guardando} onClick={() => guardarCostoPorEjecutar(null)} className="underline hover:text-carbon">volver al automático</button></>
+                      : 'Automático: costo presupuestado − ejecutado por capítulo. Usa ✎ Editar para poner tu proyección interna.'}
+                  </p>
+                </div>
+                <Fila etiqueta="Retenidos por devolver a contratistas" valor={comp.retenidos_por_devolver} signo="-" />
+                <div className={`mt-2 rounded-md px-3 py-2.5 flex justify-between gap-3 font-semibold ${cierre >= 0 ? 'bg-green-50 text-green-800 border border-green-200' : 'bg-red-50 text-red-800 border border-red-200'}`}>
+                  <span>Caja al cierre (utilidad por retirar)</span>
+                  <span className="tabular-nums whitespace-nowrap">{cierre < 0 ? '− ' : ''}{formatoPesos(Math.round(Math.abs(cierre)))}</span>
+                </div>
+                <div className="mt-3 rounded-md bg-[#f6efe6] border border-dorado/40 px-3 py-2.5">
+                  <div className="flex justify-between gap-3 text-sm font-semibold text-[#6b4a22]">
+                    <span>Utilidad que se puede retirar hoy</span>
+                    <span className="tabular-nums whitespace-nowrap">{formatoPesos(Math.round(Number(retiroHoy || 0)))}</span>
+                  </div>
+                  <p className="text-[11px] text-[#7a5a30] mt-1">
+                    Lo que se puede sacar hoy de la cuenta sin dejar la obra corta: {c ? 'saldo real del banco' : 'saldo en libros'} menos los retenidos por devolver,
+                    y menos la parte del costo que falta que no alcanza a cubrir lo que el cliente aún debe pagar.
+                  </p>
+                </div>
+              </div>
+            </section>
+
+            {/* ---------- LIBRO DE MOVIMIENTOS (formato V1) ---------- */}
+            <section className="bg-white rounded-lg border overflow-hidden">
+              <button type="button" onClick={() => setLibroAbierto(!libroAbierto)} className="w-full flex items-center justify-between px-4 py-3 bg-carbon text-hueso">
                 <span className="font-semibold">{libroAbierto ? '▾' : '▸'} Libro de movimientos</span>
-                <span className="text-xs text-neutral-500">{filasLibro.length} renglones</span>
+                <span className="text-xs text-gris-calido">{filasLibro.length} renglones · formato CAJA-DIRECTA</span>
               </button>
               {libroAbierto && (
-                <div className="px-4 pb-4">
-                  <div className="flex flex-wrap gap-2 items-center mb-2">
-                    {[['TODOS', 'Todos'], ['INGRESOS', 'Ingresos'], ['EGRESOS', 'Egresos'], ['RETIROS', 'Retiros']].map(([k, t]) => (
+                <div>
+                  <div className="flex flex-wrap gap-2 items-center p-3 border-b bg-hueso/60">
+                    {[['TODOS', 'Todos', 'bg-carbon border-carbon'], ['INGRESOS', 'Ingresos', 'bg-green-700 border-green-700'], ['EGRESOS', 'Egresos', 'bg-red-700 border-red-700'], ['RETIROS', 'Retiros', 'bg-dorado border-dorado']].map(([k, t, on]) => (
                       <button key={k} type="button" onClick={() => setFiltroLibro(k)}
-                        className={`px-3 py-1 rounded-full text-xs border ${filtroLibro === k ? 'bg-carbon text-hueso border-carbon' : 'border-neutral-300 text-neutral-600'}`}>{t}</button>
+                        className={`px-3 py-1 rounded-full text-xs border ${filtroLibro === k ? `${on} text-white` : 'bg-white border-neutral-300 text-neutral-600'}`}>{t}</button>
                     ))}
-                    <input value={busqueda} onChange={(e) => setBusqueda(e.target.value)} placeholder="Buscar concepto, proveedor u OC…"
-                      className="border rounded px-3 py-1.5 text-sm flex-1 min-w-[180px]" />
+                    <input value={busqueda} onChange={(e) => setBusqueda(e.target.value)} placeholder="Buscar concepto, proveedor, OC o capítulo…"
+                      className="border rounded px-3 py-1.5 text-sm flex-1 min-w-[180px] bg-white" />
+                    <label className="flex items-center gap-1 text-xs text-neutral-600">
+                      <input type="checkbox" checked={recientesPrimero} onChange={(e) => setRecientesPrimero(e.target.checked)} /> Más recientes primero
+                    </label>
+                    <span className="text-xs text-neutral-600 w-full">
+                      {filtradas.length} renglones · ingresos <span className="text-green-700 font-medium">{formatoPesos(Math.round(filIng))}</span> · egresos <span className="text-red-700 font-medium">{formatoPesos(Math.round(filEgr))}</span>
+                    </span>
                   </div>
-                  <p className="text-xs text-neutral-500 mb-1">{filtradas.length} renglones · neto {totalFiltrado < 0 ? '−' : ''}{formatoPesos(Math.round(Math.abs(totalFiltrado)))}</p>
-                  {bloques.map((b) => b.tipo === 'FILA' ? <RenglonLibro key={b.f.key} f={b.f} /> : (
-                    <div key={`mes-${b.ym}`}>
-                      <button type="button" onClick={() => setMesAbierto({ ...mesAbierto, [b.ym]: !mesAbierto[b.ym] })}
-                        className="w-full flex justify-between gap-3 py-2 border-t text-sm text-left">
-                        <span>{mesAbierto[b.ym] ? '▾' : '▸'} Histórico V1 · {nombreMes(b.ym)} <span className="text-xs text-neutral-500">({b.filas.length})</span></span>
-                        <span className="tabular-nums whitespace-nowrap">{(() => { const t = b.filas.reduce((a, f) => a + f.valor, 0); return `${t < 0 ? '− ' : ''}${formatoPesos(Math.round(Math.abs(t)))}`; })()}</span>
-                      </button>
-                      {mesAbierto[b.ym] && b.filas.map((f) => <RenglonLibro key={f.key} f={f} sangria />)}
-                    </div>
-                  ))}
-                  {filtradas.length === 0 && <p className="text-sm text-neutral-500 py-2">Sin movimientos con ese filtro.</p>}
+                  <div className="overflow-auto max-h-[70vh]">
+                    <table className="w-full text-xs">
+                      <thead className="sticky top-0 z-10">
+                        <tr className="bg-gris-calido text-carbon text-left">
+                          <th className="px-2 py-2 font-semibold">FECHA</th>
+                          <th className="px-2 py-2 font-semibold text-right">INGRESO</th>
+                          <th className="px-2 py-2 font-semibold text-right">EGRESO</th>
+                          <th className="px-2 py-2 font-semibold">CONCEPTO</th>
+                          <th className="px-2 py-2 font-semibold">CAPÍTULO</th>
+                          <th className="px-2 py-2 font-semibold text-right">SALDO</th>
+                          <th className="px-1 py-2" />
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {ordenadas.map((f, k) => {
+                          const mes = String(f.fecha).slice(0, 7);
+                          const mesPrevio = k > 0 ? String(ordenadas[k - 1].fecha).slice(0, 7) : null;
+                          return [
+                            mes !== mesPrevio && (
+                              <tr key={`m-${mes}-${k}`} className="bg-hueso">
+                                <td colSpan={7} className="px-2 py-1.5 text-[11px] font-semibold uppercase tracking-wide text-[#8a6534] border-y border-gris-calido">{nombreMes(mes)}</td>
+                              </tr>
+                            ),
+                            <tr key={f.i} className={`border-b border-neutral-100 ${k % 2 ? 'bg-neutral-50/70' : 'bg-white'} hover:bg-[#f6efe6]`}>
+                              <td className="px-2 py-1.5 whitespace-nowrap text-neutral-600">{fecha(f.fecha)}</td>
+                              <td className="px-2 py-1.5 text-right whitespace-nowrap font-semibold text-green-700 tabular-nums">{Number(f.ingreso) ? formatoPesos(Math.round(Number(f.ingreso))) : ''}</td>
+                              <td className={`px-2 py-1.5 text-right whitespace-nowrap tabular-nums ${f.clase === 'RETIROS' ? 'text-[#8a6534] font-semibold' : 'text-red-700'}`}>{Number(f.egreso) ? formatoPesos(Math.round(Number(f.egreso))) : ''}</td>
+                              <td className="px-2 py-1.5 min-w-[240px]">
+                                {f.concepto}
+                                {f.origen && f.origen !== 'V1' && <span className="ml-1.5 text-[10px] px-1.5 py-0.5 rounded bg-hueso text-neutral-600 border border-gris-calido">{f.origen}</span>}
+                              </td>
+                              <td className="px-2 py-1.5 whitespace-nowrap text-neutral-600">{f.capitulo}</td>
+                              <td className={`px-2 py-1.5 text-right whitespace-nowrap font-semibold tabular-nums ${f.saldo < 0 ? 'text-red-700' : 'text-carbon'}`}>{formatoPesos(Math.round(f.saldo))}</td>
+                              <td className="px-1 py-1.5 text-right">
+                                {f.mov && <button onClick={() => eliminarMovimiento(f.mov)} title="Eliminar movimiento" className="text-neutral-300 hover:text-red-600">✕</button>}
+                              </td>
+                            </tr>,
+                          ];
+                        })}
+                        {ordenadas.length === 0 && <tr><td colSpan={7} className="px-2 py-3 text-neutral-500">Sin movimientos con ese filtro.</td></tr>}
+                      </tbody>
+                    </table>
+                  </div>
+                  <p className="text-[11px] text-neutral-500 p-3 border-t">El saldo de cada renglón es el acumulado de todo el libro en orden de fecha (no cambia con los filtros). No incluye lo que el cliente paga directamente.</p>
                 </div>
               )}
             </section>
 
-            <section className="bg-white rounded-lg border p-4">
-              <h2 className="font-semibold mb-2">Proyección al cierre</h2>
-              <Fila etiqueta="Saldo en libros" valor={d.saldo_libros} />
-              <Fila etiqueta="Por cobrar al cliente" valor={d.por_cobrar} signo="+" nota={`De ${formatoPesos(d.contrato.total)} pactados`} />
-              <Fila etiqueta="Costo que falta por ejecutar" valor={comp.costo_por_ejecutar} signo="-" />
-              <Fila etiqueta="Retenidos por devolver a contratistas" valor={comp.retenidos_por_devolver} signo="-" />
-              <Fila fuerte etiqueta="Caja al cierre (utilidad por retirar)" valor={d.caja_proyectada_cierre} />
-              <Fila etiqueta="Retiro máximo sugerido hoy" valor={c ? d.retiro_maximo_banco : d.retiro_maximo_libros}
-                nota={c ? 'Sobre el último saldo real conciliado' : 'Sobre el saldo en libros'} />
-              <p className="text-[11px] text-neutral-500 mt-2">
-                Supone que se cobra todo lo pactado y cada capítulo consume su costo presupuestado (o lo ya ejecutado, si lo superó).
-              </p>
-            </section>
-
-            <section className="bg-white rounded-lg border p-4">
-              <div className="flex flex-wrap items-baseline justify-between gap-2 mb-2">
+            <section className="bg-white rounded-lg border overflow-hidden">
+              <div className="bg-hueso border-b border-gris-calido px-4 py-2.5 flex flex-wrap items-baseline justify-between gap-2">
                 <h2 className="font-semibold">Plan de pagos del cliente</h2>
                 <span className="text-xs text-neutral-500">Total {formatoPesos(totalPlan)} · pendiente {formatoPesos(planPendiente)}</span>
               </div>
-              {Math.abs(totalPlan - Number(d.contrato.total)) > 1 && d.plan_pagos.length > 0 && (
-                <p className="text-xs text-amber-800 bg-amber-50 border border-amber-200 rounded p-2 mb-2">
-                  El plan suma {formatoPesos(totalPlan)} y el contrato más adicionales suma {formatoPesos(d.contrato.total)}.
-                </p>
-              )}
-              <div className="overflow-x-auto">
-                <table className="w-full text-sm">
-                  <thead className="text-left text-xs text-neutral-500"><tr><th className="py-1">Hito</th><th>Fecha estimada</th><th className="text-right">Valor</th><th className="text-right">Recibido</th><th className="pl-3">Estado</th><th /></tr></thead>
-                  <tbody>
-                    {d.plan_pagos.map((h) => (
-                      <tr key={h.id} className="border-t">
-                        <td className="py-2">{h.concepto}</td>
-                        <td>{fecha(h.fecha_estimada)}</td>
-                        <td className="text-right">{formatoPesos(h.valor)}</td>
-                        <td className="text-right">{formatoPesos(h.recibido)}</td>
-                        <td className="pl-3"><span className={`text-[11px] px-2 py-0.5 rounded ${ESTADOS[h.estado]}`}>{h.estado}</span></td>
-                        <td className="text-right"><button onClick={() => eliminarHito(h)} className="text-xs text-neutral-400 hover:text-red-600">Eliminar</button></td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-              <div className="grid sm:grid-cols-4 gap-2 mt-3">
-                <input placeholder="Hito (ej. Pago final contra entrega)" value={hito.concepto} onChange={(e) => setHito({ ...hito, concepto: e.target.value })} className={`${CAMPO} sm:col-span-2`} />
-                <input type="number" placeholder="Valor" value={hito.valor} onChange={(e) => setHito({ ...hito, valor: e.target.value })} className={CAMPO} />
-                <div className="flex gap-2">
-                  <input type="date" value={hito.fecha_estimada} onChange={(e) => setHito({ ...hito, fecha_estimada: e.target.value })} className={CAMPO} />
-                  <button disabled={guardando} onClick={guardarHito} className="bg-carbon text-hueso px-3 rounded text-sm">+</button>
+              <div className="p-4">
+                {Math.abs(totalPlan - Number(d.contrato.total)) > 1 && d.plan_pagos.length > 0 && (
+                  <p className="text-xs text-amber-800 bg-amber-50 border border-amber-200 rounded p-2 mb-2">
+                    El plan suma {formatoPesos(totalPlan)} y el contrato más adicionales suma {formatoPesos(d.contrato.total)}.
+                  </p>
+                )}
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm">
+                    <thead className="text-left text-xs text-neutral-500"><tr><th className="py-1">Hito</th><th>Fecha estimada</th><th className="text-right">Valor</th><th className="text-right">Recibido</th><th className="pl-3">Estado</th><th /></tr></thead>
+                    <tbody>
+                      {d.plan_pagos.map((h) => (
+                        <tr key={h.id} className="border-t">
+                          <td className="py-2">{h.concepto}</td>
+                          <td>{fecha(h.fecha_estimada)}</td>
+                          <td className="text-right">{formatoPesos(h.valor)}</td>
+                          <td className="text-right">{formatoPesos(h.recibido)}</td>
+                          <td className="pl-3"><span className={`text-[11px] px-2 py-0.5 rounded ${ESTADOS[h.estado]}`}>{h.estado}</span></td>
+                          <td className="text-right"><button onClick={() => eliminarHito(h)} className="text-xs text-neutral-400 hover:text-red-600">Eliminar</button></td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+                <div className="grid sm:grid-cols-4 gap-2 mt-3">
+                  <input placeholder="Hito (ej. Pago final contra entrega)" value={hito.concepto} onChange={(e) => setHito({ ...hito, concepto: e.target.value })} className={`${CAMPO} sm:col-span-2`} />
+                  <input type="number" placeholder="Valor" value={hito.valor} onChange={(e) => setHito({ ...hito, valor: e.target.value })} className={CAMPO} />
+                  <div className="flex gap-2">
+                    <input type="date" value={hito.fecha_estimada} onChange={(e) => setHito({ ...hito, fecha_estimada: e.target.value })} className={CAMPO} />
+                    <button disabled={guardando} onClick={guardarHito} className="bg-carbon text-hueso px-3 rounded text-sm">+</button>
+                  </div>
                 </div>
               </div>
             </section>
 
-            <section className="bg-white rounded-lg border p-4">
-              <div className="flex flex-wrap items-baseline justify-between gap-2 mb-2">
+            <section className="bg-white rounded-lg border overflow-hidden">
+              <div className="bg-hueso border-b border-gris-calido px-4 py-2.5 flex flex-wrap items-baseline justify-between gap-2">
                 <h2 className="font-semibold">Caja menor por legalizar</h2>
                 <span className="text-xs text-neutral-500">
                   {formatoPesos(cajaMenor.reduce((a, g) => a + Number(g.valor), 0))} de {formatoPesos(proyecto.tope_caja_menor)} · se legaliza sola al llegar al tope
                 </span>
               </div>
-              {cajaMenor.length === 0 ? (
-                <p className="text-sm text-neutral-500">No hay gastos de caja menor pendientes. Se registran desde el grupo de finanzas de Telegram con la nota CAJA MENOR.</p>
-              ) : (
-                <>
-                  <div className="overflow-x-auto">
-                    <table className="w-full text-sm">
-                      <thead className="text-left text-xs text-neutral-500"><tr><th className="py-1">Fecha</th><th>Concepto</th><th>Capítulo</th><th className="text-right">Valor</th></tr></thead>
-                      <tbody>
-                        {cajaMenor.map((g) => (
-                          <tr key={g.id} className="border-t">
-                            <td className="py-2 whitespace-nowrap">{fecha(g.fecha)}</td>
-                            <td>{g.concepto}{g.remitente ? ` · ${g.remitente}` : ''}</td>
-                            <td className="text-xs">{g.presupuesto_capitulos ? `${g.presupuesto_capitulos.codigo} · ${g.presupuesto_capitulos.nombre}` : '—'}</td>
-                            <td className="text-right whitespace-nowrap">{formatoPesos(g.valor)}</td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-                  <button disabled={guardando} onClick={legalizarCajaMenor} className="mt-3 border border-dorado text-dorado px-4 py-2 rounded text-sm hover:bg-hueso">
-                    Legalizar ahora en una OC
-                  </button>
-                </>
-              )}
+              <div className="p-4">
+                {cajaMenor.length === 0 ? (
+                  <p className="text-sm text-neutral-500">No hay gastos de caja menor pendientes. Se registran desde el grupo de finanzas de Telegram con la nota CAJA MENOR.</p>
+                ) : (
+                  <>
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-sm">
+                        <thead className="text-left text-xs text-neutral-500"><tr><th className="py-1">Fecha</th><th>Concepto</th><th>Capítulo</th><th className="text-right">Valor</th></tr></thead>
+                        <tbody>
+                          {cajaMenor.map((g) => (
+                            <tr key={g.id} className="border-t">
+                              <td className="py-2 whitespace-nowrap">{fecha(g.fecha)}</td>
+                              <td>{g.concepto}{g.remitente ? ` · ${g.remitente}` : ''}</td>
+                              <td className="text-xs">{g.presupuesto_capitulos ? `${g.presupuesto_capitulos.codigo} · ${g.presupuesto_capitulos.nombre}` : '—'}</td>
+                              <td className="text-right whitespace-nowrap">{formatoPesos(g.valor)}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                    <button disabled={guardando} onClick={legalizarCajaMenor} className="mt-3 border border-dorado text-dorado px-4 py-2 rounded text-sm hover:bg-hueso">
+                      Legalizar ahora en una OC
+                    </button>
+                  </>
+                )}
+              </div>
             </section>
           </>
         )}
