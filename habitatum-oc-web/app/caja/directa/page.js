@@ -86,7 +86,13 @@ export default function CajaDirecta() {
         }
       }
     });
-    const t = ws.addRow(['TOTAL', totIng, totEgr, '', '', '', totIng - totEgr]);
+    // Filas de datos: de la 7 a la anterior al TOTAL. Fórmulas con resultado precalculado (se ve en iPhone).
+    const filaIni = 7;
+    const filaFin = Math.max(filaIni, 6 + (movs || []).length);
+    const t = ws.addRow(['TOTAL',
+      { formula: `SUM(B${filaIni}:B${filaFin})`, result: totIng },
+      { formula: `SUM(C${filaIni}:C${filaFin})`, result: totEgr }, '', '', '',
+      { formula: `B${filaFin + 1}-C${filaFin + 1}`, result: totIng - totEgr }]);
     [2, 3, 7].forEach((i) => { t.getCell(i).numFmt = moneda; });
     t.eachCell((c) => { c.font = { bold: true }; c.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: G } }; });
 
@@ -104,8 +110,16 @@ export default function CajaDirecta() {
       ['RETIROS DE UTILIDAD', totRet, 'FFEAD9C2', 'FF5A3D1A'],
       ['SALDO EN LIBROS', totIng - totEgr, G, 'FF2E2E2E'],
     ];
+    // Fórmulas del resumen (filas consecutivas: ingresos, egresos de obra, retiros, saldo).
+    const fI = tit.number + 1; const fE = fI + 1; const fR = fI + 2;
+    const formulas = [
+      `SUM(B${filaIni}:B${filaFin})`,
+      `SUM(C${filaIni}:C${filaFin})-E${fR}`,
+      `SUMIF(E${filaIni}:E${filaFin},"Retiro de utilidad",C${filaIni}:C${filaFin})`,
+      `E${fI}-E${fE}-E${fR}`,
+    ];
     filasResumen.forEach(([etq, val, fondo, color], i) => {
-      const r = ws.addRow(['', '', '', etq, Math.round(val)]);
+      const r = ws.addRow(['', '', '', etq, { formula: formulas[i], result: val }]);
       r.getCell(5).numFmt = moneda;
       [4, 5].forEach((j) => {
         const c = r.getCell(j);
