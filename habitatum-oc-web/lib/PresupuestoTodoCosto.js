@@ -26,6 +26,24 @@ const COL_EJEC = 'bg-[#3b5b7a]/[0.14] text-[#243b52] font-semibold';
 const COL_EJEC_SUAVE = 'bg-[#3b5b7a]/[0.07] text-[#243b52]';
 const COL_EJEC_TOTAL = 'bg-[#3b5b7a]/[0.22] text-[#1b2d40]';
 
+// Capítulos donde el admin puede crear ítems desde la app (sin utilidad: costo = venta).
+const TIPOS_ADICIONAL = ['ADICIONAL_COSTO', 'PAGO_DIRECTO_CLIENTE'];
+const ITEM_VACIO = { id: null, capitulo_id: '', codigo: '', descripcion: '', unidad: '', cantidad: '', valor_unitario: '', valor_parcial: '' };
+
+// Siguiente código del capítulo: 13.07 → 13.08 (sin repetir ninguno del presupuesto).
+function siguienteCodigo(cap, todos) {
+  const pref = `${cap.codigo}.`;
+  const max = (cap.items || []).reduce((m, it) => {
+    const c = String(it.codigo || '');
+    const n = c.startsWith(pref) ? parseInt(c.slice(pref.length), 10) : NaN;
+    return Number.isFinite(n) ? Math.max(m, n) : m;
+  }, 0);
+  const usados = new Set(todos.map((x) => String(x).trim()));
+  let n = max + 1;
+  while (usados.has(`${pref}${String(n).padStart(2, '0')}`)) n += 1;
+  return `${pref}${String(n).padStart(2, '0')}`;
+}
+
 const MODALIDADES = { AIU: 'AIU con IVA sobre la utilidad', IVA: 'IVA sobre el total', SIN_FACTURA: 'Sin facturación' };
 
 function pct(a, b) {
@@ -64,6 +82,9 @@ export default function PresupuestoTodoCosto({ usuario, proyecto }) {
   const [subiendo, setSubiendo] = useState(false);
   const [expandidos, setExpandidos] = useState({});
   const [guardandoTipo, setGuardandoTipo] = useState(null);
+  const [itemForm, setItemForm] = useState(null); // ventana + Agregar / ✎ Editar ítem adicional
+  const [guardandoItem, setGuardandoItem] = useState(false);
+  const [errorItem, setErrorItem] = useState('');
   const inputRef = useRef(null);
   const esAdmin = usuario?.rol === 'admin';
 
@@ -164,6 +185,50 @@ export default function PresupuestoTodoCosto({ usuario, proyecto }) {
   ].filter((g) => g.capitulos.length > 0);
   const totalGeneral = sumar(capitulos);
 
+  const capsEditables = capitulos.filter((c) => TIPOS_ADICIONAL.includes(c.tipo));
+  const todosCodigos = capitulos.flatMap((c) => (c.items || []).map((it) => it.codigo || ''));
+
+  function abrirNuevoItem() {
+    const cap = capsEditables[0];
+    setErrorItem('');
+    setItemForm({ ...ITEM_VACIO, capitulo_id: cap?.id || '', codigo: cap ? siguienteCodigo(cap, todosCodigos) : '' });
+  }
+  function abrirEditarItem(c, it) {
+    setErrorItem('');
+    setItemForm({
+      id: it.id, capitulo_id: c.id, codigo: it.codigo || '', descripcion: it.descripcion || '', unidad: it.unidad || '',
+      cantidad: it.cantidad ?? '', valor_unitario: it.venta_unitario ?? '', valor_parcial: it.venta ?? '',
+    });
+  }
+  const valorItemForm = itemForm
+    ? (itemForm.cantidad !== '' && itemForm.valor_unitario !== '' ? Number(itemForm.cantidad) * Number(itemForm.valor_unitario) : Number(itemForm.valor_parcial || 0))
+    : 0;
+  async function guardarItem(e) {
+    e.preventDefault();
+    setErrorItem('');
+    const usaUnit = itemForm.cantidad !== '' && itemForm.valor_unitario !== '';
+    if (!usaUnit && !(Number(itemForm.valor_parcial) > 0)) { setErrorItem('Escribe cantidad y valor unitario, o el valor total del ítem.'); return; }
+    setGuardandoItem(true);
+    const { error: err } = await crearClienteSupabase().rpc('guardar_item_adicional_tc', {
+      p_item: itemForm.id, p_capitulo: itemForm.capitulo_id, p_codigo: itemForm.codigo, p_descripcion: itemForm.descripcion,
+      p_unidad: itemForm.unidad || null,
+      p_cantidad: usaUnit ? Number(itemForm.cantidad) : null,
+      p_valor_unitario: usaUnit ? Number(itemForm.valor_unitario) : null,
+      p_valor_parcial: usaUnit ? null : Number(itemForm.valor_parcial),
+    });
+    setGuardandoItem(false);
+    if (err) { setErrorItem(err.message); return; }
+    setItemForm(null);
+    await cargar();
+  }
+  async function eliminarItem(it) {
+    if (!window.confirm(`¿Eliminar el ítem ${it.codigo} · ${it.descripcion}? Solo se puede si no tiene nada imputado.`)) return;
+    setError('');
+    const { error: err } = await crearClienteSupabase().rpc('eliminar_item_adicional_tc', { p_item: it.id });
+    if (err) { setError(err.message); return; }
+    await cargar();
+  }
+
   function filaCapitulo(c) {
     const abierto = !!expandidos[c.id];
     const pctCosto = pct(c.ejecutado, c.costo);
@@ -202,7 +267,19 @@ export default function PresupuestoTodoCosto({ usuario, proyecto }) {
           const pi = pct(it.ejecutado, esAdmin ? it.costo : it.venta);
           return (
             <tr key={it.id} className="border-t text-xs text-neutral-600">
-              <td className="p-2 pl-9">{it.codigo} · {it.descripcion}</td>
+              <td className="p-2 pl-9">
+                {it.codigo} · {it.descripcion}
+                {esAdmin && TIPOS_ADICIONAL.includes(c.tipo) && (
+                  <span className="ml-2 inline-flex gap-1 align-middle">
+                    <button type="button" onClick={() => abrirEditarItem(c, it)} title="Editar este ítem adicional"
+                      className="text-[11px] border border-dorado text-[#6b4a22] rounded px-1.5 py-0.5 hover:bg-hueso">✎ Editar</button>
+                    {!Number(it.ejecutado) && (
+                      <button type="button" onClick={() => eliminarItem(it)} title="Eliminar (solo si no tiene nada imputado)"
+                        className="text-[11px] border border-red-200 text-red-600 rounded px-1.5 py-0.5 hover:bg-red-50">Eliminar</button>
+                    )}
+                  </span>
+                )}
+              </td>
               {esAdmin ? (
                 <>
                   <td className="p-2 text-neutral-400">{it.unidad || ''}{it.cantidad ? ` · ${it.cantidad}` : ''}</td>
@@ -331,6 +408,12 @@ export default function PresupuestoTodoCosto({ usuario, proyecto }) {
             </div>
           )}
 
+          {esAdmin && capsEditables.length > 0 && (
+            <div className="flex justify-end">
+              <button type="button" onClick={abrirNuevoItem} className="bg-carbon text-hueso px-4 py-2 rounded text-sm">+ Agregar ítem adicional</button>
+            </div>
+          )}
+
           <div className="bg-white rounded-lg shadow-sm border overflow-x-auto">
             <table className="w-full text-sm">
               <thead className="bg-gris-calido/30 text-left">
@@ -376,6 +459,71 @@ export default function PresupuestoTodoCosto({ usuario, proyecto }) {
             </p>
           )}
         </>
+      )}
+
+      {itemForm && (
+        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4" onClick={() => setItemForm(null)}>
+          <div className="bg-white rounded-lg max-w-lg w-full max-h-[90vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
+            <div className="bg-carbon text-hueso px-5 py-3 flex items-center justify-between rounded-t-lg">
+              <div>
+                <p className="font-semibold">{itemForm.id ? 'Editar ítem adicional' : 'Agregar ítem adicional'}</p>
+                <p className="text-xs text-gris-calido">Sin utilidad: el costo es igual al valor que se le reconoce al cliente.</p>
+              </div>
+              <button type="button" onClick={() => setItemForm(null)} className="text-hueso hover:text-dorado text-lg leading-none px-2">✕</button>
+            </div>
+            <form onSubmit={guardarItem} className="p-5 space-y-3">
+              <div>
+                <label className="text-xs text-neutral-500 block mb-1">Capítulo</label>
+                <select value={itemForm.capitulo_id} disabled={!!itemForm.id}
+                  onChange={(e) => {
+                    const cap = capsEditables.find((x) => x.id === e.target.value);
+                    setItemForm({ ...itemForm, capitulo_id: e.target.value, codigo: cap ? siguienteCodigo(cap, todosCodigos) : '' });
+                  }}
+                  className="w-full border rounded px-3 py-2 text-sm">
+                  {capsEditables.map((cap) => <option key={cap.id} value={cap.id}>{cap.codigo} · {cap.nombre} ({TIPOS_CAPITULO[cap.tipo]})</option>)}
+                </select>
+              </div>
+              <div className="grid grid-cols-3 gap-3">
+                <div>
+                  <label className="text-xs text-neutral-500 block mb-1">Código</label>
+                  <input required value={itemForm.codigo} onChange={(e) => setItemForm({ ...itemForm, codigo: e.target.value })} className="w-full border rounded px-3 py-2 text-sm" />
+                </div>
+                <div className="col-span-2">
+                  <label className="text-xs text-neutral-500 block mb-1">Unidad</label>
+                  <input value={itemForm.unidad} onChange={(e) => setItemForm({ ...itemForm, unidad: e.target.value })} placeholder="Glb, Un, m2…" className="w-full border rounded px-3 py-2 text-sm" />
+                </div>
+              </div>
+              <div>
+                <label className="text-xs text-neutral-500 block mb-1">Descripción</label>
+                <textarea required rows={2} value={itemForm.descripcion} onChange={(e) => setItemForm({ ...itemForm, descripcion: e.target.value })} className="w-full border rounded px-3 py-2 text-sm" />
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="text-xs text-neutral-500 block mb-1">Cantidad</label>
+                  <input type="number" inputMode="decimal" step="any" value={itemForm.cantidad} onChange={(e) => setItemForm({ ...itemForm, cantidad: e.target.value })} className="w-full border rounded px-3 py-2 text-sm text-right" />
+                </div>
+                <div>
+                  <label className="text-xs text-neutral-500 block mb-1">Valor unitario</label>
+                  <input type="number" inputMode="decimal" step="any" value={itemForm.valor_unitario} onChange={(e) => setItemForm({ ...itemForm, valor_unitario: e.target.value })} className="w-full border rounded px-3 py-2 text-sm text-right" />
+                </div>
+              </div>
+              <div>
+                <label className="text-xs text-neutral-500 block mb-1">…o valor total del ítem (si no usas cantidad × unitario)</label>
+                <input type="number" inputMode="decimal" step="any" value={itemForm.valor_parcial}
+                  disabled={itemForm.cantidad !== '' && itemForm.valor_unitario !== ''}
+                  onChange={(e) => setItemForm({ ...itemForm, valor_parcial: e.target.value })} className="w-full border rounded px-3 py-2 text-sm text-right disabled:bg-neutral-100" />
+              </div>
+              <p className="text-right text-sm">Valor del ítem: <strong>{formatoPesos(Math.round(valorItemForm))}</strong></p>
+              {errorItem && <p role="alert" className="text-xs text-red-600 bg-red-50 border border-red-200 rounded p-2">{errorItem}</p>}
+              <div className="flex justify-end gap-2 pt-1">
+                <button type="button" onClick={() => setItemForm(null)} className="text-sm px-3 py-2 rounded border">Cancelar</button>
+                <button type="submit" disabled={guardandoItem} className="text-sm px-4 py-2 rounded bg-carbon text-hueso disabled:opacity-50">
+                  {guardandoItem ? 'Guardando…' : (itemForm.id ? 'Guardar cambios' : 'Guardar ítem')}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
       )}
     </div>
   );
