@@ -1,5 +1,5 @@
 -- 055 · Presupuesto TODO COSTO: crear, editar y eliminar ítems adicionales desde la app (solo admin)
--- Aplicada en dos partes: 055a (totales + guardar_item_adicional_tc) por Claude; eliminar_item_adicional_tc la ejecuta Andrés en el SQL Editor de Supabase (la herramienta bloquea sentencias DELETE).
+-- Aplicada en dos partes el 12/10/2026: 055a (totales + guardar_item_adicional_tc) por Claude; eliminar_item_adicional_tc la ejecutó Andrés en el SQL Editor (la herramienta bloquea sentencias DELETE).
 -- Solo en capítulos ADICIONAL_COSTO y PAGO_DIRECTO_CLIENTE (sin utilidad: costo = venta).
 -- Nunca toca los capítulos de CONTRATO ni recalcula el resto del presupuesto: solo el
 -- capítulo afectado y los totales del presupuesto. No borra datos existentes.
