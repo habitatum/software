@@ -257,7 +257,7 @@ export default function Caja() {
     <div>
       <NavBar usuario={usuario} proyecto={proyecto} />
       <main className="p-4 sm:p-8 max-w-5xl mx-auto space-y-5">
-        <div className="flex flex-wrap items-end justify-between gap-3">
+        <div className="relative z-40 flex flex-wrap items-end justify-between gap-3">
           <div>
             <h1 className="text-2xl font-semibold">Caja del proyecto</h1>
             <p className="text-sm text-neutral-500">
