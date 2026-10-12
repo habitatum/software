@@ -77,6 +77,14 @@ export default function CajaDirecta() {
       const row = ws.addRow([fecha(m.fecha), Number(m.ingreso) || null, Number(m.egreso) || null, m.concepto, m.capitulo, m.origen, m.saldo]);
       [2, 3, 7].forEach((i) => { row.getCell(i).numFmt = moneda; });
       row.eachCell((c) => { c.border = { bottom: { style: 'hair', color: { argb: 'FFD9D4CC' } } }; });
+      // Retiro de utilidad: toda la fila resaltada en café HABITATUM.
+      if (m.tipo === 'RETIRO_UTILIDAD') {
+        for (let i = 1; i <= 7; i++) {
+          const c = row.getCell(i);
+          c.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFEAD9C2' } };
+          c.font = { bold: true, color: { argb: 'FF5A3D1A' } };
+        }
+      }
     });
     const t = ws.addRow(['TOTAL', totIng, totEgr, '', '', '', totIng - totEgr]);
     [2, 3, 7].forEach((i) => { t.getCell(i).numFmt = moneda; });
@@ -127,7 +135,7 @@ export default function CajaDirecta() {
                 </thead>
                 <tbody>
                   {visibles.map((m) => (
-                    <tr key={m.idx} className="border-t hover:bg-hueso/50">
+                    <tr key={m.idx} className={`border-t ${m.tipo === 'RETIRO_UTILIDAD' ? 'bg-[#ead9c2] text-[#5a3d1a] font-medium' : 'hover:bg-hueso/50'}`}>
                       <td className="p-2 text-xs whitespace-nowrap">{fecha(m.fecha)}</td>
                       <td className="p-2 text-xs text-right whitespace-nowrap text-green-700 font-semibold">{$(m.ingreso)}</td>
                       <td className="p-2 text-xs text-right whitespace-nowrap text-red-700">{$(m.egreso)}</td>

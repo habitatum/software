@@ -508,7 +508,7 @@ export default function Caja() {
                                 <td colSpan={7} className="px-2 py-1.5 text-[11px] font-semibold uppercase tracking-wide text-[#8a6534] border-y border-gris-calido">{nombreMes(mes)}</td>
                               </tr>
                             ),
-                            <tr key={f.i} className={`border-b border-neutral-100 ${k % 2 ? 'bg-neutral-50/70' : 'bg-white'} hover:bg-[#f6efe6]`}>
+                            <tr key={f.i} className={`border-b ${f.clase === 'RETIROS' ? 'bg-[#ead9c2] border-[#b88a52]/40 text-[#5a3d1a] font-medium' : `border-neutral-100 ${k % 2 ? 'bg-neutral-50/70' : 'bg-white'} hover:bg-[#f6efe6]`}`}>
                               <td className="px-2 py-1.5 whitespace-nowrap text-neutral-600">{fecha(f.fecha)}</td>
                               <td className="px-2 py-1.5 text-right whitespace-nowrap font-semibold text-green-700 tabular-nums">{Number(f.ingreso) ? formatoPesos(Math.round(Number(f.ingreso))) : ''}</td>
                               <td className={`px-2 py-1.5 text-right whitespace-nowrap tabular-nums ${f.clase === 'RETIROS' ? 'text-[#8a6534] font-semibold' : 'text-red-700'}`}>{Number(f.egreso) ? formatoPesos(Math.round(Number(f.egreso))) : ''}</td>
