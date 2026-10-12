@@ -89,6 +89,32 @@ export default function CajaDirecta() {
     const t = ws.addRow(['TOTAL', totIng, totEgr, '', '', '', totIng - totEgr]);
     [2, 3, 7].forEach((i) => { t.getCell(i).numFmt = moneda; });
     t.eachCell((c) => { c.font = { bold: true }; c.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: G } }; });
+
+    // Resumen al final: ingresos, egresos de obra y retiros de utilidad (+ saldo).
+    const totRet = (movs || []).filter((m) => m.tipo === 'RETIRO_UTILIDAD').reduce((a, m) => a + Number(m.egreso || 0), 0);
+    const totEgrObra = totEgr - totRet;
+    ws.addRow([]); ws.addRow([]);
+    const tit = ws.addRow(['', '', '', 'RESUMEN']);
+    tit.getCell(4).font = { bold: true, size: 12, color: { argb: 'FFFFFFFF' } };
+    [4, 5].forEach((i) => { tit.getCell(i).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: C } }; });
+    ws.mergeCells(tit.number, 4, tit.number, 5);
+    const filasResumen = [
+      ['INGRESOS (pagos del cliente)', totIng, 'FFE6F2E6', 'FF1E6B2E'],
+      ['EGRESOS DE OBRA', totEgrObra, 'FFFFFFFF', 'FF2E2E2E'],
+      ['RETIROS DE UTILIDAD', totRet, 'FFEAD9C2', 'FF5A3D1A'],
+      ['SALDO EN LIBROS', totIng - totEgr, G, 'FF2E2E2E'],
+    ];
+    filasResumen.forEach(([etq, val, fondo, color], i) => {
+      const r = ws.addRow(['', '', '', etq, Math.round(val)]);
+      r.getCell(5).numFmt = moneda;
+      [4, 5].forEach((j) => {
+        const c = r.getCell(j);
+        c.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: fondo } };
+        c.font = { bold: true, color: { argb: color } };
+        c.border = { bottom: { style: i === filasResumen.length - 2 ? 'thin' : 'hair', color: { argb: D } } };
+      });
+    });
+    ws.getColumn(5).width = Math.max(ws.getColumn(5).width || 12, 18);
     const buf = await wb.xlsx.writeBuffer();
     const url = URL.createObjectURL(new Blob([buf], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }));
     const a = document.createElement('a'); a.href = url; a.download = `Caja directa - ${proyecto.nombre}.xlsx`; a.click(); URL.revokeObjectURL(url);
