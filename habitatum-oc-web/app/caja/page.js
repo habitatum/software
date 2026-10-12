@@ -274,6 +274,30 @@ export default function Caja() {
           </div>
         </div>
 
+        {/* Barra flotante: queda visible arriba mientras se baja por la pantalla. */}
+        {d && (
+          <div className="sticky top-0 z-30 -mx-4 sm:mx-0 px-4 sm:px-0 pt-2 pb-2 bg-hueso/90 backdrop-blur">
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-px bg-gris-calido/60 rounded-lg overflow-hidden border border-gris-calido shadow-lg">
+            <div className="bg-green-50 p-2 sm:p-3 border-l-4 border-green-600">
+              <p className="text-[10px] sm:text-[11px] uppercase tracking-wide text-green-800">Pagos cliente</p>
+              <p className="text-base sm:text-lg font-semibold text-green-700 tabular-nums">{formatoPesos(Math.round(ingresos))}</p>
+            </div>
+            <div className="bg-white p-2 sm:p-3 border-l-4 border-carbon">
+              <p className="text-[10px] sm:text-[11px] uppercase tracking-wide text-neutral-500">Egresos de obra</p>
+              <p className="text-base sm:text-lg font-semibold text-carbon tabular-nums">− {formatoPesos(Math.round(d.egresos.total))}</p>
+            </div>
+            <div className="bg-[#f6efe6] p-2 sm:p-3 border-l-4 border-dorado">
+              <p className="text-[10px] sm:text-[11px] uppercase tracking-wide text-[#7a5a30]">Retiros de utilidad</p>
+              <p className="text-base sm:text-lg font-semibold text-[#8a6534] tabular-nums">− {formatoPesos(Math.round(d.retiros_utilidad))}</p>
+            </div>
+            <div className="bg-carbon p-2 sm:p-3 border-l-4 border-dorado">
+              <p className="text-[10px] sm:text-[11px] uppercase tracking-wide text-gris-calido">Saldo en libros</p>
+              <p className={`text-base sm:text-lg font-semibold tabular-nums ${saldoPositivo ? 'text-green-400' : 'text-red-400'}`}>{formatoPesos(Math.round(d.saldo_libros))}</p>
+            </div>
+          </div>
+          </div>
+        )}
+
         {error && <p className="text-red-600 text-sm bg-red-50 border border-red-200 rounded p-3">{error}</p>}
 
         {panel === 'MOV' && (
@@ -331,28 +355,9 @@ export default function Caja() {
                 <h2 className="font-semibold tracking-wide">Flujo de caja</h2>
                 <span className="text-[11px] text-gris-calido">al {new Date().toLocaleDateString('es-CO')}</span>
               </div>
-              <div className="grid grid-cols-2 md:grid-cols-4 gap-px bg-gris-calido/60">
-                <div className="bg-green-50 p-3 border-l-4 border-green-600">
-                  <p className="text-[11px] uppercase tracking-wide text-green-800">Ingresos del cliente</p>
-                  <p className="text-lg font-semibold text-green-700 tabular-nums">{formatoPesos(Math.round(ingresos))}</p>
-                </div>
-                <div className="bg-white p-3 border-l-4 border-carbon">
-                  <p className="text-[11px] uppercase tracking-wide text-neutral-500">Egresos de obra</p>
-                  <p className="text-lg font-semibold text-carbon tabular-nums">− {formatoPesos(Math.round(d.egresos.total))}</p>
-                </div>
-                <div className="bg-[#f6efe6] p-3 border-l-4 border-dorado">
-                  <p className="text-[11px] uppercase tracking-wide text-[#7a5a30]">Retiros de utilidad</p>
-                  <p className="text-lg font-semibold text-[#8a6534] tabular-nums">− {formatoPesos(Math.round(d.retiros_utilidad))}</p>
-                </div>
-                <div className="bg-carbon p-3 border-l-4 border-dorado">
-                  <p className="text-[11px] uppercase tracking-wide text-gris-calido">Saldo en libros</p>
-                  <p className={`text-lg font-semibold tabular-nums ${saldoPositivo ? 'text-green-400' : 'text-red-400'}`}>{formatoPesos(Math.round(d.saldo_libros))}</p>
-                </div>
-              </div>
-
               {ingresos > 0 && (
                 <div className="px-4 pt-4">
-                  <p className="text-xs text-neutral-500 mb-1.5">¿A dónde ha ido el dinero del cliente?</p>
+                  <p className="text-xs text-neutral-500 mb-1.5">¿A dónde han ido los pagos del cliente?</p>
                   <div className="flex h-3 rounded-full overflow-hidden bg-hueso">
                     {segmentos.map((x) => <div key={x.t} className={x.cls} style={{ width: `${pct(x.v)}%` }} title={`${x.t}: ${formatoPesos(Math.round(x.v))}`} />)}
                   </div>
@@ -365,7 +370,7 @@ export default function Caja() {
               )}
 
               <div className="p-4">
-                <Fila etiqueta="Ingresos del cliente" valor={d.ingresos} color="text-green-700" />
+                <Fila etiqueta="Pagos cliente" valor={d.ingresos} color="text-green-700" />
                 <Fila etiqueta="Egresos de obra" valor={d.egresos.total} signo="-"
                   nota="Solo lo pagado desde la cuenta de la obra; lo que pagó el cliente directo no suma aquí." />
                 {Number(d.egresos.historico) > 0 && <Fila sub etiqueta="Histórico (formato anterior)" valor={d.egresos.historico} />}
@@ -467,7 +472,7 @@ export default function Caja() {
               {libroAbierto && (
                 <div>
                   <div className="flex flex-wrap gap-2 items-center p-3 border-b bg-hueso/60">
-                    {[['TODOS', 'Todos', 'bg-carbon border-carbon'], ['INGRESOS', 'Ingresos', 'bg-green-700 border-green-700'], ['EGRESOS', 'Egresos', 'bg-red-700 border-red-700'], ['RETIROS', 'Retiros', 'bg-dorado border-dorado']].map(([k, t, on]) => (
+                    {[['TODOS', 'Todos', 'bg-carbon border-carbon'], ['INGRESOS', 'Pagos cliente', 'bg-green-700 border-green-700'], ['EGRESOS', 'Egresos', 'bg-red-700 border-red-700'], ['RETIROS', 'Retiros', 'bg-dorado border-dorado']].map(([k, t, on]) => (
                       <button key={k} type="button" onClick={() => setFiltroLibro(k)}
                         className={`px-3 py-1 rounded-full text-xs border ${filtroLibro === k ? `${on} text-white` : 'bg-white border-neutral-300 text-neutral-600'}`}>{t}</button>
                     ))}
