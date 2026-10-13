@@ -1,5 +1,6 @@
 'use client';
 import { Fragment, useEffect, useRef, useState } from 'react';
+import Link from 'next/link';
 import { crearClienteSupabase } from '@/lib/supabaseClient';
 import { formatoPesos } from '@/lib/calculosOC';
 import { parsearPresupuesto } from '@/lib/parsePresupuesto';
@@ -348,6 +349,11 @@ export default function PresupuestoTodoCosto({ usuario, proyecto }) {
         <div>
           <h1 className="text-2xl font-semibold">Presupuesto · Todo costo</h1>
           <p className="text-sm text-neutral-500">{proyecto.nombre}</p>
+          {esAdmin && datos?.presupuesto && (
+            <Link href="/presupuesto/cortes-cliente" className="inline-block mt-2 border border-dorado text-[#6b4a22] bg-[#b88a52]/10 hover:bg-[#b88a52]/20 px-3 py-1.5 rounded text-sm font-medium">
+              Cortes al cliente →
+            </Link>
+          )}
         </div>
         {esAdmin && (
           <div className="text-right">
