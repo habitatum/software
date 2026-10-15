@@ -5,30 +5,18 @@ import { useUsuarioActual } from '@/lib/useUsuarioActual';
 import { useProyectoActual } from '@/lib/useProyectoActual';
 import { crearClienteSupabase } from '@/lib/supabaseClient';
 import { formatoPesos } from '@/lib/calculosOC';
-import { TIPOS_CONTRATO, NOMBRES_TIPO_CONTRATO, plantillaClausulas } from '@/lib/plantillasContrato';
-import { parseItemsExcel } from '@/lib/parseItemsContrato';
 import NavBar from '@/components/NavBar';
 import DevolverRetenido from '@/lib/DevolverRetenido';
 import { compartirOAbrirArchivo } from '@/lib/compartirArchivo';
 
 const ANIO_ACTUAL = new Date().getFullYear();
+// 059: el texto del contrato, las garantías y el PDF ahora viven en "Documento del contrato".
 const VACIO_LEGAL = {
-  tipo_contrato: 'SUMINISTRO_E_INSTALACION',
-  clausulas: plantillaClausulas('SUMINISTRO_E_INSTALACION'),
   alcance_detallado: '',
   fecha_contrato: '',
   fecha_inicio: '',
-  plazo_valor: '',
-  plazo_unidad: 'días calendario',
-  garantia_meses: '',
   incluye_anticipo: false,
   pct_anticipo: 0,
-  incluye_poliza_cumplimiento: false,
-  incluye_poliza_responsabilidad_civil: false,
-  incluye_poliza_estabilidad: false,
-  incluye_poliza_garantia: false,
-  incluye_poliza_calidad: false,
-  items_excel: [],
 };
 const VACIO = { anio: ANIO_ACTUAL, consecutivo: 1, contratista_id: '', concepto: '', valor_inicial: 0, ...VACIO_LEGAL };
 
@@ -44,7 +32,6 @@ export default function Contratos() {
   const [mostrarForm, setMostrarForm] = useState(false);
   const [error, setError] = useState('');
   const [guardando, setGuardando] = useState(false);
-  const [errorExcel, setErrorExcel] = useState('');
 
   async function cargar() {
     const supabase = crearClienteSupabase();
@@ -96,51 +83,12 @@ export default function Contratos() {
     const disponibles = consecutivosDisponibles(ANIO_ACTUAL);
     setForm({ ...VACIO, consecutivo: disponibles[0] || 1 });
     setError('');
-    setErrorExcel('');
     setMostrarForm(true);
   }
 
   function cambiarAnio(valor) {
     const disponibles = consecutivosDisponibles(valor);
     setForm({ ...form, anio: valor, consecutivo: disponibles[0] || 1 });
-  }
-
-  function cambiarTipoContrato(tipo) {
-    setForm({ ...form, tipo_contrato: tipo, clausulas: plantillaClausulas(tipo) });
-  }
-
-  function cambiarClausula(idx, campo, valor) {
-    const nuevas = form.clausulas.map((c, i) => (i === idx ? { ...c, [campo]: valor } : c));
-    setForm({ ...form, clausulas: nuevas });
-  }
-
-  // Importa el cuadro de ítems desde un archivo Excel (.xlsx/.xls/.csv). Es puramente
-  // informativo (se guarda en la columna items_excel y se muestra en el PDF del contrato) —
-  // no participa en ningún cálculo del software. El archivo no tiene que traer siempre
-  // exactamente el mismo formato: parseItemsExcel() reconoce encabezados parecidos
-  // (ej. "Valor Uni" en vez de "Valor Unitario"), ignora columnas de más (Item, Subtotal,
-  // IVA...) y filas de título o de TOTAL. Si de verdad no logra identificar Descripción,
-  // Cantidad y Valor unitario, avisa con un mensaje claro en vez de fallar en silencio.
-  function importarExcel(e) {
-    const archivo = e.target.files?.[0];
-    if (!archivo) return;
-    setErrorExcel('');
-    const lector = new FileReader();
-    lector.onload = (evento) => {
-      try {
-        const items = parseItemsExcel(evento.target.result);
-        setForm((f) => ({ ...f, items_excel: items }));
-      } catch (err) {
-        setErrorExcel(err.message || 'No se pudo leer el archivo.');
-      }
-    };
-    lector.readAsArrayBuffer(archivo);
-    e.target.value = '';
-  }
-
-  function quitarItemsExcel() {
-    setForm((f) => ({ ...f, items_excel: [] }));
-    setErrorExcel('');
   }
 
   async function guardar(e) {
@@ -158,22 +106,11 @@ export default function Contratos() {
         valor_inicial: form.valor_inicial,
         proyecto_id: proyecto.id,
         codigo_proyecto: proyecto.codigo,
-        tipo_contrato: form.tipo_contrato,
-        clausulas: form.clausulas,
         alcance_detallado: form.alcance_detallado || null,
         fecha_contrato: form.fecha_contrato || null,
         fecha_inicio: form.fecha_inicio || null,
-        plazo_valor: form.plazo_valor || null,
-        plazo_unidad: form.plazo_unidad || null,
-        garantia_meses: form.garantia_meses || null,
         incluye_anticipo: form.incluye_anticipo,
         pct_anticipo: form.pct_anticipo || 0,
-        incluye_poliza_cumplimiento: form.incluye_poliza_cumplimiento,
-        incluye_poliza_responsabilidad_civil: form.incluye_poliza_responsabilidad_civil,
-        incluye_poliza_estabilidad: form.incluye_poliza_estabilidad,
-        incluye_poliza_garantia: form.incluye_poliza_garantia,
-        incluye_poliza_calidad: form.incluye_poliza_calidad,
-        items_excel: form.items_excel,
       });
     setGuardando(false);
     if (err) {
@@ -189,7 +126,6 @@ export default function Contratos() {
   if (cargando || !usuario || cargandoProyecto || !proyecto) return null;
 
   const disponiblesParaElAnio = consecutivosDisponibles(form.anio);
-  const totalItemsExcel = (form.items_excel || []).reduce((acc, it) => acc + (it.total || 0), 0);
 
 
   // Estado de cuenta en PDF de un contrato, directo desde el listado.
@@ -270,17 +206,6 @@ export default function Contratos() {
               </div>
             </div>
 
-            <div className="border-t pt-3">
-              <label className="block text-xs text-neutral-500 mb-1">Tipo de contrato</label>
-              <select
-                value={form.tipo_contrato}
-                onChange={(e) => cambiarTipoContrato(e.target.value)}
-                className="border rounded px-3 py-2 text-sm w-full"
-              >
-                {TIPOS_CONTRATO.map((t) => <option key={t} value={t}>{NOMBRES_TIPO_CONTRATO[t]}</option>)}
-              </select>
-            </div>
-
             <div className="grid grid-cols-2 gap-3 border-t pt-3">
               <div>
                 <label className="block text-xs text-neutral-500 mb-1">Fecha del contrato</label>
@@ -290,25 +215,15 @@ export default function Contratos() {
                 <label className="block text-xs text-neutral-500 mb-1">Fecha de inicio</label>
                 <input type="date" value={form.fecha_inicio} onChange={(e) => setForm({ ...form, fecha_inicio: e.target.value })} className="border rounded px-3 py-2 text-sm w-full" />
               </div>
-              <div className="flex gap-2">
-                <input type="number" placeholder="Plazo" value={form.plazo_valor} onChange={(e) => setForm({ ...form, plazo_valor: e.target.value })} className="border rounded px-3 py-2 text-sm w-1/2" />
-                <select value={form.plazo_unidad} onChange={(e) => setForm({ ...form, plazo_unidad: e.target.value })} className="border rounded px-3 py-2 text-sm w-1/2">
-                  <option value="días calendario">días calendario</option>
-                  <option value="días hábiles">días hábiles</option>
-                  <option value="semanas">semanas</option>
-                  <option value="meses">meses</option>
-                </select>
-              </div>
-              <input type="number" placeholder="Garantía (meses)" value={form.garantia_meses} onChange={(e) => setForm({ ...form, garantia_meses: e.target.value })} className="border rounded px-3 py-2 text-sm" />
             </div>
 
             <div className="border-t pt-3">
-              <label className="block text-xs text-neutral-500 mb-1">Alcance detallado (opcional — si se deja vacío, el PDF usa el "Concepto")</label>
+              <label className="block text-xs text-neutral-500 mb-1">Alcance detallado (opcional — se precarga en el Documento del contrato)</label>
               <textarea value={form.alcance_detallado} onChange={(e) => setForm({ ...form, alcance_detallado: e.target.value })} rows={3} className="border rounded px-3 py-2 text-sm w-full" />
             </div>
 
             <div className="border-t pt-3 space-y-2">
-              <p className="text-xs text-neutral-500 font-medium">Pólizas y anticipo</p>
+              <p className="text-xs text-neutral-500 font-medium">Anticipo (las garantías y el texto del contrato se definen en Documento del contrato)</p>
               <label className="flex items-center gap-2 text-sm">
                 <input type="checkbox" checked={form.incluye_anticipo} onChange={(e) => setForm({ ...form, incluye_anticipo: e.target.checked })} />
                 Anticipo
@@ -316,84 +231,7 @@ export default function Contratos() {
                   <input type="number" placeholder="% del valor" value={form.pct_anticipo} onChange={(e) => setForm({ ...form, pct_anticipo: e.target.value })} className="border rounded px-2 py-1 text-sm w-24 ml-2" />
                 )}
               </label>
-              <label className="flex items-center gap-2 text-sm">
-                <input type="checkbox" checked={form.incluye_poliza_cumplimiento} onChange={(e) => setForm({ ...form, incluye_poliza_cumplimiento: e.target.checked })} />
-                Póliza de cumplimiento
-              </label>
-              <label className="flex items-center gap-2 text-sm">
-                <input type="checkbox" checked={form.incluye_poliza_responsabilidad_civil} onChange={(e) => setForm({ ...form, incluye_poliza_responsabilidad_civil: e.target.checked })} />
-                Póliza de responsabilidad civil
-              </label>
-              <label className="flex items-center gap-2 text-sm">
-                <input type="checkbox" checked={form.incluye_poliza_estabilidad} onChange={(e) => setForm({ ...form, incluye_poliza_estabilidad: e.target.checked })} />
-                Póliza de estabilidad
-              </label>
-              <label className="flex items-center gap-2 text-sm">
-                <input type="checkbox" checked={form.incluye_poliza_garantia} onChange={(e) => setForm({ ...form, incluye_poliza_garantia: e.target.checked })} />
-                Póliza de garantía
-              </label>
-              <label className="flex items-center gap-2 text-sm">
-                <input type="checkbox" checked={form.incluye_poliza_calidad} onChange={(e) => setForm({ ...form, incluye_poliza_calidad: e.target.checked })} />
-                Póliza de calidad
-              </label>
             </div>
-
-            <div className="border-t pt-3">
-              <p className="text-xs text-neutral-500 font-medium mb-1">Cuadro de ítems (importado de Excel — informativo, aparece en el PDF)</p>
-              <input type="file" accept=".xlsx,.xls,.csv" onChange={importarExcel} className="text-sm" />
-              <p className="text-[11px] text-neutral-400 mt-1">
-                No tiene que ser un formato exacto: se reconocen encabezados parecidos a Descripción, Unidad (opcional), Cantidad y Valor unitario aunque el archivo traiga columnas de más o esté abreviado.
-              </p>
-              {errorExcel && <p className="text-red-600 text-xs mt-1">{errorExcel}</p>}
-              {form.items_excel.length > 0 && (
-                <div className="mt-2 border rounded overflow-x-auto">
-                  <table className="w-full text-xs">
-                    <thead className="bg-gris-calido/30 text-left">
-                      <tr><th className="p-2">Descripción</th><th className="p-2">Unidad</th><th className="p-2 text-right">Cantidad</th><th className="p-2 text-right">Valor unitario</th><th className="p-2 text-right">Total</th></tr>
-                    </thead>
-                    <tbody>
-                      {form.items_excel.map((it, i) => (
-                        <tr key={i} className="border-t">
-                          <td className="p-2">{it.descripcion}</td>
-                          <td className="p-2">{it.unidad}</td>
-                          <td className="p-2 text-right">{it.cantidad}</td>
-                          <td className="p-2 text-right">{formatoPesos(it.valorUnitario)}</td>
-                          <td className="p-2 text-right">{formatoPesos(it.total)}</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                    <tfoot>
-                      <tr className="border-t font-medium">
-                        <td className="p-2" colSpan={4}>Total</td>
-                        <td className="p-2 text-right">{formatoPesos(totalItemsExcel)}</td>
-                      </tr>
-                    </tfoot>
-                  </table>
-                  <button type="button" onClick={quitarItemsExcel} className="text-xs text-red-600 underline p-2">Quitar cuadro importado</button>
-                </div>
-              )}
-            </div>
-
-            <details className="border-t pt-3">
-              <summary className="text-xs text-neutral-500 font-medium cursor-pointer">Cláusulas del contrato (editable, precargadas según el tipo elegido)</summary>
-              <div className="space-y-3 mt-3">
-                {form.clausulas.map((cl, i) => (
-                  <div key={cl.id}>
-                    <input
-                      value={cl.titulo}
-                      onChange={(e) => cambiarClausula(i, 'titulo', e.target.value)}
-                      className="border rounded px-2 py-1 text-xs font-medium w-full mb-1"
-                    />
-                    <textarea
-                      value={cl.texto}
-                      onChange={(e) => cambiarClausula(i, 'texto', e.target.value)}
-                      rows={2}
-                      className="border rounded px-2 py-1 text-xs w-full"
-                    />
-                  </div>
-                ))}
-              </div>
-            </details>
 
             {error && <p className="text-red-600 text-sm">{error}</p>}
             <button disabled={guardando} className="bg-carbon text-hueso px-4 py-2 rounded text-sm disabled:opacity-50">
