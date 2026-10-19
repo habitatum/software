@@ -65,14 +65,14 @@ function calcularPrevia(f) {
   const adic = Number(r.venta_adicionales) || 0;
   if (costo <= 0 && venta <= 0) return null;
   const iva = f.modalidad === 'SIN_FACTURA' ? 0 : num(f.porcentajeIva);
-  const pctReal = f.porcentajeUtilidadReal !== '' ? num(f.porcentajeUtilidadReal)
-    : f.modalidad === 'AIU' ? num(f.porcentajeU) : num(f.porcentajeUtilidad);
+  const pctReal = num(f.porcentajeUtilidadReal);
   const ivaContrato = f.modalidad === 'AIU' ? Math.round(costo * num(f.porcentajeU) / 100 * iva / 100)
     : f.modalidad === 'IVA' ? Math.round(venta * iva / 100) : 0;
   const ivaAdic = f.modalidad === 'IVA' ? Math.round(adic * iva / 100) : 0;
-  const utilidadReal = Math.round(costo * pctReal / 100);
-  return { costo, venta, adic, ivaContrato, ivaAdic, pctReal, utilidadReal,
-    admImprev: venta - costo - utilidadReal, conIva: venta + ivaContrato };
+  // 061: la utilidad real viene incluida en el costo directo (presupuestado antes de AIU).
+  const ejecucion = Math.round(costo / (1 + pctReal / 100));
+  return { costo, venta, adic, ivaContrato, ivaAdic, pctReal, ejecucion,
+    utilidadReal: costo - ejecucion, margenAiu: venta - costo, conIva: venta + ivaContrato };
 }
 
 function VistaPreviaIVA({ f, set }) {
@@ -87,9 +87,10 @@ function VistaPreviaIVA({ f, set }) {
   );
   return (
     <div className="text-xs bg-hueso/70 border rounded p-2 space-y-0.5">
-      <Fila t="Costo directo (contrato)" val={v.costo} />
-      <Fila t={`Utilidad real (${v.pctReal}% del costo)`} val={v.utilidadReal} />
-      <Fila t="Administración e imprevistos" val={v.admImprev} />
+      <Fila t="Costo de ejecución (sin utilidad real)" val={v.ejecucion} />
+      <Fila t={`Utilidad real incluida (${v.pctReal}%)`} val={v.utilidadReal} />
+      <Fila t="Presupuestado antes de AIU" val={v.costo} fuerte />
+      <Fila t="Margen AIU" val={v.margenAiu} />
       <Fila t="Venta sin IVA" val={v.venta} fuerte />
       <Fila t={f.modalidad === 'AIU' ? `IVA ${num(f.porcentajeIva)}% sobre la U` : f.modalidad === 'IVA' ? `IVA ${num(f.porcentajeIva)}% sobre el total` : 'IVA (sin facturación)'} val={v.ivaContrato} />
       <Fila t="Valor del contrato con IVA" val={v.conIva} fuerte />
@@ -147,11 +148,13 @@ function CamposContratacion({ f, set }) {
               <p className="text-[11px] text-neutral-500 mt-1">Precio de venta = costo × (1 + utilidad). Aplica igual a todo el proyecto.</p>
             </div>
           )}
-          <label className="text-xs text-neutral-600 block pt-1">Utilidad real (%) sobre el costo directo</label>
-          <input type="number" step="0.01" min="0" max="100"
-            placeholder={`Vacío = ${f.modalidad === 'AIU' ? 'la U' : 'el % de utilidad'} (${f.modalidad === 'AIU' ? num(f.porcentajeU) : num(f.porcentajeUtilidad)}%)`}
+          <label className="text-xs text-neutral-600 block pt-1">Utilidad real incluida en el presupuesto antes de AIU (%)</label>
+          <input type="number" step="0.01" min="0" max="100" placeholder="Ej. 28.27 (vacío = 0 %)"
             value={f.porcentajeUtilidadReal} onChange={(e) => set({ porcentajeUtilidadReal: e.target.value })} className={CAMPO} />
-          <p className="text-[11px] text-neutral-500">Es lo que de verdad queda para HABITATUM. No cambia el precio de venta; el resto del margen se muestra como administración e imprevistos.</p>
+          <p className="text-[11px] text-neutral-500">Margen que ya trae el costo directo sobre el costo real de ejecución. Costo de ejecución = presupuestado ÷ (1 + %). Escribe el porcentaje (28.27), no el factor (1.2827). No cambia el precio de venta.</p>
+          {num(f.porcentajeUtilidadReal) > 0 && num(f.porcentajeUtilidadReal) < 2 && (
+            <p className="text-[11px] text-amber-700">¿Escribiste el factor? {f.porcentajeUtilidadReal} se toma como {f.porcentajeUtilidadReal} %. Si querías decir ×{f.porcentajeUtilidadReal}, escribe {Math.round((num(f.porcentajeUtilidadReal) - 1) * 10000) / 100}.</p>
+          )}
           {f.modalidad !== 'SIN_FACTURA' && (
             <>
               <label className="text-xs text-neutral-600 block pt-1">IVA (%)</label>

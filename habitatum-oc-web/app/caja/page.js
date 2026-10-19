@@ -447,7 +447,7 @@ export default function Caja() {
                     {comp.costo_por_ejecutar_manual
                       ? <>Valor manual (proyección interna){comp.costo_por_ejecutar_fecha ? ` · ${fecha(comp.costo_por_ejecutar_fecha)}` : ''} · cálculo automático {formatoPesos(Math.round(Number(comp.costo_por_ejecutar_calculado || 0)))}{' · '}
                           <button type="button" disabled={guardando} onClick={() => guardarCostoPorEjecutar(null)} className="underline hover:text-carbon">volver al automático</button></>
-                      : 'Automático: costo presupuestado − ejecutado por capítulo. Usa ✎ Editar para poner tu proyección interna.'}
+                      : 'Automático: costo de ejecución (presupuestado sin la utilidad real incluida) − ejecutado por capítulo. Usa ✎ Editar para poner tu proyección interna.'}
                   </p>
                 </div>
                 <Fila etiqueta="Retenidos por devolver a contratistas" valor={comp.retenidos_por_devolver} signo="-" />
