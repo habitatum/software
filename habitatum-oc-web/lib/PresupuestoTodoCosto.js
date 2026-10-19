@@ -87,6 +87,9 @@ export default function PresupuestoTodoCosto({ usuario, proyecto }) {
   const [itemForm, setItemForm] = useState(null); // ventana + Agregar / ✎ Editar ítem adicional
   const [guardandoItem, setGuardandoItem] = useState(false);
   const [errorItem, setErrorItem] = useState('');
+  const [capForm, setCapForm] = useState(null); // ventana + Nuevo capítulo de adicionales
+  const [guardandoCap, setGuardandoCap] = useState(false);
+  const [errorCap, setErrorCap] = useState('');
   const inputRef = useRef(null);
   const esAdmin = usuario?.rol === 'admin';
 
@@ -234,6 +237,55 @@ export default function PresupuestoTodoCosto({ usuario, proyecto }) {
     setItemForm(null);
     await cargar();
   }
+  async function guardarCapitulo(e) {
+    e.preventDefault();
+    setErrorCap('');
+    setGuardandoCap(true);
+    const { data, error: err } = await crearClienteSupabase().rpc('crear_capitulo_adicional_tc', {
+      p_proyecto: proyecto.id, p_nombre: capForm.nombre, p_tipo: capForm.tipo,
+    });
+    setGuardandoCap(false);
+    if (err) { setErrorCap(err.message); return; }
+    setCapForm(null);
+    await cargar();
+    // Abre de una vez la ventana para el primer ítem del capítulo nuevo.
+    setErrorItem('');
+    setItemForm({ ...ITEM_VACIO, capitulo_id: data.id, codigo: `${data.codigo}.01` });
+  }
+
+  // Cálculo del contrato debajo del subtotal: AIU (o utilidad), IVA y TOTAL. Solo admin.
+  function bloqueContrato(tot) {
+    if (!fin) return null;
+    const costo = Number(tot.costo || 0);
+    const venta = Number(tot.venta || 0);
+    const m = fin.modalidad_facturacion;
+    const ivaPct = Number(fin.porcentaje_iva ?? 19);
+    const filas = [];
+    if (m === 'AIU') {
+      const a = Math.round(costo * Number(fin.porcentaje_a || 0) / 100);
+      const i = Math.round(costo * Number(fin.porcentaje_i || 0) / 100);
+      const u = Math.round(costo * Number(fin.porcentaje_u || 0) / 100);
+      filas.push([`Administración (${Number(fin.porcentaje_a || 0)}%)`, a], [`Imprevistos (${Number(fin.porcentaje_i || 0)}%)`, i], [`Utilidad (${Number(fin.porcentaje_u || 0)}%)`, u]);
+      const ajuste = venta - costo - a - i - u;
+      if (Math.abs(ajuste) >= 1) filas.push(['Ajuste por redondeo de los ítems', ajuste, 'nota']);
+    } else {
+      filas.push([`Utilidad (${Number(fin.porcentaje_utilidad || 0)}%)`, venta - costo]);
+    }
+    filas.push(['Subtotal sin IVA', venta, 'sub']);
+    const iva = rf ? Number(rf.iva_contrato || 0)
+      : m === 'AIU' ? Math.round(costo * Number(fin.porcentaje_u || 0) / 100 * ivaPct / 100)
+      : m === 'IVA' ? Math.round(venta * ivaPct / 100) : 0;
+    if (m !== 'SIN_FACTURA') filas.push([m === 'AIU' ? `IVA ${ivaPct}% sobre la U` : `IVA ${ivaPct}%`, iva]);
+    filas.push([m === 'SIN_FACTURA' ? 'TOTAL CONTRATO' : 'TOTAL CONTRATO (con IVA)', venta + iva, 'total']);
+    return filas.map(([t2, v, tipo]) => (
+      <tr key={t2} className={tipo === 'total' ? 'bg-carbon text-hueso font-bold' : tipo === 'sub' ? 'bg-hueso font-semibold border-t' : 'border-t text-neutral-700'}>
+        <td className={`px-3 py-2 ${tipo === 'nota' ? 'text-xs italic text-neutral-500' : ''}`} colSpan={2}>{t2}</td>
+        <td className={`px-3 py-2 text-right ${tipo === 'total' ? '' : COL_PPTO_SUAVE}`}>{formatoPesos(v)}</td>
+        <td colSpan={4} />
+      </tr>
+    ));
+  }
+
   async function eliminarItem(it) {
     if (!window.confirm(`¿Eliminar el ítem ${it.codigo} · ${it.descripcion}? Solo se puede si no tiene nada imputado.`)) return;
     setError('');
@@ -425,9 +477,13 @@ export default function PresupuestoTodoCosto({ usuario, proyecto }) {
             </div>
           )}
 
-          {esAdmin && capsEditables.length > 0 && (
-            <div className="flex justify-end">
-              <button type="button" onClick={abrirNuevoItem} className="bg-carbon text-hueso px-4 py-2 rounded text-sm">+ Agregar ítem adicional</button>
+          {esAdmin && (
+            <div className="flex flex-wrap justify-end gap-2">
+              <button type="button" onClick={() => { setErrorCap(''); setCapForm({ nombre: '', tipo: 'ADICIONAL_COSTO' }); }}
+                className="border border-carbon text-carbon px-4 py-2 rounded text-sm hover:bg-hueso">+ Nuevo capítulo de adicionales</button>
+              {capsEditables.length > 0 && (
+                <button type="button" onClick={abrirNuevoItem} className="bg-carbon text-hueso px-4 py-2 rounded text-sm">+ Agregar ítem adicional</button>
+              )}
             </div>
           )}
 
@@ -462,9 +518,17 @@ export default function PresupuestoTodoCosto({ usuario, proyecto }) {
                     </tr>
                     {g.capitulos.map((c) => filaCapitulo(c))}
                     {filaTotal(`Subtotal ${g.tituloCorto}`, g.totales, false)}
+                    {esAdmin && g.clave === 'contrato' && bloqueContrato(g.totales)}
                   </Fragment>
                 ))}
                 {grupos.length > 1 && filaTotal('TOTAL (contrato inicial + adicionales)', totalGeneral, true)}
+                {esAdmin && grupos.length > 1 && rf && (
+                  <tr className="bg-carbon text-hueso font-bold border-t-2 border-dorado">
+                    <td className="px-3 py-2" colSpan={2}>TOTAL AL CLIENTE (contrato con IVA + adicionales{Number(rf.iva_adicionales) > 0 ? ' con IVA' : ''})</td>
+                    <td className="px-3 py-2 text-right">{formatoPesos(rf.total_con_iva)}</td>
+                    <td colSpan={4} />
+                  </tr>
+                )}
               </tbody>
             </table>
           </div>
@@ -475,6 +539,45 @@ export default function PresupuestoTodoCosto({ usuario, proyecto }) {
             </p>
           )}
         </>
+      )}
+
+      {capForm && (
+        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4" onClick={() => setCapForm(null)}>
+          <div className="bg-white rounded-lg max-w-md w-full" onClick={(e) => e.stopPropagation()}>
+            <div className="bg-carbon text-hueso px-5 py-3 flex items-center justify-between rounded-t-lg">
+              <div>
+                <p className="font-semibold">Nuevo capítulo de adicionales</p>
+                <p className="text-xs text-gris-calido">Queda al final del presupuesto con el siguiente número de capítulo.</p>
+              </div>
+              <button type="button" onClick={() => setCapForm(null)} className="text-hueso hover:text-dorado text-lg leading-none px-2">✕</button>
+            </div>
+            <form onSubmit={guardarCapitulo} className="p-5 space-y-3">
+              <div>
+                <label className="text-xs text-neutral-500 block mb-1">Nombre del capítulo</label>
+                <input required autoFocus value={capForm.nombre} onChange={(e) => setCapForm({ ...capForm, nombre: e.target.value })}
+                  placeholder="Ej. ADICIONALES DE OBRA" className="w-full border rounded px-3 py-2 text-sm" />
+              </div>
+              <div>
+                <label className="text-xs text-neutral-500 block mb-1">Tipo</label>
+                <select value={capForm.tipo} onChange={(e) => setCapForm({ ...capForm, tipo: e.target.value })} className="w-full border rounded px-3 py-2 text-sm">
+                  {TIPOS_ADICIONAL.map((k) => <option key={k} value={k}>{TIPOS_CAPITULO[k]}</option>)}
+                </select>
+                <p className="text-[11px] text-neutral-500 mt-1">
+                  {capForm.tipo === 'ADICIONAL_COSTO'
+                    ? 'Lo paga HABITATUM y se le cobra al cliente al costo (sin utilidad).'
+                    : 'Lo paga el cliente directamente al proveedor: no entra a la caja de HABITATUM.'}
+                </p>
+              </div>
+              {errorCap && <p role="alert" className="text-xs text-red-600 bg-red-50 border border-red-200 rounded p-2">{errorCap}</p>}
+              <div className="flex justify-end gap-2 pt-1">
+                <button type="button" onClick={() => setCapForm(null)} className="text-sm px-3 py-2 rounded border">Cancelar</button>
+                <button type="submit" disabled={guardandoCap} className="text-sm px-4 py-2 rounded bg-carbon text-hueso disabled:opacity-50">
+                  {guardandoCap ? 'Creando…' : 'Crear capítulo'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
       )}
 
       {itemForm && (
