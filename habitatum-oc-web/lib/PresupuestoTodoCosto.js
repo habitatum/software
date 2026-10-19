@@ -78,6 +78,7 @@ function Tarjeta({ titulo, valor, nota, oscura }) {
 
 export default function PresupuestoTodoCosto({ usuario, proyecto }) {
   const [datos, setDatos] = useState(null);
+  const [rf, setRf] = useState(null); // resumen_financiero_tc (solo admin): utilidad real, adm. e imprevistos, IVA
   const [cargando, setCargando] = useState(true);
   const [error, setError] = useState('');
   const [subiendo, setSubiendo] = useState(false);
@@ -92,9 +93,13 @@ export default function PresupuestoTodoCosto({ usuario, proyecto }) {
   async function cargar() {
     setCargando(true);
     const supabase = crearClienteSupabase();
-    const { data, error: err } = await supabase.rpc('control_todo_costo', { p_proyecto: proyecto.id });
+    const [{ data, error: err }, resF] = await Promise.all([
+      supabase.rpc('control_todo_costo', { p_proyecto: proyecto.id }),
+      esAdmin ? supabase.rpc('resumen_financiero_tc', { p_proyecto: proyecto.id }) : Promise.resolve({ data: null }),
+    ]);
     if (err) setError(err.message);
     setDatos(data || null);
+    setRf(resF?.data || null);
     setCargando(false);
   }
   useEffect(() => { cargar(); }, [proyecto.id]); // eslint-disable-line
@@ -168,16 +173,27 @@ export default function PresupuestoTodoCosto({ usuario, proyecto }) {
   // Utilidad proyectada (admin): si un capítulo ya superó su costo, el sobrecosto se come utilidad;
   // si no, se asume que consumirá su costo presupuestado completo.
   const costoProyectado = capitulos.reduce((acc, c) => acc + Math.max(Number(c.costo || 0), Number(c.ejecutado || 0)), 0);
-  const utilidadProyectada = Number(t.venta || 0) - costoProyectado;
+  const sobrecosto = Math.max(costoProyectado - Number(t.costo || 0), 0);
+  // Utilidad real (060): % sobre el costo directo de los capítulos de contrato; el resto del margen es
+  // administración e imprevistos. El sobrecosto se descuenta de la utilidad real (criterio conservador).
+  const pctReal = Number(rf?.porcentaje_utilidad_real || 0);
+  const realPorCap = Object.fromEntries((rf?.capitulos || []).map((x) => [x.id, x]));
+  const utilidadReal = Number(rf?.utilidad_real || 0);
+  const utilidadProyectada = utilidadReal - sobrecosto;
   const margenPresupuestado = pct(t.utilidad_presupuestada, t.costo);
+  const urCap = (c) => Number(realPorCap[c.id]?.utilidad_real || 0);
+  const admCap = (c) => Number(realPorCap[c.id]?.adm_imprevistos ?? (Number(c.venta || 0) - Number(c.costo || 0)));
+  const urItem = (c, it) => (c.tipo === 'CONTRATO' ? Math.round(Number(it.costo || 0) * pctReal / 100) : 0);
 
   // ---------- Agrupación igual al formato financiero ----------
   const sumar = (lista) => lista.reduce((a, c) => ({
     venta: a.venta + Number(c.venta || 0),
     costo: a.costo + Number(c.costo || 0),
     utilidad: a.utilidad + Number(c.utilidad_presupuestada || 0),
+    real: a.real + urCap(c),
+    adm: a.adm + admCap(c),
     ejecutado: a.ejecutado + Number(c.ejecutado || 0),
-  }), { venta: 0, costo: 0, utilidad: 0, ejecutado: 0 });
+  }), { venta: 0, costo: 0, utilidad: 0, real: 0, adm: 0, ejecutado: 0 });
   const capsContrato = capitulos.filter((c) => c.tipo === 'CONTRATO');
   const capsAdicionales = capitulos.filter((c) => c.tipo !== 'CONTRATO');
   const grupos = [
@@ -250,7 +266,8 @@ export default function PresupuestoTodoCosto({ usuario, proyecto }) {
               </td>
               <td className={`p-3 text-right ${COL_PPTO}`}>{formatoPesos(c.venta)}</td>
               <td className="p-3 text-right">{formatoPesos(c.costo)}</td>
-              <td className="p-3 text-right">{formatoPesos(c.utilidad_presupuestada)}</td>
+              <td className="p-3 text-right text-neutral-500">{formatoPesos(admCap(c))}</td>
+              <td className="p-3 text-right font-medium">{formatoPesos(urCap(c))}</td>
               <td className={`p-3 text-right ${COL_EJEC}`}>{formatoPesos(c.ejecutado)}</td>
               <td className="p-3 text-right">{pctCosto}%</td>
               <td className="p-3"><Semaforo valor={pctCosto} /></td>
@@ -286,7 +303,8 @@ export default function PresupuestoTodoCosto({ usuario, proyecto }) {
                   <td className="p-2 text-neutral-400">{it.unidad || ''}{it.cantidad ? ` · ${it.cantidad}` : ''}</td>
                   <td className={`p-2 text-right ${COL_PPTO_SUAVE}`}>{formatoPesos(it.venta)}</td>
                   <td className="p-2 text-right">{formatoPesos(it.costo)}</td>
-                  <td className="p-2 text-right">{formatoPesos(Number(it.venta || 0) - Number(it.costo || 0))}</td>
+                  <td className="p-2 text-right">{formatoPesos(Number(it.venta || 0) - Number(it.costo || 0) - urItem(c, it))}</td>
+                  <td className="p-2 text-right">{formatoPesos(urItem(c, it))}</td>
                   <td className={`p-2 text-right ${COL_EJEC_SUAVE}`}>{Number(it.ejecutado) ? formatoPesos(it.ejecutado) : '—'}</td>
                   <td className="p-2 text-right">{Number(it.ejecutado) ? `${pi}%` : ''}</td>
                   <td className="p-2">{Number(it.ejecutado) > 0 && <Semaforo valor={pi} />}</td>
@@ -303,7 +321,7 @@ export default function PresupuestoTodoCosto({ usuario, proyecto }) {
         })}
         {abierto && Number(c.ejecutado_capitulo) > 0 && (
           <tr className="border-t text-xs italic text-neutral-500">
-            <td className="p-2 pl-9" colSpan={esAdmin ? 5 : 2}>Ejecutado registrado al capítulo (sin ítem específico)</td>
+            <td className="p-2 pl-9" colSpan={esAdmin ? 6 : 2}>Ejecutado registrado al capítulo (sin ítem específico)</td>
             <td className={`p-2 text-right ${COL_EJEC_SUAVE}`}>{formatoPesos(c.ejecutado_capitulo)}</td>
             <td colSpan={esAdmin ? 2 : 2} />
           </tr>
@@ -326,7 +344,8 @@ export default function PresupuestoTodoCosto({ usuario, proyecto }) {
             <td />
             <td className={`p-3 text-right ${ppto}`}>{formatoPesos(t2.venta)}</td>
             <td className="p-3 text-right">{formatoPesos(t2.costo)}</td>
-            <td className="p-3 text-right">{formatoPesos(t2.utilidad)}</td>
+            <td className="p-3 text-right">{formatoPesos(t2.adm)}</td>
+            <td className="p-3 text-right">{formatoPesos(t2.real)}</td>
             <td className={`p-3 text-right ${ejec}`}>{formatoPesos(t2.ejecutado)}</td>
             <td className="p-3 text-right">{pc}%</td>
             <td className="p-3">{general ? <span className="text-xs">{pc > 100 ? '🔴 SOBREGIRO' : pc >= 90 ? '🟡 ALERTA' : '🟢 OK'}</span> : <Semaforo valor={pc} />}</td>
@@ -376,13 +395,15 @@ export default function PresupuestoTodoCosto({ usuario, proyecto }) {
         <>
           {esAdmin ? (
             <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-              <Tarjeta oscura titulo="Presupuestado (contrato + adicionales)" valor={formatoPesos(t.venta)} nota={fin ? MODALIDADES[fin.modalidad_facturacion] : null} />
-              <Tarjeta titulo="Costo presupuestado" valor={formatoPesos(t.costo)} nota={`Margen ${margenPresupuestado}% sobre costo`} />
+              <Tarjeta oscura titulo="Presupuestado sin IVA (contrato + adicionales)" valor={formatoPesos(t.venta)}
+                nota={fin ? `${MODALIDADES[fin.modalidad_facturacion]}${rf && fin.modalidad_facturacion !== 'SIN_FACTURA' ? ` · IVA ${formatoPesos(Number(rf.iva_contrato) + Number(rf.iva_adicionales))} · con IVA ${formatoPesos(rf.total_con_iva)}` : ''}` : null} />
+              <Tarjeta titulo="Costo presupuestado" valor={formatoPesos(t.costo)}
+                nota={`Utilidad real ${pctReal}% · adm. e imprev. ${formatoPesos(rf?.adm_imprevistos)} · margen total ${margenPresupuestado}%`} />
               <Tarjeta titulo="Ejecutado (costo real)" valor={formatoPesos(t.ejecutado)} nota={`${pct(t.ejecutado, t.costo)}% del costo`} />
               <Tarjeta
-                titulo="Utilidad proyectada"
+                titulo="Utilidad real proyectada"
                 valor={formatoPesos(utilidadProyectada)}
-                nota={`Presupuestada ${formatoPesos(t.utilidad_presupuestada)}${utilidadProyectada < Number(t.utilidad_presupuestada) ? ` · pérdida ${formatoPesos(Number(t.utilidad_presupuestada) - utilidadProyectada)}` : ''}`}
+                nota={`Presupuestada ${formatoPesos(utilidadReal)} (${pctReal}% del costo)${sobrecosto > 0 ? ` · sobrecosto ${formatoPesos(sobrecosto)}` : ''}`}
               />
             </div>
           ) : (
@@ -429,7 +450,8 @@ export default function PresupuestoTodoCosto({ usuario, proyecto }) {
                     <th className="p-3">Tipo</th>
                     <th className={`p-3 text-right ${COL_PPTO}`}>Presupuestado</th>
                     <th className="p-3 text-right">Costo</th>
-                    <th className="p-3 text-right">Utilidad</th>
+                    <th className="p-3 text-right" title="Venta − costo − utilidad real">Adm. e imprev.</th>
+                    <th className="p-3 text-right" title={`${pctReal}% del costo directo`}>Utilidad real ({pctReal}%)</th>
                     <th className={`p-3 text-right ${COL_EJEC}`}>Ejecutado</th>
                     <th className="p-3 text-right">% costo</th>
                     <th className="p-3">Estado</th>
@@ -448,7 +470,7 @@ export default function PresupuestoTodoCosto({ usuario, proyecto }) {
                 {grupos.map((g) => (
                   <Fragment key={g.clave}>
                     <tr className="bg-carbon text-hueso">
-                      <td colSpan={esAdmin ? 8 : 5} className="px-3 py-2 text-xs font-semibold uppercase tracking-wide">{g.titulo}</td>
+                      <td colSpan={esAdmin ? 9 : 5} className="px-3 py-2 text-xs font-semibold uppercase tracking-wide">{g.titulo}</td>
                     </tr>
                     {g.capitulos.map((c) => filaCapitulo(c))}
                     {filaTotal(`Subtotal ${g.tituloCorto}`, g.totales, false)}

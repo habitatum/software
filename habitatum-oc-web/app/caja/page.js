@@ -15,9 +15,9 @@ import NavBar from '@/components/NavBar';
 
 const hoy = () => new Date().toISOString().slice(0, 10);
 const CAMPO = 'border rounded px-3 py-2 text-sm w-full';
-const TIPOS = { INGRESO_CLIENTE: 'Ingreso del cliente', RETIRO_UTILIDAD: 'Retiro de utilidad', AJUSTE: 'Ajuste' };
+const TIPOS = { INGRESO_CLIENTE: 'Ingreso del cliente', RETIRO_UTILIDAD: 'Retiro de utilidad', PAGO_IVA: 'Pago de IVA (DIAN)', AJUSTE: 'Ajuste' };
 // Opciones del botón "Registrar movimiento" ("Otro" = ajuste, valor + o −).
-const OPCIONES_MOV = [['INGRESO_CLIENTE', 'Ingreso del cliente'], ['RETIRO_UTILIDAD', 'Retiro de utilidad'], ['AJUSTE', 'Otro (ajuste)']];
+const OPCIONES_MOV = [['INGRESO_CLIENTE', 'Ingreso del cliente'], ['RETIRO_UTILIDAD', 'Retiro de utilidad'], ['PAGO_IVA', 'Pago de IVA (DIAN)'], ['AJUSTE', 'Otro (ajuste)']];
 // Cómo se agrupan las OC que componen el renglón "Órdenes de Compra" (origen de caja_directa).
 const GRUPOS_OC = [['Corte', 'Cortes de obra'], ['OC', 'Compras'], ['Telegram', 'Bot de finanzas'], ['Caja menor', 'Caja menor legalizada']];
 const MESES = ['enero', 'febrero', 'marzo', 'abril', 'mayo', 'junio', 'julio', 'agosto', 'septiembre', 'octubre', 'noviembre', 'diciembre'];
@@ -246,11 +246,15 @@ export default function Caja() {
     { t: 'Histórico V1', v: Number(d.egresos.historico || 0), cls: 'bg-[#9b9187]' },
     { t: 'Órdenes de Compra', v: Number(d.egresos.ordenes_compra || 0), cls: 'bg-carbon' },
     { t: 'Retiros de utilidad', v: Number(d.retiros_utilidad || 0), cls: 'bg-dorado' },
+    { t: 'Pagos de IVA', v: Number(d.egresos.pagos_iva || 0), cls: 'bg-[#6b7c93]' },
     { t: 'Saldo en libros', v: Math.max(Number(d.saldo_libros || 0), 0), cls: 'bg-green-600' },
   ].filter((x) => x.v > 0) : [];
   const pct = (v) => (ingresos > 0 ? (v / ingresos) * 100 : 0);
   const saldoPositivo = Number(d?.saldo_libros || 0) >= 0;
   const cierre = Number(d?.caja_proyectada_cierre || 0);
+  // 060: IVA que no es de HABITATUM (ya cobrado sin pagar + el que viene en lo que falta por cobrar).
+  const conIva = Number(d?.compromisos?.tasa_iva_en_cobros || 0) > 0 || Number(d?.egresos?.pagos_iva || 0) > 0;
+  const ivaComprometido = Number(d?.compromisos?.iva_por_pagar || 0) + Number(d?.compromisos?.iva_por_cobrar || 0);
   const retiroHoy = c ? d?.retiro_maximo_banco : d?.retiro_maximo_libros;
 
   return (
@@ -266,7 +270,7 @@ export default function Caja() {
           </div>
           <div className="flex gap-2">
             <Desplegable oscuro etiqueta="Registrar movimiento"
-              opciones={OPCIONES_MOV.map(([k, t]) => [k, t, () => { setMov({ ...mov, tipo: k }); setPanel('MOV'); }])} />
+              opciones={OPCIONES_MOV.filter(([k]) => k !== 'PAGO_IVA' || conIva).map(([k, t]) => [k, t, () => { setMov({ ...mov, tipo: k }); setPanel('MOV'); }])} />
             <Desplegable etiqueta="Más opciones" opciones={[
               ['CONC', 'Conciliar con banco', () => setPanel('CONC')],
               ['DIR', 'Caja directa (Excel)', () => router.push('/caja/directa')],
@@ -301,7 +305,7 @@ export default function Caja() {
         {error && <p className="text-red-600 text-sm bg-red-50 border border-red-200 rounded p-3">{error}</p>}
 
         {panel === 'MOV' && (
-          <section className={`bg-white rounded-lg border-2 p-4 space-y-2 ${mov.tipo === 'INGRESO_CLIENTE' ? 'border-green-600' : mov.tipo === 'RETIRO_UTILIDAD' ? 'border-dorado' : 'border-carbon'}`}>
+          <section className={`bg-white rounded-lg border-2 p-4 space-y-2 ${mov.tipo === 'INGRESO_CLIENTE' ? 'border-green-600' : mov.tipo === 'RETIRO_UTILIDAD' ? 'border-dorado' : mov.tipo === 'PAGO_IVA' ? 'border-[#6b7c93]' : 'border-carbon'}`}>
             <div className="flex items-center justify-between">
               <h2 className="font-semibold">Registrar · {OPCIONES_MOV.find(([k]) => k === mov.tipo)?.[1]}</h2>
               <button onClick={() => setPanel(null)} className="text-neutral-400 hover:text-carbon px-2">✕</button>
@@ -400,6 +404,7 @@ export default function Caja() {
                   </div>
                 )}
                 <Fila etiqueta="Retiros de utilidad" valor={d.retiros_utilidad} signo="-" color="text-[#8a6534]" />
+                {Number(d.egresos.pagos_iva) > 0 && <Fila etiqueta="Pagos de IVA a la DIAN" valor={d.egresos.pagos_iva} signo="-" />}
                 {Number(d.ajustes) !== 0 && <Fila etiqueta="Ajustes" valor={d.ajustes} signo={Number(d.ajustes) < 0 ? '-' : '+'} />}
                 <Fila fuerte etiqueta="Saldo en libros" valor={d.saldo_libros} color={saldoPositivo ? 'text-green-700' : 'text-red-700'}
                   nota="Lo que debería haber hoy en la cuenta según lo registrado. Si el banco muestra menos, falta registrar algún movimiento (por ejemplo, un retiro de utilidad)." />
@@ -446,6 +451,10 @@ export default function Caja() {
                   </p>
                 </div>
                 <Fila etiqueta="Retenidos por devolver a contratistas" valor={comp.retenidos_por_devolver} signo="-" />
+                {conIva && (
+                  <Fila etiqueta="IVA por pagar (DIAN)" valor={ivaComprometido} signo="-"
+                    nota={`IVA ya cobrado sin pagar ${formatoPesos(Math.round(Number(comp.iva_por_pagar || 0)))} (cobrado ${formatoPesos(Math.round(Number(comp.iva_cobrado || 0)))} − pagado ${formatoPesos(Math.round(Number(comp.iva_pagado || 0)))}) + IVA incluido en lo que falta por cobrar ${formatoPesos(Math.round(Number(comp.iva_por_cobrar || 0)))}. No es utilidad.`} />
+                )}
                 <div className={`mt-2 rounded-md px-3 py-2.5 flex justify-between gap-3 font-semibold ${cierre >= 0 ? 'bg-green-50 text-green-800 border border-green-200' : 'bg-red-50 text-red-800 border border-red-200'}`}>
                   <span>Caja al cierre (utilidad por retirar)</span>
                   <span className="tabular-nums whitespace-nowrap">{cierre < 0 ? '− ' : ''}{formatoPesos(Math.round(Math.abs(cierre)))}</span>
@@ -457,7 +466,7 @@ export default function Caja() {
                   </div>
                   <p className="text-[11px] text-[#7a5a30] mt-1">
                     Lo que se puede sacar hoy de la cuenta sin dejar la obra corta: {c ? 'saldo real del banco' : 'saldo en libros'} menos los retenidos por devolver,
-                    y menos la parte del costo que falta que no alcanza a cubrir lo que el cliente aún debe pagar.
+                    {conIva ? ' menos el IVA ya cobrado que falta pagar a la DIAN,' : ''} y menos la parte del costo que falta que no alcanza a cubrir lo que el cliente aún debe pagar{conIva ? ' (sin contar su IVA)' : ''}.
                   </p>
                 </div>
               </div>

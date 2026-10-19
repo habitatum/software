@@ -10,6 +10,7 @@ const FINANZAS_VACIO = {
   modelo: 'ADMINISTRACION_DELEGADA',
   modalidad: 'AIU', porcentajeUtilidad: '', porcentajeA: '', porcentajeI: '', porcentajeU: '',
   valorContratoCliente: '', cuentaReceptora: 'HABITATUM', topeCajaMenor: '1000000',
+  porcentajeUtilidadReal: '', porcentajeIva: '19', resumen: null,
 };
 const VACIO = { nombre: '', codigo: '', cliente: '', mostrarMarca: true, nombreEmisor: '', porcentajeAdministracion: '', ...FINANZAS_VACIO };
 
@@ -26,6 +27,12 @@ function validarFinanzas(f) {
   } else if (num(f.porcentajeUtilidad) <= 0) {
     return { ok: false, error: 'Define el % de utilidad del proyecto.' };
   }
+  if (f.porcentajeUtilidadReal !== '' && (num(f.porcentajeUtilidadReal) < 0 || num(f.porcentajeUtilidadReal) > 100)) {
+    return { ok: false, error: 'La utilidad real debe estar entre 0 y 100 %.' };
+  }
+  if (f.modalidad !== 'SIN_FACTURA' && (num(f.porcentajeIva) < 0 || num(f.porcentajeIva) > 100)) {
+    return { ok: false, error: 'El % de IVA debe estar entre 0 y 100.' };
+  }
   if (num(f.topeCajaMenor) <= 0) return { ok: false, error: 'El tope de caja menor debe ser mayor a 0.' };
   return { ok: true };
 }
@@ -39,9 +46,66 @@ function filaFinanzas(proyectoId, f) {
     porcentaje_i: esAIU ? num(f.porcentajeI) : 0,
     porcentaje_u: esAIU ? num(f.porcentajeU) : 0,
     valor_contrato_cliente: f.valorContratoCliente === '' ? null : num(f.valorContratoCliente),
+    porcentaje_utilidad_real: f.porcentajeUtilidadReal === '' ? null : num(f.porcentajeUtilidadReal),
+    porcentaje_iva: f.porcentajeIva === '' ? 19 : num(f.porcentajeIva),
     cuenta_receptora: f.cuentaReceptora,
     actualizado_en: new Date().toISOString(),
   };
+}
+
+const pesos = (v) => '$' + Math.round(Number(v) || 0).toLocaleString('es-CO');
+
+// Cálculo en vivo (con los % del formulario) sobre el costo y la venta del presupuesto cargado.
+// La fuente oficial es la función SQL resumen_financiero_tc; esto solo es la vista previa.
+function calcularPrevia(f) {
+  const r = f.resumen;
+  if (!r) return null;
+  const costo = Number(r.costo_contrato) || 0;
+  const venta = Number(r.venta_contrato) || 0;
+  const adic = Number(r.venta_adicionales) || 0;
+  if (costo <= 0 && venta <= 0) return null;
+  const iva = f.modalidad === 'SIN_FACTURA' ? 0 : num(f.porcentajeIva);
+  const pctReal = f.porcentajeUtilidadReal !== '' ? num(f.porcentajeUtilidadReal)
+    : f.modalidad === 'AIU' ? num(f.porcentajeU) : num(f.porcentajeUtilidad);
+  const ivaContrato = f.modalidad === 'AIU' ? Math.round(costo * num(f.porcentajeU) / 100 * iva / 100)
+    : f.modalidad === 'IVA' ? Math.round(venta * iva / 100) : 0;
+  const ivaAdic = f.modalidad === 'IVA' ? Math.round(adic * iva / 100) : 0;
+  const utilidadReal = Math.round(costo * pctReal / 100);
+  return { costo, venta, adic, ivaContrato, ivaAdic, pctReal, utilidadReal,
+    admImprev: venta - costo - utilidadReal, conIva: venta + ivaContrato };
+}
+
+function VistaPreviaIVA({ f, set }) {
+  const v = calcularPrevia(f);
+  if (!v) {
+    return <p className="text-[11px] text-neutral-500">La utilidad real, el IVA y el valor del contrato con IVA se calculan cuando el proyecto tenga presupuesto cargado.</p>;
+  }
+  const manual = f.valorContratoCliente === '' ? null : num(f.valorContratoCliente);
+  const dif = manual === null ? null : manual - v.conIva;
+  const Fila = ({ t, val, fuerte }) => (
+    <div className={'flex justify-between ' + (fuerte ? 'font-semibold border-t pt-1' : '')}><span>{t}</span><span className="tabular-nums">{pesos(val)}</span></div>
+  );
+  return (
+    <div className="text-xs bg-hueso/70 border rounded p-2 space-y-0.5">
+      <Fila t="Costo directo (contrato)" val={v.costo} />
+      <Fila t={`Utilidad real (${v.pctReal}% del costo)`} val={v.utilidadReal} />
+      <Fila t="Administración e imprevistos" val={v.admImprev} />
+      <Fila t="Venta sin IVA" val={v.venta} fuerte />
+      <Fila t={f.modalidad === 'AIU' ? `IVA ${num(f.porcentajeIva)}% sobre la U` : f.modalidad === 'IVA' ? `IVA ${num(f.porcentajeIva)}% sobre el total` : 'IVA (sin facturación)'} val={v.ivaContrato} />
+      <Fila t="Valor del contrato con IVA" val={v.conIva} fuerte />
+      {v.adic > 0 && <p className="text-[11px] text-neutral-500 pt-1">Adicionales: {pesos(v.adic)}{v.ivaAdic > 0 ? ` + IVA ${pesos(v.ivaAdic)}` : ''} (se cobran aparte).</p>}
+      {manual === null ? (
+        <button type="button" onClick={() => set({ valorContratoCliente: String(v.conIva) })} className="mt-1 text-[11px] underline text-dorado">Usar {pesos(v.conIva)} como valor del contrato con el cliente</button>
+      ) : Math.abs(dif) >= 1 ? (
+        <div className="mt-1 rounded bg-amber-50 border border-amber-300 p-2 text-[11px] text-amber-800">
+          El valor escrito ({pesos(manual)}) difiere del calculado en {pesos(Math.abs(dif))} ({dif > 0 ? 'mayor' : 'menor'}).{' '}
+          <button type="button" onClick={() => set({ valorContratoCliente: String(v.conIva) })} className="underline font-medium">Usar este valor</button>
+        </div>
+      ) : (
+        <p className="mt-1 text-[11px] text-green-700">El valor del contrato con el cliente coincide con el calculado.</p>
+      )}
+    </div>
+  );
 }
 
 // Bloque de formulario compartido (crear / editar) para el modelo de contratación.
@@ -83,6 +147,19 @@ function CamposContratacion({ f, set }) {
               <p className="text-[11px] text-neutral-500 mt-1">Precio de venta = costo × (1 + utilidad). Aplica igual a todo el proyecto.</p>
             </div>
           )}
+          <label className="text-xs text-neutral-600 block pt-1">Utilidad real (%) sobre el costo directo</label>
+          <input type="number" step="0.01" min="0" max="100"
+            placeholder={`Vacío = ${f.modalidad === 'AIU' ? 'la U' : 'el % de utilidad'} (${f.modalidad === 'AIU' ? num(f.porcentajeU) : num(f.porcentajeUtilidad)}%)`}
+            value={f.porcentajeUtilidadReal} onChange={(e) => set({ porcentajeUtilidadReal: e.target.value })} className={CAMPO} />
+          <p className="text-[11px] text-neutral-500">Es lo que de verdad queda para HABITATUM. No cambia el precio de venta; el resto del margen se muestra como administración e imprevistos.</p>
+          {f.modalidad !== 'SIN_FACTURA' && (
+            <>
+              <label className="text-xs text-neutral-600 block pt-1">IVA (%)</label>
+              <input type="number" step="0.01" min="0" max="100" value={f.porcentajeIva} onChange={(e) => set({ porcentajeIva: e.target.value })} className={CAMPO} />
+            </>
+          )}
+          <VistaPreviaIVA f={f} set={set} />
+          <label className="text-xs text-neutral-600 block pt-1">Valor del contrato con el cliente (con IVA)</label>
           <input type="number" placeholder="Valor contratado con el cliente (opcional)" value={f.valorContratoCliente} onChange={(e) => set({ valorContratoCliente: e.target.value })} className={CAMPO} />
           <label className="text-xs text-neutral-600">Cuenta que recibe los pagos del cliente</label>
           <select value={f.cuentaReceptora} onChange={(e) => set({ cuentaReceptora: e.target.value })} className={CAMPO}>
@@ -211,8 +288,11 @@ export default function SeleccionarProyecto() {
     let fin = null;
     if (p.modelo_contratacion === 'TODO_COSTO') {
       const supabase = crearClienteSupabase();
-      const { data } = await supabase.from('proyectos_finanzas').select('*').eq('proyecto_id', p.id).maybeSingle();
-      fin = data;
+      const [{ data }, { data: rf }] = await Promise.all([
+        supabase.from('proyectos_finanzas').select('*').eq('proyecto_id', p.id).maybeSingle(),
+        supabase.rpc('resumen_financiero_tc', { p_proyecto: p.id }),
+      ]);
+      fin = data ? { ...data, resumen: rf || null } : null;
     }
     setFormEdicion({
       modelo: p.modelo_contratacion || 'ADMINISTRACION_DELEGADA',
@@ -223,6 +303,9 @@ export default function SeleccionarProyecto() {
       porcentajeU: fin?.modalidad_facturacion === 'AIU' ? String(fin.porcentaje_u ?? '') : '',
       valorContratoCliente: fin?.valor_contrato_cliente != null ? String(fin.valor_contrato_cliente) : '',
       cuentaReceptora: fin?.cuenta_receptora || 'HABITATUM',
+      porcentajeUtilidadReal: fin?.porcentaje_utilidad_real != null ? String(fin.porcentaje_utilidad_real) : '',
+      porcentajeIva: fin?.porcentaje_iva != null ? String(fin.porcentaje_iva) : '19',
+      resumen: fin?.resumen || null,
       topeCajaMenor: String(p.tope_caja_menor ?? 1000000),
       nombre: p.nombre,
       codigo: p.codigo,

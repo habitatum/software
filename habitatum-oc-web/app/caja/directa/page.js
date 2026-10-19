@@ -98,7 +98,8 @@ export default function CajaDirecta() {
 
     // Resumen al final: ingresos, egresos de obra y retiros de utilidad (+ saldo).
     const totRet = (movs || []).filter((m) => m.tipo === 'RETIRO_UTILIDAD').reduce((a, m) => a + Number(m.egreso || 0), 0);
-    const totEgrObra = totEgr - totRet;
+    const totIva = (movs || []).filter((m) => m.tipo === 'PAGO_IVA').reduce((a, m) => a + Number(m.egreso || 0), 0);
+    const totEgrObra = totEgr - totRet - totIva;
     ws.addRow([]); ws.addRow([]);
     const tit = ws.addRow(['', '', '', 'RESUMEN']);
     tit.getCell(4).font = { bold: true, size: 12, color: { argb: 'FFFFFFFF' } };
@@ -108,15 +109,17 @@ export default function CajaDirecta() {
       ['INGRESOS (pagos del cliente)', totIng, 'FFE6F2E6', 'FF1E6B2E'],
       ['EGRESOS DE OBRA', totEgrObra, 'FFFFFFFF', 'FF2E2E2E'],
       ['RETIROS DE UTILIDAD', totRet, 'FFEAD9C2', 'FF5A3D1A'],
+      ['PAGOS DE IVA (DIAN)', totIva, 'FFE3E8EF', 'FF34445A'],
       ['SALDO EN LIBROS', totIng - totEgr, G, 'FF2E2E2E'],
     ];
     // Fórmulas del resumen (filas consecutivas: ingresos, egresos de obra, retiros, saldo).
-    const fI = tit.number + 1; const fE = fI + 1; const fR = fI + 2;
+    const fI = tit.number + 1; const fE = fI + 1; const fR = fI + 2; const fV = fI + 3;
     const formulas = [
       `SUM(B${filaIni}:B${filaFin})`,
-      `SUM(C${filaIni}:C${filaFin})-E${fR}`,
+      `SUM(C${filaIni}:C${filaFin})-E${fR}-E${fV}`,
       `SUMIF(E${filaIni}:E${filaFin},"Retiro de utilidad",C${filaIni}:C${filaFin})`,
-      `E${fI}-E${fE}-E${fR}`,
+      `SUMIF(E${filaIni}:E${filaFin},"Pago de IVA",C${filaIni}:C${filaFin})`,
+      `E${fI}-E${fE}-E${fR}-E${fV}`,
     ];
     filasResumen.forEach(([etq, val, fondo, color], i) => {
       const r = ws.addRow(['', '', '', etq, { formula: formulas[i], result: val }]);
