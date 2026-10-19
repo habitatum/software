@@ -15,6 +15,7 @@ import { parsearPresupuesto } from '@/lib/parsePresupuesto';
 
 const TIPOS_CAPITULO = {
   CONTRATO: 'Contrato (con utilidad)',
+  ADICIONAL: 'Adicional (con utilidad)',
   ADICIONAL_COSTO: 'Adicional sin utilidad',
   PAGO_DIRECTO_CLIENTE: 'Pago directo del cliente',
 };
@@ -27,8 +28,10 @@ const COL_EJEC = 'bg-[#3b5b7a]/[0.14] text-[#243b52] font-semibold';
 const COL_EJEC_SUAVE = 'bg-[#3b5b7a]/[0.07] text-[#243b52]';
 const COL_EJEC_TOTAL = 'bg-[#3b5b7a]/[0.22] text-[#1b2d40]';
 
-// Capítulos donde el admin puede crear ítems desde la app (sin utilidad: costo = venta).
-const TIPOS_ADICIONAL = ['ADICIONAL_COSTO', 'PAGO_DIRECTO_CLIENTE'];
+// Capítulos donde el admin puede crear ítems desde la app. ADICIONAL se valora igual que el contrato
+// (venta = costo × factor del proyecto); ADICIONAL_COSTO y PAGO_DIRECTO_CLIENTE van sin utilidad (costo = venta).
+const TIPOS_ADICIONAL = ['ADICIONAL', 'ADICIONAL_COSTO', 'PAGO_DIRECTO_CLIENTE'];
+const CON_UTILIDAD = ['CONTRATO', 'ADICIONAL'];
 const ITEM_VACIO = { id: null, capitulo_id: '', codigo: '', descripcion: '', unidad: '', cantidad: '', valor_unitario: '', valor_parcial: '' };
 
 // Siguiente código del capítulo: 13.07 → 13.08 (sin repetir ninguno del presupuesto).
@@ -179,7 +182,7 @@ export default function PresupuestoTodoCosto({ usuario, proyecto }) {
   const pctReal = Number(rf?.porcentaje_utilidad_real || 0);
   const realPorCap = Object.fromEntries((rf?.capitulos || []).map((x) => [x.id, x]));
   const ejecCap = (c) => Number(realPorCap[c.id]?.costo_ejecucion ?? c.costo ?? 0);
-  const ejecItem = (c, it) => (c.tipo === 'CONTRATO' ? Math.round(Number(it.costo || 0) / (1 + pctReal / 100)) : Number(it.costo || 0));
+  const ejecItem = (c, it) => (CON_UTILIDAD.includes(c.tipo) ? Math.round(Number(it.costo || 0) / (1 + pctReal / 100)) : Number(it.costo || 0));
   const sobrecosto = capitulos.reduce((acc, c) => acc + Math.max(Number(c.ejecutado || 0) - ejecCap(c), 0), 0);
   const utilidadReal = Number(rf?.utilidad_real || 0);
   const utilidadProyectada = utilidadReal - sobrecosto;
@@ -213,9 +216,14 @@ export default function PresupuestoTodoCosto({ usuario, proyecto }) {
     setErrorItem('');
     setItemForm({
       id: it.id, capitulo_id: c.id, codigo: it.codigo || '', descripcion: it.descripcion || '', unidad: it.unidad || '',
-      cantidad: it.cantidad ?? '', valor_unitario: it.venta_unitario ?? '', valor_parcial: it.venta ?? '',
+      // Se edita el COSTO (antes de AIU); en adicionales sin utilidad es igual a la venta.
+      cantidad: it.cantidad ?? '', valor_unitario: it.costo_unitario ?? it.venta_unitario ?? '', valor_parcial: it.costo ?? it.venta ?? '',
     });
   }
+  const capItemForm = itemForm ? capitulos.find((x) => x.id === itemForm.capitulo_id) : null;
+  const factorVenta = fin ? 1 + (fin.modalidad_facturacion === 'AIU'
+    ? (Number(fin.porcentaje_a || 0) + Number(fin.porcentaje_i || 0) + Number(fin.porcentaje_u || 0)) / 100
+    : Number(fin.porcentaje_utilidad || 0) / 100) : 1;
   const valorItemForm = itemForm
     ? (itemForm.cantidad !== '' && itemForm.valor_unitario !== '' ? Number(itemForm.cantidad) * Number(itemForm.valor_unitario) : Number(itemForm.valor_parcial || 0))
     : 0;
@@ -242,7 +250,7 @@ export default function PresupuestoTodoCosto({ usuario, proyecto }) {
     setErrorCap('');
     setGuardandoCap(true);
     const { data, error: err } = await crearClienteSupabase().rpc('crear_capitulo_adicional_tc', {
-      p_proyecto: proyecto.id, p_nombre: capForm.nombre, p_tipo: capForm.tipo,
+      p_proyecto: proyecto.id, p_nombre: capForm.nombre, p_tipo: capForm.pagadoCliente ? 'PAGO_DIRECTO_CLIENTE' : 'ADICIONAL',
     });
     setGuardandoCap(false);
     if (err) { setErrorCap(err.message); return; }
@@ -253,37 +261,49 @@ export default function PresupuestoTodoCosto({ usuario, proyecto }) {
     setItemForm({ ...ITEM_VACIO, capitulo_id: data.id, codigo: `${data.codigo}.01` });
   }
 
-  // Cálculo del contrato debajo del subtotal: AIU (o utilidad), IVA y TOTAL. Solo admin.
-  function bloqueContrato(tot) {
+  // Cálculo debajo de cada subtotal: AIU (o utilidad), IVA y TOTAL. Solo admin.
+  // costoBase / ventaBase = capítulos con utilidad; sinUtilidad = adicionales al costo (sin AIU).
+  function bloqueAIU({ costoBase, ventaBase, sinUtilidad = 0, pagoDirecto = 0, iva, etiquetaTotal }) {
     if (!fin) return null;
-    const costo = Number(tot.costo || 0);
-    const venta = Number(tot.venta || 0);
     const m = fin.modalidad_facturacion;
     const ivaPct = Number(fin.porcentaje_iva ?? 19);
     const filas = [];
-    if (m === 'AIU') {
-      const a = Math.round(costo * Number(fin.porcentaje_a || 0) / 100);
-      const i = Math.round(costo * Number(fin.porcentaje_i || 0) / 100);
-      const u = Math.round(costo * Number(fin.porcentaje_u || 0) / 100);
-      filas.push([`Administración (${Number(fin.porcentaje_a || 0)}%)`, a], [`Imprevistos (${Number(fin.porcentaje_i || 0)}%)`, i], [`Utilidad (${Number(fin.porcentaje_u || 0)}%)`, u]);
-      const ajuste = venta - costo - a - i - u;
-      if (Math.abs(ajuste) >= 1) filas.push(['Ajuste por redondeo de los ítems', ajuste, 'nota']);
-    } else {
-      filas.push([`Utilidad (${Number(fin.porcentaje_utilidad || 0)}%)`, venta - costo]);
+    if (costoBase > 0 || ventaBase > 0) {
+      if (m === 'AIU') {
+        [['Administración', fin.porcentaje_a], ['Imprevistos', fin.porcentaje_i], ['Utilidad', fin.porcentaje_u]].forEach(([t2, p2]) => {
+          filas.push([`${t2} (${Number(p2 || 0)}%)`, Math.round(costoBase * Number(p2 || 0) / 100)]);
+        });
+      } else {
+        filas.push([`Utilidad (${Number(fin.porcentaje_utilidad || 0)}%)`, ventaBase - costoBase]);
+      }
     }
-    filas.push(['Subtotal sin IVA', venta, 'sub']);
-    const iva = rf ? Number(rf.iva_contrato || 0)
-      : m === 'AIU' ? Math.round(costo * Number(fin.porcentaje_u || 0) / 100 * ivaPct / 100)
-      : m === 'IVA' ? Math.round(venta * ivaPct / 100) : 0;
+    if (sinUtilidad > 0) filas.push(['Adicionales sin utilidad (al costo)', sinUtilidad, 'nota']);
+    const subtotal = ventaBase + sinUtilidad;
+    filas.push(['Subtotal sin IVA', subtotal, 'sub']);
     if (m !== 'SIN_FACTURA') filas.push([m === 'AIU' ? `IVA ${ivaPct}% sobre la U` : `IVA ${ivaPct}%`, iva]);
-    filas.push([m === 'SIN_FACTURA' ? 'TOTAL CONTRATO' : 'TOTAL CONTRATO (con IVA)', venta + iva, 'total']);
+    filas.push([m === 'SIN_FACTURA' ? etiquetaTotal : `${etiquetaTotal} (con IVA)`, subtotal + iva, 'total']);
+    if (pagoDirecto > 0) filas.push(['Pagados directamente por el cliente (informativo, no se cobran)', pagoDirecto, 'nota']);
     return filas.map(([t2, v, tipo]) => (
-      <tr key={t2} className={tipo === 'total' ? 'bg-carbon text-hueso font-bold' : tipo === 'sub' ? 'bg-hueso font-semibold border-t' : 'border-t text-neutral-700'}>
+      <tr key={`${etiquetaTotal}-${t2}`} className={tipo === 'total' ? 'bg-carbon text-hueso font-bold' : tipo === 'sub' ? 'bg-hueso font-semibold border-t' : 'border-t text-neutral-700'}>
         <td className={`px-3 py-2 ${tipo === 'nota' ? 'text-xs italic text-neutral-500' : ''}`} colSpan={2}>{t2}</td>
         <td className={`px-3 py-2 text-right ${tipo === 'total' ? '' : COL_PPTO_SUAVE}`}>{formatoPesos(v)}</td>
         <td colSpan={4} />
       </tr>
     ));
+  }
+  function bloqueGrupo(g) {
+    const suma = (tipos, campo) => g.capitulos.filter((c) => tipos.includes(c.tipo)).reduce((a, c) => a + Number(c[campo] || 0), 0);
+    const ivaLocal = (costo, venta) => (fin?.modalidad_facturacion === 'AIU' ? Math.round(costo * Number(fin.porcentaje_u || 0) / 100 * Number(fin.porcentaje_iva ?? 19) / 100)
+      : fin?.modalidad_facturacion === 'IVA' ? Math.round(venta * Number(fin.porcentaje_iva ?? 19) / 100) : 0);
+    if (g.clave === 'contrato') {
+      const costo = suma(['CONTRATO'], 'costo'); const venta = suma(['CONTRATO'], 'venta');
+      return bloqueAIU({ costoBase: costo, ventaBase: venta, iva: rf ? Number(rf.iva_contrato || 0) : ivaLocal(costo, venta), etiquetaTotal: 'TOTAL CONTRATO' });
+    }
+    const costo = suma(['ADICIONAL'], 'costo'); const venta = suma(['ADICIONAL'], 'venta');
+    const sinUtil = suma(['ADICIONAL_COSTO'], 'venta');
+    const iva = rf ? Number(rf.iva_adicionales || 0)
+      : (fin?.modalidad_facturacion === 'IVA' ? ivaLocal(0, venta + sinUtil) : ivaLocal(costo, venta));
+    return bloqueAIU({ costoBase: costo, ventaBase: venta, sinUtilidad: sinUtil, pagoDirecto: suma(['PAGO_DIRECTO_CLIENTE'], 'venta'), iva, etiquetaTotal: 'TOTAL ADICIONALES' });
   }
 
   async function eliminarItem(it) {
@@ -479,7 +499,7 @@ export default function PresupuestoTodoCosto({ usuario, proyecto }) {
 
           {esAdmin && (
             <div className="flex flex-wrap justify-end gap-2">
-              <button type="button" onClick={() => { setErrorCap(''); setCapForm({ nombre: '', tipo: 'ADICIONAL_COSTO' }); }}
+              <button type="button" onClick={() => { setErrorCap(''); setCapForm({ nombre: '', pagadoCliente: false }); }}
                 className="border border-carbon text-carbon px-4 py-2 rounded text-sm hover:bg-hueso">+ Nuevo capítulo de adicionales</button>
               {capsEditables.length > 0 && (
                 <button type="button" onClick={abrirNuevoItem} className="bg-carbon text-hueso px-4 py-2 rounded text-sm">+ Agregar ítem adicional</button>
@@ -518,13 +538,13 @@ export default function PresupuestoTodoCosto({ usuario, proyecto }) {
                     </tr>
                     {g.capitulos.map((c) => filaCapitulo(c))}
                     {filaTotal(`Subtotal ${g.tituloCorto}`, g.totales, false)}
-                    {esAdmin && g.clave === 'contrato' && bloqueContrato(g.totales)}
+                    {esAdmin && bloqueGrupo(g)}
                   </Fragment>
                 ))}
                 {grupos.length > 1 && filaTotal('TOTAL (contrato inicial + adicionales)', totalGeneral, true)}
                 {esAdmin && grupos.length > 1 && rf && (
                   <tr className="bg-carbon text-hueso font-bold border-t-2 border-dorado">
-                    <td className="px-3 py-2" colSpan={2}>TOTAL AL CLIENTE (contrato con IVA + adicionales{Number(rf.iva_adicionales) > 0 ? ' con IVA' : ''})</td>
+                    <td className="px-3 py-2" colSpan={2}>TOTAL AL CLIENTE (contrato + adicionales{fin?.modalidad_facturacion !== 'SIN_FACTURA' ? ', con IVA' : ''})</td>
                     <td className="px-3 py-2 text-right">{formatoPesos(rf.total_con_iva)}</td>
                     <td colSpan={4} />
                   </tr>
@@ -557,17 +577,15 @@ export default function PresupuestoTodoCosto({ usuario, proyecto }) {
                 <input required autoFocus value={capForm.nombre} onChange={(e) => setCapForm({ ...capForm, nombre: e.target.value })}
                   placeholder="Ej. ADICIONALES DE OBRA" className="w-full border rounded px-3 py-2 text-sm" />
               </div>
-              <div>
-                <label className="text-xs text-neutral-500 block mb-1">Tipo</label>
-                <select value={capForm.tipo} onChange={(e) => setCapForm({ ...capForm, tipo: e.target.value })} className="w-full border rounded px-3 py-2 text-sm">
-                  {TIPOS_ADICIONAL.map((k) => <option key={k} value={k}>{TIPOS_CAPITULO[k]}</option>)}
-                </select>
-                <p className="text-[11px] text-neutral-500 mt-1">
-                  {capForm.tipo === 'ADICIONAL_COSTO'
-                    ? 'Lo paga HABITATUM y se le cobra al cliente al costo (sin utilidad).'
-                    : 'Lo paga el cliente directamente al proveedor: no entra a la caja de HABITATUM.'}
-                </p>
-              </div>
+              <label className="flex items-start gap-2 text-sm cursor-pointer">
+                <input type="checkbox" checked={capForm.pagadoCliente} onChange={(e) => setCapForm({ ...capForm, pagadoCliente: e.target.checked })} className="mt-0.5" />
+                <span>Pagado directamente por el cliente</span>
+              </label>
+              <p className="text-[11px] text-neutral-500">
+                {capForm.pagadoCliente
+                  ? 'El cliente le paga directo al proveedor: no se cobra, no entra a la caja de HABITATUM y queda como informativo.'
+                  : 'Se valora igual que el contrato inicial: escribes el costo (antes de AIU) y la venta se calcula con el AIU/utilidad del proyecto, con su IVA.'}
+              </p>
               {errorCap && <p role="alert" className="text-xs text-red-600 bg-red-50 border border-red-200 rounded p-2">{errorCap}</p>}
               <div className="flex justify-end gap-2 pt-1">
                 <button type="button" onClick={() => setCapForm(null)} className="text-sm px-3 py-2 rounded border">Cancelar</button>
@@ -586,7 +604,7 @@ export default function PresupuestoTodoCosto({ usuario, proyecto }) {
             <div className="bg-carbon text-hueso px-5 py-3 flex items-center justify-between rounded-t-lg">
               <div>
                 <p className="font-semibold">{itemForm.id ? 'Editar ítem adicional' : 'Agregar ítem adicional'}</p>
-                <p className="text-xs text-gris-calido">Sin utilidad: el costo es igual al valor que se le reconoce al cliente.</p>
+                <p className="text-xs text-gris-calido">{capItemForm?.tipo === 'ADICIONAL' ? 'Escribe el costo antes de AIU: la venta se calcula con el AIU/utilidad del proyecto.' : 'Sin utilidad: el costo es igual al valor que se le reconoce al cliente.'}</p>
               </div>
               <button type="button" onClick={() => setItemForm(null)} className="text-hueso hover:text-dorado text-lg leading-none px-2">✕</button>
             </div>
@@ -622,7 +640,7 @@ export default function PresupuestoTodoCosto({ usuario, proyecto }) {
                   <input type="number" inputMode="decimal" step="any" value={itemForm.cantidad} onChange={(e) => setItemForm({ ...itemForm, cantidad: e.target.value })} className="w-full border rounded px-3 py-2 text-sm text-right" />
                 </div>
                 <div>
-                  <label className="text-xs text-neutral-500 block mb-1">Valor unitario</label>
+                  <label className="text-xs text-neutral-500 block mb-1">{capItemForm?.tipo === 'ADICIONAL' ? 'Valor unitario (costo)' : 'Valor unitario'}</label>
                   <input type="number" inputMode="decimal" step="any" value={itemForm.valor_unitario} onChange={(e) => setItemForm({ ...itemForm, valor_unitario: e.target.value })} className="w-full border rounded px-3 py-2 text-sm text-right" />
                 </div>
               </div>
@@ -632,7 +650,11 @@ export default function PresupuestoTodoCosto({ usuario, proyecto }) {
                   disabled={itemForm.cantidad !== '' && itemForm.valor_unitario !== ''}
                   onChange={(e) => setItemForm({ ...itemForm, valor_parcial: e.target.value })} className="w-full border rounded px-3 py-2 text-sm text-right disabled:bg-neutral-100" />
               </div>
-              <p className="text-right text-sm">Valor del ítem: <strong>{formatoPesos(Math.round(valorItemForm))}</strong></p>
+              {capItemForm?.tipo === 'ADICIONAL' ? (
+                <p className="text-right text-sm">Costo del ítem: <strong>{formatoPesos(Math.round(valorItemForm))}</strong> · venta al cliente: <strong>{formatoPesos(Math.round(valorItemForm * factorVenta))}</strong></p>
+              ) : (
+                <p className="text-right text-sm">Valor del ítem: <strong>{formatoPesos(Math.round(valorItemForm))}</strong></p>
+              )}
               {errorItem && <p role="alert" className="text-xs text-red-600 bg-red-50 border border-red-200 rounded p-2">{errorItem}</p>}
               <div className="flex justify-end gap-2 pt-1">
                 <button type="button" onClick={() => setItemForm(null)} className="text-sm px-3 py-2 rounded border">Cancelar</button>

@@ -10,7 +10,7 @@ export const GRUPOS_CC = [
   { clave: 'ADICIONAL_COSTO', titulo: 'Adicionales', suma: true },
   { clave: 'PAGO_DIRECTO_CLIENTE', titulo: 'Pagos directos del cliente (informativo, no suma)', suma: false },
 ];
-export const grupoDe = (tipo) => (tipo === 'ADICIONAL_COSTO' || tipo === 'PAGO_DIRECTO_CLIENTE' ? tipo : 'CONTRATO');
+export const grupoDe = (tipo) => (tipo === 'ADICIONAL' || tipo === 'ADICIONAL_COSTO' ? 'ADICIONAL_COSTO' : tipo === 'PAGO_DIRECTO_CLIENTE' ? tipo : 'CONTRATO');
 
 const num = (v) => { const n = Number(String(v ?? '').replace(',', '.')); return Number.isFinite(n) ? n : 0; };
 
