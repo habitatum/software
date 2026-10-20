@@ -12,6 +12,7 @@ import { exportarSabanaCortes } from '@/lib/exportarSabanaCortes';
 import SabanaCortes from '@/lib/SabanaCortes';
 import NavBar from '@/components/NavBar';
 import DevolverRetenido from '@/lib/DevolverRetenido';
+import EditarDevolucion from '@/lib/EditarDevolucion';
 
 // Sábana de cortes del contrato (réplica del Excel de cortes de obra) + descarga en Excel con marca.
 export default function SabanaDeCortes() {
@@ -74,6 +75,11 @@ export default function SabanaDeCortes() {
               <SabanaCortes m={m} contrato={d.contrato}
                 hrefCorte={(c) => `/contratos/${id}/cortes/${c.id}`}
                 puedeEditarCorte={(c) => usuario.rol === 'admin' || (usuario.rol === 'operativo' && c.numero === Math.max(...d.cortes.map((k) => k.numero)))}
+                accionDevolucion={(c) => {
+                  const k = d.cortes.find((x) => x.id === c.id);
+                  if (!k || usuario.rol !== 'admin' || k.ordenes_compra?.estado === 'ANULADA') return null;
+                  return <EditarDevolucion corte={k} contrato={d.contrato} estilo="sabana" onHecho={() => setVersion((v) => v + 1)} />;
+                }}
                 onPdf={(c) => compartirOAbrirArchivo(`/api/cortes/${c.id}/pdf`, `Corte ${c.numero} ${d.contrato.numero_contrato}.pdf`)} />
             )}
             {d.cortes.some((k) => k.notas) && (

@@ -6,7 +6,7 @@ import { formatoPesos } from '@/lib/calculosOC';
 // ✎ Editar de un corte de DEVOLUCION de retenido (064). Solo admin. Cambia valor devuelto,
 // descuento y motivo con actualizar_devolucion_retenido, que ajusta la OC en la misma operación
 // (corte y OC siempre con la misma cifra) y no deja devolver más de lo retenido.
-export default function EditarDevolucion({ corte, contrato, onHecho }) {
+export default function EditarDevolucion({ corte, contrato, onHecho, estilo }) {
   const [form, setForm] = useState(null);
   const [disponible, setDisponible] = useState(0);
   const [guardando, setGuardando] = useState(false);
@@ -46,11 +46,14 @@ export default function EditarDevolucion({ corte, contrato, onHecho }) {
 
   return (
     <>
-      <button type="button" onClick={abrir} className="text-xs underline text-neutral-600">✎ Editar</button>
+      <button type="button" onClick={abrir}
+        className={estilo === 'sabana' ? 'inline-block px-2 py-0.5 rounded bg-carbon text-hueso text-[10px] font-semibold' : 'text-xs underline text-neutral-600'}>
+        {estilo === 'sabana' ? '✎ Editar devolución' : '✎ Editar'}
+      </button>
       {form && (
         <div className="fixed inset-0 z-50 bg-black/40 flex items-center justify-center p-4" onClick={() => !guardando && setForm(null)}>
           <div role="dialog" aria-modal="true" aria-label="Editar devolución de retenido" onClick={(e) => e.stopPropagation()}
-            className="bg-white rounded-lg shadow-lg w-full max-w-lg text-left whitespace-normal">
+            className="bg-white rounded-lg shadow-lg w-full max-w-lg text-left whitespace-normal font-normal text-carbon">
             <div className="bg-carbon text-hueso rounded-t-lg px-5 py-3">
               <p className="text-xs text-dorado uppercase tracking-wide">Editar devolución de retenido</p>
               <p className="font-semibold">Contrato {contrato.numero_contrato} · corte {corte.numero}{corte.ordenes_compra?.folio ? ` · ${corte.ordenes_compra.folio}` : ''}</p>

@@ -25,7 +25,7 @@ const SEP = <td className={LINEA} />;
 const FIJA1 = 'sticky left-0 z-10 w-14 min-w-[3.5rem] max-w-[3.5rem]';
 const FIJA2 = 'sticky left-14 z-10 shadow-[1px_0_0_#cec5ba]';
 
-export default function SabanaCortes({ m, contrato, edicion, onPdf, hrefCorte, puedeEditarCorte }) {
+export default function SabanaCortes({ m, contrato, edicion, onPdf, hrefCorte, puedeEditarCorte, accionDevolucion }) {
   const cols = m.columnas;
   const [nuevo, setNuevo] = useState({ descripcion: '', unidad: '', valor_unitario: '', capitulo_id: '', cantidad: '' });
   // Fila seleccionada (clic) para seguirla de lado a lado; otro clic la desmarca.
@@ -165,7 +165,11 @@ export default function SabanaCortes({ m, contrato, edicion, onPdf, hrefCorte, p
                     {fecha(c.fecha)}{c.folio ? ` · ${c.folio}` : c.editable ? '' : ' · sin OC'}
                     {!c.editable && onPdf && <> · <button onClick={() => onPdf(c)} className="underline">PDF</button></>}
                   </div>
-                  {!c.editable && hrefCorte && (
+                  {/* 064: una devolución de retenido se corrige con su propia ventana (corte y OC juntos). */}
+                  {!c.editable && c.tipo === 'DEVOLUCION' && accionDevolucion && (
+                    <div className="mt-1">{accionDevolucion(c)}</div>
+                  )}
+                  {!c.editable && c.tipo !== 'DEVOLUCION' && hrefCorte && (
                     <a href={hrefCorte(c)} className="inline-block mt-1 px-2 py-0.5 rounded bg-carbon text-hueso text-[10px] font-semibold">
                       {puedeEditarCorte && puedeEditarCorte(c) ? 'Abrir / Editar' : 'Abrir'}
                     </a>
