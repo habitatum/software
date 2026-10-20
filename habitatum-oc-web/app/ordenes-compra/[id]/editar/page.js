@@ -1,6 +1,7 @@
 'use client';
 import { useEffect, useMemo, useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
+import Link from 'next/link';
 import { useUsuarioActual } from '@/lib/useUsuarioActual';
 import { useProyectoActual } from '@/lib/useProyectoActual';
 import { crearClienteSupabase } from '@/lib/supabaseClient';
@@ -55,6 +56,8 @@ export default function EditarOrdenCompra() {
   const [motivoCorreccion, setMotivoCorreccion] = useState('');
   const [autorizacion, setAutorizacion] = useState(null);
   const [autorizando, setAutorizando] = useState(false);
+  // 064: las OC de devolución de retenido se corrigen desde su corte (no aquí).
+  const [esDevolucion, setEsDevolucion] = useState(false);
 
   // Snapshot de lo que esta MISMA orden ya tenía guardado al cargarla (antes
   // de cualquier edición del usuario). Sirve para "liberar" su propia
@@ -84,7 +87,8 @@ export default function EditarOrdenCompra() {
       setFolio(ocData?.folio || '');
       // excluir_control no está en la vista calculada: se lee de la tabla. Las
       // órdenes con excluir_control están exentas de exigir anticipo (044).
-      const { data: ocBase } = await supabase.from('ordenes_compra').select('excluir_control').eq('id', id).single();
+      const { data: ocBase } = await supabase.from('ordenes_compra').select('excluir_control, es_devolucion_retenido').eq('id', id).single();
+      setEsDevolucion(!!ocBase?.es_devolucion_retenido);
       const ocCargada = ocData ? { ...ocData, excluir_control: !!ocBase?.excluir_control } : ocData;
       setOc(ocCargada);
       setOcOriginal(ocCargada);
@@ -270,7 +274,14 @@ export default function EditarOrdenCompra() {
         <h1 className="text-2xl font-semibold mb-1">Editar {folio}</h1>
         <p className="text-sm text-neutral-500 mb-6">{proyecto?.nombre}</p>
 
-        {corteCerrado && !autorizacion && (
+        {esDevolucion && (
+          <div className="bg-hueso border border-gris-calido rounded-lg p-4 mb-4 text-sm space-y-2">
+            <p className="font-medium">🔒 Esta OC es una devolución de retenido.</p>
+            <p className="text-neutral-600">Corrige el valor desde el corte de devolución: así el corte y la orden quedan siempre con la misma cifra y no se devuelve más de lo retenido.</p>
+            {oc?.contrato_id && <Link href={`/contratos/${oc.contrato_id}`} className="inline-block bg-carbon text-hueso px-4 py-2 rounded">Ir al contrato → Cortes</Link>}
+          </div>
+        )}
+        {!esDevolucion && corteCerrado && !autorizacion && (
           <div className="bg-neutral-100 border border-neutral-300 rounded-lg p-4 mb-4 text-sm space-y-3">
             <p className="font-medium">🔒 Esta orden está en el corte de cobro {corteCerrado.corte_numero}, ya presentado al cliente.</p>
             {usuario.rol === 'admin' ? (
@@ -299,7 +310,7 @@ export default function EditarOrdenCompra() {
             Al guardar, la diferencia aparecerá como ajuste en el corte en curso.
           </p>
         )}
-        {(!corteCerrado || autorizacion) && (
+        {!esDevolucion && (!corteCerrado || autorizacion) && (
         <FormularioOC
           oc={oc} setOc={(v) => { setTocado(true); setOc(v); }}
           items={items} setItems={(v) => { setTocado(true); setItems(v); }}

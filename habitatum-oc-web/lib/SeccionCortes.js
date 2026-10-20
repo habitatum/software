@@ -3,6 +3,7 @@ import { Fragment, useEffect, useState } from 'react';
 import Link from 'next/link';
 import { crearClienteSupabase } from '@/lib/supabaseClient';
 import DevolverRetenido from '@/lib/DevolverRetenido';
+import EditarDevolucion from '@/lib/EditarDevolucion';
 import { formatoPesos } from '@/lib/calculosOC';
 import { compartirOAbrirArchivo } from '@/lib/compartirArchivo';
 
@@ -141,9 +142,12 @@ export default function SeccionCortes({ contrato, usuario }) {
                       : <span className="text-xs text-amber-700">Borrador</span>}
                   </td>
                   <td className="p-3 text-right whitespace-nowrap space-x-3">
-                    {c.tipo === 'DEVOLUCION' ? (
-                      c.oc_id ? <Link href={`/ordenes-compra/${c.oc_id}`} className="text-xs underline text-neutral-600">Ver OC</Link> : null
-                    ) : (<>
+                    {c.tipo === 'DEVOLUCION' ? (<>
+                      {esAdmin && c.estado === 'APROBADO' && c.ordenes_compra?.estado !== 'ANULADA' && (
+                        <EditarDevolucion corte={c} contrato={contrato} onHecho={cargar} />
+                      )}
+                      {c.oc_id ? <Link href={`/ordenes-compra/${c.oc_id}`} className="text-xs underline text-neutral-600">Ver OC</Link> : null}
+                    </>) : (<>
                     <Link href={`/contratos/${contrato.id}/cortes/${c.id}`} className="text-xs underline text-neutral-600">{c.estado === 'BORRADOR' || usuario?.rol === 'admin' || (usuario?.rol === 'operativo' && c.estado === 'APROBADO' && c.numero === Math.max(...cortes.filter((x) => x.estado === 'APROBADO').map((x) => x.numero))) ? 'Ver / Editar' : 'Ver'}</Link>
                     <button
                       onClick={() => compartirOAbrirArchivo(`/api/cortes/${c.id}/pdf`, `Corte ${c.numero} ${contrato.numero_contrato}.pdf`)}

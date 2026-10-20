@@ -172,7 +172,13 @@ export default function DetalleOrdenCompra() {
                 {eliminando ? 'Eliminando...' : 'Eliminar OC'}
               </button>
             )}
-            {usuario.rol !== 'lectura' && oc.estado === 'VIGENTE' && (
+            {usuario.rol !== 'lectura' && oc.estado === 'VIGENTE' && esDevolucion && oc.contrato_id && (
+              <Link href={`/contratos/${oc.contrato_id}`} title="Las devoluciones de retenido se corrigen desde su corte"
+                className="border border-neutral-300 px-4 py-2 rounded text-sm hover:bg-neutral-50">
+                Corregir desde el contrato
+              </Link>
+            )}
+            {usuario.rol !== 'lectura' && oc.estado === 'VIGENTE' && !esDevolucion && (
               <Link href={`/ordenes-compra/${id}/editar`}
                 className="border border-neutral-300 px-4 py-2 rounded text-sm hover:bg-neutral-50">
                 Editar
