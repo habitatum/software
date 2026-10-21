@@ -112,12 +112,12 @@ export default function DetalleOrdenCompra() {
     // Comprobantes de la OC (factura del bot y gastos de caja menor) al final del PDF, dos por hoja.
     const supabase = crearClienteSupabase();
     const { data: gastos } = await supabase.from('caja_menor_gastos')
-      .select('fecha, valor, concepto, remitente, soporte_path').eq('oc_id', id).order('fecha').order('creado_en');
+      .select('fecha, valor, concepto, remitente, soporte_path, recibo_folio').eq('oc_id', id).order('fecha').order('creado_en');
     const comprobantes = [
       ...(soportePath ? [{ ruta: soportePath, leyenda: `Factura / comprobante · ${oc.folio}` }] : []),
       ...(gastos || []).filter((g) => g.soporte_path).map((g) => ({
         ruta: g.soporte_path,
-        leyenda: `${fechaCorta(g.fecha)} · ${g.concepto || 'Gasto de caja menor'} · ${pesos(g.valor)}${g.remitente ? ` · ${g.remitente}` : ''}`,
+        leyenda: `${fechaCorta(g.fecha)} · ${g.concepto || 'Gasto de caja menor'} · ${pesos(g.valor)}${g.recibo_folio && g.soporte_path.includes('/recibos/') ? ` · Recibo ${g.recibo_folio}` : ''}${g.remitente ? ` · ${g.remitente}` : ''}`,
       })),
     ];
     await compartirOAbrirArchivo(`/api/ordenes-compra/${id}/pdf`, `${oc.folio}.pdf`, comprobantes.length ? {
@@ -210,7 +210,7 @@ export default function DetalleOrdenCompra() {
           </p>
         )}
         {/* Si es la OC de legalización de caja menor: cada gasto con su comprobante. */}
-        <GastosCajaMenor proyecto={proyecto} ocId={id} />
+        <GastosCajaMenor proyecto={proyecto} ocId={id} esAdmin={usuario?.rol === 'admin'} />
 
         {usuario.rol === 'admin' && auditoria && (
           <div className="bg-neutral-50 border border-neutral-200 rounded-lg p-3 text-xs text-neutral-500 space-y-0.5">

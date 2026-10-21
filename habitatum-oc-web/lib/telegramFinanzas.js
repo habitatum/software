@@ -17,6 +17,7 @@ import {
   telegramFetch, descargarArchivoTelegram, llamarGemini, parsearJSON, pesos, fechaColombia, escaparHTML, hayGemini,
 } from './telegramComun';
 import * as comun from './telegramComun';
+import { generarReciboCajaMenor } from './reciboCajaMenor';
 
 const RE_CAJA_MENOR = /caja\s*menor/i;
 // "cap 7", "capítulo 7", "cap 19.09" o "ítem 19.09"
@@ -26,6 +27,7 @@ const AYUDA =
   '<b>Residente C · Finanzas</b>\n' +
   '• Envía la <b>foto o PDF de la factura</b> y creo la Orden de Compra.\n' +
   '• Si es un gasto pequeño o sin factura, escribe <b>CAJA MENOR</b> en la nota de la foto (o un mensaje como <i>CAJA MENOR 25000 transporte cap 7</i>).\n' +
+  '• Caja menor <b>sin foto</b>: genero un <b>recibo de caja menor</b>. Indica a quién se le pagó (ej. <i>CAJA MENOR 120000 revisión citófono cap 5 a Giovanny CC 1036… Bancolombia ahorros</i>) o respóndeme el nombre cuando te lo pida.\n' +
   '• Para indicar el capítulo escribe <b>cap 7</b> (o el ítem: <b>ítem 19.09</b>) en la nota. Si no, lo sugiero yo.\n' +
   '• /estado → caja menor acumulada · /cerrarcaja → legalizar la caja menor ya.';
 
@@ -110,7 +112,8 @@ function promptFactura(ctx, nota) {
 function promptCajaMenor(ctx, texto) {
   return (
     'Registra un gasto de CAJA MENOR de una obra en Colombia. Responde SOLO un JSON: ' +
-    '{"valor":0,"concepto":"","fecha":"YYYY-MM-DD","capitulo_codigo":"","item_codigo":""}. "valor" es el total pagado (número sin ' +
+    '{"valor":0,"concepto":"","fecha":"YYYY-MM-DD","capitulo_codigo":"","item_codigo":"","beneficiario_nombre":"","beneficiario_documento":"","beneficiario_cuenta":""}. ' +
+    '"beneficiario_*": a quién se le pagó, su cédula o NIT y la cuenta o medio de pago (banco, tipo y número, Nequi…), SOLO si aparecen; si no, vacío. "valor" es el total pagado (número sin ' +
     'puntos). Hoy es ' + new Date().toISOString().slice(0, 10) + '; un año de dos dígitos (26) es 2026. "concepto": 3 a 8 palabras (qué se compró y a quién si se ve). "capitulo_codigo"' + (ctx.porItem ? ' e "item_codigo"' : '') + ' de estos ' +
     listaPresupuesto(ctx) +
     (texto ? `\nTexto de quien lo envió: "${texto}"` : '')
@@ -150,11 +153,37 @@ function cuadrarConTotal(l) {
 }
 
 // ---------- Resúmenes y botones ----------
-function tecladoPrincipal(id, sinImputacion = false) {
+function tecladoPrincipal(id, sinImputacion = false, pideBeneficiario = false) {
   const botones = [{ text: '✅ Confirmar', callback_data: `c:${id}` }];
   if (!sinImputacion) botones.push({ text: '📂 Capítulo', callback_data: `k:${id}` });
   botones.push({ text: '❌ Descartar', callback_data: `x:${id}` });
-  return { inline_keyboard: [botones] };
+  const filas = [botones];
+  if (pideBeneficiario) filas.unshift([{ text: '👤 Omitir beneficiario', callback_data: `o:${id}` }]);
+  return { inline_keyboard: filas };
+}
+
+// 065: caja menor sin soporte y sin beneficiario (ni omitido) → hay que pedirlo antes de confirmar.
+function pideBeneficiario(b) {
+  return b.tipo === 'CAJA_MENOR' && !b.soporte_path && !b.datos?.beneficiario_nombre && !b.datos?.beneficiario_omitido;
+}
+
+// Lee la respuesta con el beneficiario: "Giovanny Pérez, CC 1.036.456.789, Bancolombia ahorros 123-456789-01".
+function parsearBeneficiario(texto) {
+  const partes = String(texto || '').split(/\n|,|;| - /).map((x) => x.trim()).filter(Boolean);
+  const r = { beneficiario_nombre: '', beneficiario_documento: '', beneficiario_cuenta: '' };
+  const RE_DOC = /^(?:c\.?\s?c\.?|nit|c[eé]dula|cc|ce)\b[\s.:#]*/i;
+  const RE_CTA = /cuenta|ahorro|corriente|bancolombia|davivienda|bbva|banco|nequi|daviplata|bogot[aá]|occidente|av\s?villas|colpatria|scotiabank|caja social|transferencia|efectivo/i;
+  for (const x of partes) {
+    if (!r.beneficiario_documento && (RE_DOC.test(x) || (/^[\d.\-\s]{6,15}$/.test(x) && !RE_CTA.test(x)))) {
+      r.beneficiario_documento = RE_DOC.test(x) ? x.replace(/^(c\.?\s?c\.?|cc)\b[\s.:#]*/i, 'CC ').replace(/^nit\b[\s.:#]*/i, 'NIT ').replace(/^c[eé]dula\b[\s.:#]*/i, 'CC ') : `CC ${x}`;
+    } else if (RE_CTA.test(x)) {
+      r.beneficiario_cuenta = r.beneficiario_cuenta ? `${r.beneficiario_cuenta} ${x}` : x;
+    } else if (!r.beneficiario_nombre) {
+      r.beneficiario_nombre = x;
+    }
+  }
+  Object.keys(r).forEach((k) => { r[k] = r[k].slice(0, 120); });
+  return r;
 }
 
 function tecladoCapitulos(id, capitulos) {
@@ -185,11 +214,23 @@ function resumenBorrador(b) {
   if (d.item_codigo) cap += `\nÍtem: <b>${escaparHTML(d.item_codigo)}</b> · ${escaparHTML(d.item_descripcion || '')}`;
   else if (b.por_item) cap += '\n⚠️ <b>sin ítem del presupuesto</b> (toca 📂)';
   if (b.tipo === 'CAJA_MENOR') {
+    // 065: sin foto ni PDF se genera un RECIBO DE CAJA MENOR; se pide el beneficiario antes de confirmar.
+    const sinSoporte = !b.soporte_path;
+    const benef = [d.beneficiario_nombre, d.beneficiario_documento].filter(Boolean).join(' · ');
+    let lineaBenef = '';
+    if (sinSoporte) {
+      lineaBenef = benef
+        ? `Beneficiario: <b>${escaparHTML(benef)}</b>${d.beneficiario_cuenta ? ` · ${escaparHTML(d.beneficiario_cuenta)}` : ''}\n`
+        : d.beneficiario_omitido ? 'Beneficiario: <i>en blanco (se llena a mano en el recibo)</i>\n'
+        : '👤 <b>¿A quién se le pagó?</b> Responde a ESTE mensaje con el nombre (y si quieres CC/NIT y cuenta), o toca <b>Omitir</b>.\n';
+      lineaBenef += '📄 Sin foto: genero un <b>RECIBO DE CAJA MENOR</b> como soporte.\n';
+    }
     return (
       '🧾 <b>Gasto de CAJA MENOR</b>\n' +
       `Concepto: ${escaparHTML(d.concepto)}\n` +
       `Valor: <b>${pesos(d.valor)}</b> · Fecha: ${d.fecha}\n` +
       `Capítulo: ${cap}\n` +
+      lineaBenef +
       (b.remitente ? `Enviado por: ${escaparHTML(b.remitente)}\n` : '') +
       '\n¿Lo registro?'
     );
@@ -257,6 +298,9 @@ async function leerDocumento(ctx, { texto, esCajaMenor, parteArchivo, fecha }) {
         valor: Math.round(Number(lectura.valor)),
         concepto: String(lectura.concepto || 'Gasto de caja menor').slice(0, 200),
         fecha: fechaValida(lectura.fecha),
+        beneficiario_nombre: String(lectura.beneficiario_nombre || '').slice(0, 120),
+        beneficiario_documento: String(lectura.beneficiario_documento || '').slice(0, 40),
+        beneficiario_cuenta: String(lectura.beneficiario_cuenta || '').slice(0, 120),
         ...destino,
       },
     };
@@ -325,6 +369,23 @@ export async function procesarMensajeFinanzas(supabase, mensaje, proyecto) {
   if (esExcel) {
     return responder('📊 Los cortes de obra en Excel se generan desde la app (módulo de cortes). Por aquí envíame facturas o recibos en foto o PDF.');
   }
+  // 065: respuesta al mensaje del bot con el beneficiario de un gasto de caja menor sin soporte.
+  if (mensaje.text && !esCajaMenor && mensaje.reply_to_message?.message_id) {
+    const { data: bb } = await supabase.from('telegram_borradores').select('*')
+      .eq('chat_id', chatId).eq('bot_mensaje_id', mensaje.reply_to_message.message_id).eq('estado', 'PENDIENTE').eq('tipo', 'CAJA_MENOR').maybeSingle();
+    if (bb && !bb.soporte_path) {
+      const benef = parsearBeneficiario(mensaje.text);
+      if (!benef.beneficiario_nombre) return responder('No entendí el nombre. Responde así: <i>Giovanny Pérez, CC 1036456789, Bancolombia ahorros 123-456789-01</i>');
+      const datos = { ...bb.datos, ...benef, beneficiario_omitido: false };
+      await supabase.from('telegram_borradores').update({ datos }).eq('id', bb.id);
+      const ctxB = await contextoPresupuesto(supabase, proyecto.id, proyecto.modelo_contratacion);
+      await telegramFetch('editMessageText', {
+        chat_id: chatId, message_id: bb.bot_mensaje_id, parse_mode: 'HTML',
+        text: resumenBorrador({ ...bb, datos, por_item: ctxB.porItem }), reply_markup: tecladoPrincipal(bb.id, ctxB.sinImputacion),
+      });
+      return;
+    }
+  }
   // Mensajes de texto que no son caja menor: conversación normal del grupo, se ignoran.
   if (!foto && !esImagenDoc && !esPDF && !(esCajaMenor && mensaje.text)) return;
 
@@ -372,7 +433,7 @@ export async function procesarMensajeFinanzas(supabase, mensaje, proyecto) {
       mensaje_id: mensaje.message_id, bot_mensaje_id: avisoId,
     }).select().single();
     if (error) throw error;
-    await editar(resumenBorrador({ ...borrador, por_item: ctx.porItem }), tecladoPrincipal(borrador.id, ctx.sinImputacion));
+    await editar(resumenBorrador({ ...borrador, por_item: ctx.porItem }), tecladoPrincipal(borrador.id, ctx.sinImputacion, pideBeneficiario(borrador)));
   } catch (e) {
     console.error('Bot finanzas:', e);
     await editar('❌ Ocurrió un error procesando el documento: ' + escaparHTML(e.message || String(e)));
@@ -420,7 +481,7 @@ export async function procesarCallbackFinanzas(supabase, cb) {
     }
     const actualizado = { ...b, tipo: r.tipo, datos: r.datos };
     await supabase.from('telegram_borradores').update({ tipo: r.tipo, datos: r.datos }).eq('id', id);
-    return editar(resumenBorrador({ ...actualizado, por_item: ctxR.porItem }), tecladoPrincipal(id, ctxR.sinImputacion));
+    return editar(resumenBorrador({ ...actualizado, por_item: ctxR.porItem }), tecladoPrincipal(id, ctxR.sinImputacion, pideBeneficiario(actualizado)));
   }
   const { data: proyecto } = await supabase.from('proyectos').select('id, tope_caja_menor, modelo_contratacion').eq('id', b.proyecto_id).single();
   const ctx = await contextoPresupuesto(supabase, b.proyecto_id, proyecto?.modelo_contratacion);
@@ -433,7 +494,13 @@ export async function procesarCallbackFinanzas(supabase, cb) {
     return editar(resumenBorrador(b).replace(/\n\n¿(Creo la OC|Lo registro)\?$/, '') + `\n\n❌ <i>Descartado por ${escaparHTML(quien)}</i>`);
   }
   if (accion === 'k') { await contestar(); return editar(resumenBorrador(b) + '\n\n📂 Elige el capítulo:', tecladoCapitulos(id, capitulos)); }
-  if (accion === 'v') { await contestar(); return editar(resumenBorrador(b), tecladoPrincipal(id, ctx.sinImputacion)); }
+  if (accion === 'v') { await contestar(); return editar(resumenBorrador(b), tecladoPrincipal(id, ctx.sinImputacion, pideBeneficiario(b))); }
+  if (accion === 'o') {
+    const datos = { ...b.datos, beneficiario_omitido: true };
+    await supabase.from('telegram_borradores').update({ datos }).eq('id', id);
+    await contestar('Beneficiario en blanco');
+    return editar(resumenBorrador({ ...b, datos }), tecladoPrincipal(id, ctx.sinImputacion));
+  }
   if (accion === 's') {
     const cap = capituloPorCodigo(capitulos, extra);
     if (!cap) return contestar('Capítulo no encontrado');
@@ -447,7 +514,7 @@ export async function procesarCallbackFinanzas(supabase, cb) {
     }
     await supabase.from('telegram_borradores').update({ datos }).eq('id', id);
     await contestar(`Capítulo ${cap.codigo}`);
-    return editar(resumenBorrador({ ...b, datos }), tecladoPrincipal(id));
+    return editar(resumenBorrador({ ...b, datos }), tecladoPrincipal(id, false, pideBeneficiario({ ...b, datos })));
   }
   if (accion === 'i') {
     const it = ctx.items.find((x) => x.codigo === extra);
@@ -457,7 +524,7 @@ export async function procesarCallbackFinanzas(supabase, cb) {
                     presupuesto_item_id: it.id, item_codigo: it.codigo, item_descripcion: String(it.descripcion).slice(0, 80) };
     await supabase.from('telegram_borradores').update({ datos }).eq('id', id);
     await contestar(`Ítem ${it.codigo}`);
-    return editar(resumenBorrador({ ...b, datos }), tecladoPrincipal(id));
+    return editar(resumenBorrador({ ...b, datos }), tecladoPrincipal(id, false, pideBeneficiario({ ...b, datos })));
   }
   if (accion === 'c') {
     if (!b.datos.capitulo_id && !ctx.sinImputacion) {
@@ -467,6 +534,10 @@ export async function procesarCallbackFinanzas(supabase, cb) {
     if (ctx.porItem && !b.datos.presupuesto_item_id) {
       await contestar('Primero elige el ítem del presupuesto');
       return editar(resumenBorrador(b) + '\n\n📌 Elige el ítem del presupuesto:', tecladoItems(id, ctx.items.filter((i) => i.capitulo_id === b.datos.capitulo_id)));
+    }
+    if (pideBeneficiario(b)) {
+      await contestar('Primero indica el beneficiario o toca Omitir');
+      return editar(resumenBorrador(b), tecladoPrincipal(id, ctx.sinImputacion, true));
     }
     const base = resumenBorrador(b).replace(/\n\n¿(Creo la OC|Lo registro)\?$/, '');
     if (b.tipo === 'OC') {
@@ -480,8 +551,19 @@ export async function procesarCallbackFinanzas(supabase, cb) {
     if (error) { await contestar('Error'); return editar(base + '\n\n❌ No se pudo registrar: ' + escaparHTML(error.message)); }
     await contestar('Registrado');
     const leg = data?.legalizacion;
+    // 065: sin soporte → se genera el recibo de caja menor y queda como soporte del gasto.
+    let lineaRecibo = '';
+    if (data?.recibo_folio && data?.gasto_id) {
+      try {
+        await generarReciboCajaMenor({ lectura: supabase, servicio: supabase, gastoId: data.gasto_id });
+        lineaRecibo = `\n📄 Recibo <b>${data.recibo_folio}</b> generado como soporte (se ve en la app y en el PDF de la legalización).`;
+      } catch (e) {
+        console.error('Recibo caja menor:', e);
+        lineaRecibo = `\n⚠️ El gasto quedó registrado, pero no pude generar el recibo ${data.recibo_folio}. Genéralo desde la app (Caja menor → Generar recibo).`;
+      }
+    }
     return editar(
-      base + `\n\n✅ Registrado por ${escaparHTML(quien)}. Caja menor acumulada: <b>${pesos(data.acumulado)}</b> de ${pesos(data.tope)}.` +
+      base + `\n\n✅ Registrado por ${escaparHTML(quien)}. Caja menor acumulada: <b>${pesos(data.acumulado)}</b> de ${pesos(data.tope)}.` + lineaRecibo +
       (leg?.legalizada ? `\n📑 Se alcanzó el tope: caja menor legalizada en la <b>${leg.folio}</b> (${leg.gastos} gastos, ${pesos(leg.total)}).` : '')
     );
   }

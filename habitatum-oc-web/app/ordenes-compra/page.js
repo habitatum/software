@@ -107,7 +107,7 @@ setImputacionCompleta({});
         </div>
 
         {/* Caja menor pendiente de legalizar (gastos enviados al bot con "CAJA MENOR"). */}
-        <div className="mb-4"><GastosCajaMenor proyecto={proyecto} plegable /></div>
+        <div className="mb-4"><GastosCajaMenor proyecto={proyecto} plegable esAdmin={usuario?.rol === 'admin'} /></div>
 
         <div className="flex gap-3 mb-4">
           <input
