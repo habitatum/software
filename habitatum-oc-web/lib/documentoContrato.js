@@ -337,7 +337,7 @@ function textoContratista(P, c) {
 }
 
 const REGIMEN_TEXTO = {
-  SIN_IVA: 'Sin IVA (no responsable de IVA)',
+  SIN_IVA: (f) => (f.regimen === 'SIN_IVA' && f._tc ? 'Precios finales: sin IVA o con IVA incluido (no se discrimina)' : 'Sin IVA (no responsable de IVA)'),
   IVA: (f) => `IVA ${pctTexto(f.pct_iva)} sobre el subtotal`,
   AIU: (f) => `AIU: Administración ${pctTexto(f.pct_a)}, Imprevistos ${pctTexto(f.pct_i)}, Utilidad ${pctTexto(f.pct_u)}; IVA ${pctTexto(f.pct_iva)} solo sobre la Utilidad`,
   IVA_UTILIDAD: (f) => `IVA ${pctTexto(f.pct_iva)} sobre la utilidad (base gravable: ${pctTexto(f.pct_u)} del subtotal)`,
@@ -362,14 +362,14 @@ export function modeloDocumento(datos, f) {
     suministros_contratante: c.suministros_contratante,
     anexos_integrales: normalizarAnexos(f.anexos_integrales).filter((a) => txt(a.nombre))
       .map((a, i) => `${i + 1}. ${txt(a.nombre)}${anexoEsPdf(a) || anexoEsImagen(a) ? ' (adjunto al final de este documento)' : ''}`).join('\n'),
-    subtotal: pesos(t.subtotal),
+    subtotal: f.regimen === 'SIN_IVA' ? '' : pesos(t.subtotal), // sin IVA la fila sobra (subtotal = total)
     impuesto: f.regimen === 'IVA_UTILIDAD' ? `${pesos(t.valor_iva)} (${pctTexto(f.pct_iva)} sobre la base gravable de ${pesos(t.base_gravable)}, ${pctTexto(f.pct_u)} del subtotal)`
       : f.regimen === 'IVA' ? `${pesos(t.valor_iva)} (${pctTexto(f.pct_iva)} sobre el subtotal)`
       : f.regimen === 'AIU' ? `AIU ${pesos(t.valor_aiu)} + IVA ${pesos(t.valor_iva)} (${pctTexto(f.pct_iva)} sobre la utilidad)` : '',
     proyecto_nombre: c.proyecto_nombre, proyecto_ubicacion: c.proyecto_ubicacion,
     actividad: c.actividad, alcance: c.alcance,
     valor: pesos(t.total), valor_letras: valorEnLetras(t.total),
-    regimen: typeof REGIMEN_TEXTO[f.regimen] === 'function' ? REGIMEN_TEXTO[f.regimen](f) : REGIMEN_TEXTO[f.regimen],
+    regimen: typeof REGIMEN_TEXTO[f.regimen] === 'function' ? REGIMEN_TEXTO[f.regimen]({ ...f, _tc: tc }) : REGIMEN_TEXTO[f.regimen],
     anticipo_pct: pctTexto(f.anticipo_pct), anticipo_valor: num(f.anticipo_pct) > 0 ? pesos(t.anticipo) : '',
     retencion_pct: pctTexto(f.retencion_pct), cortes_pagos: c.cortes_pagos, medio_pago: c.medio_pago,
     plazo: c.plazo, horario: c.horario, garantia: c.garantia, reclamos: c.reclamos,

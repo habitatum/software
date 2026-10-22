@@ -130,8 +130,8 @@ export default function PlantillaDocumentoContratoPDF({ m, borrador }) {
   const lineaAnexo = `${m.proyecto}  ·  Contrato No. ${m.numero}`;
   const marca = borrador ? <Text fixed style={{ position: 'absolute', top: 300, left: 60, fontSize: 64, color: '#b88a52', opacity: 0.12, transform: 'rotate(-30deg)' }}>BORRADOR</Text> : null;
   const totalesA = [
-    [m.P.contratante_fijo ? 'Subtotal (antes de IVA)' : 'Subtotal costo directo', '', m.t.subtotal],
-    ['Régimen de la cotización', '', null, { AIU: 'AIU', IVA: 'IVA', SIN_IVA: 'Sin IVA', IVA_UTILIDAD: 'IVA sobre la utilidad' }[m.regimen]],
+    [m.P.contratante_fijo ? (m.regimen === 'SIN_IVA' ? 'Subtotal' : 'Subtotal (antes de IVA)') : 'Subtotal costo directo', '', m.t.subtotal],
+    ['Régimen de la cotización', '', null, { AIU: 'AIU', IVA: 'IVA', SIN_IVA: m.P.contratante_fijo ? 'Sin IVA / IVA incluido' : 'Sin IVA', IVA_UTILIDAD: 'IVA sobre la utilidad' }[m.regimen]],
     ...(m.regimen === 'AIU' ? [
       ['Administración (A)', `${m.pct.a} %`, m.t.valor_administracion],
       ['Imprevistos (I)', `${m.pct.i} %`, m.t.valor_imprevistos],

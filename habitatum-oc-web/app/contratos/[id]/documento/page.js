@@ -416,7 +416,7 @@ export default function DocumentoContrato() {
             <Campo etiqueta="Valor estimado del contrato (total Anexo 1)"><input disabled value={formatoPesos(t.total)} className={`${CAMPO} font-semibold`} /></Campo>
             <Campo etiqueta="Régimen tributario">
               <select disabled={bloqueado} value={f.regimen} onChange={(e) => set('regimen', e.target.value)} className={CAMPO}>
-                <option value="SIN_IVA">Sin IVA</option><option value="IVA">IVA (sobre el subtotal)</option><option value="AIU">AIU (IVA solo sobre la U)</option>
+                <option value="SIN_IVA">Sin IVA / IVA incluido (no se discrimina)</option><option value="IVA">IVA (sobre el subtotal)</option><option value="AIU">AIU (IVA solo sobre la U)</option>
                 {(tc || f.regimen === 'IVA_UTILIDAD') && <option value="IVA_UTILIDAD">IVA sobre la utilidad</option>}
               </select>
             </Campo>
