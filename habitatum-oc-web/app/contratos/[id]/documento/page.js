@@ -7,7 +7,7 @@ import { useProyectoActual } from '@/lib/useProyectoActual';
 import { crearClienteSupabase } from '@/lib/supabaseClient';
 import { formatoPesos } from '@/lib/calculosOC';
 import { compartirOAbrirArchivo } from '@/lib/compartirArchivo';
-import { precargar, calcular, validar, valorEnLetras, defectoCampo, esTodoCosto, itemsDocumento, factorRegimen } from '@/lib/documentoContrato';
+import { precargar, calcular, validar, valorEnLetras, defectoCampo, esTodoCosto, itemsDocumento, factorRegimen, normalizarAnexos } from '@/lib/documentoContrato';
 import NavBar from '@/components/NavBar';
 
 // ============================================================
@@ -21,6 +21,8 @@ const ESTADOS = {
   GENERADO: ['Generado', 'bg-blue-100 text-blue-800'],
   FIRMADO: ['Firmado', 'bg-green-100 text-green-800'],
 };
+const TIPOS_ANEXO = ['application/pdf', 'image/jpeg', 'image/png', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', 'application/vnd.ms-excel'];
+const MAX_ANEXO = 20 * 1024 * 1024;
 const PROPIETARIO_VACIO = { tipo_persona: 'NATURAL', nombre: '', identificacion: '', representante_legal: '', cc_representante: '', direccion: '', telefono: '', correo: '' };
 
 function Seccion({ titulo, children, nota }) {
@@ -91,7 +93,9 @@ export default function DocumentoContrato() {
       anticipo_pct: Number(f.anticipo_pct) || 0, retencion_pct: Number(f.retencion_pct) || 0,
       garantias: f.garantias.map((g) => ({ ...g, pct: Number(g.pct) || 0 })), obligaciones: f.obligaciones.filter((o) => String(o).trim()),
       fecha_firma: f.fecha_firma || null, referencias: f.referencias,
-      precios_con_iva: !!f.precios_con_iva, anexos_integrales: (f.anexos_integrales || []).map((a) => String(a).trim()).filter(Boolean),
+      precios_con_iva: !!f.precios_con_iva,
+      anexos_integrales: normalizarAnexos(f.anexos_integrales).map((a) => ({ ...a, nombre: String(a.nombre || '').trim() }))
+        .filter((a) => a.nombre || a.path),
     };
   }
   async function guardarBorrador(s) {
@@ -167,7 +171,26 @@ export default function DocumentoContrato() {
   const setOblig = (i, v) => set('obligaciones', f.obligaciones.map((o, j) => (j === i ? v : o)));
   const moverOblig = (i, d) => { const l = [...f.obligaciones]; const [x] = l.splice(i, 1); l.splice(i + d, 0, x); set('obligaciones', l); };
   const setGar = (i, k, v) => set('garantias', f.garantias.map((g, j) => (j === i ? { ...g, [k]: v } : g)));
-  const setAnexo = (i, v) => set('anexos_integrales', (f.anexos_integrales || []).map((a, j) => (j === i ? v : a)));
+  const setAnexo = (i, cambios) => set('anexos_integrales', normalizarAnexos(f.anexos_integrales).map((a, j) => (j === i ? { ...a, ...cambios } : a)));
+  function adjuntarAnexo(i, archivo) {
+    if (!archivo) return;
+    if (!TIPOS_ANEXO.includes(archivo.type)) { setError('El adjunto debe ser PDF, Excel, JPG o PNG.'); return; }
+    if (archivo.size > MAX_ANEXO) { setError('El adjunto supera 20 MB.'); return; }
+    ejecutar(`anexo${i}`, async (s) => {
+      const limpio = archivo.name.normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^\w.-]+/g, '_').slice(-80);
+      const ruta = `${id}/anexo-${Date.now()}-${limpio}`;
+      const { error: err } = await s.storage.from('contratos-anexos').upload(ruta, archivo, { contentType: archivo.type });
+      if (err) throw err;
+      const actual = normalizarAnexos(f.anexos_integrales)[i] || {};
+      setAnexo(i, { path: ruta, archivo: archivo.name, tipo: archivo.type, tamano: archivo.size,
+        nombre: actual.nombre || archivo.name.replace(/\.[^.]+$/, '') });
+    }, 'Archivo adjuntado. Guarde el borrador para que quede registrado.');
+  }
+  async function verAnexo(a) {
+    const { data, error: err } = await crearClienteSupabase().storage.from('contratos-anexos').createSignedUrl(a.path, 300);
+    if (err) { setError(err.message); return; }
+    window.open(data.signedUrl, '_blank', 'noopener');
+  }
   const toggleRef = (itemId) => set('referencias', f.referencias.includes(itemId) ? f.referencias.filter((x) => x !== itemId) : [...f.referencias, itemId]);
 
   if (cargando || !usuario) return null;
@@ -245,12 +268,11 @@ export default function DocumentoContrato() {
         )}
 
         {tc ? (
-          <Seccion titulo="1. Contratante (HABITATUM S.A.S. — firma por su representante legal)" nota="En las obras todo costo el Propietario no es parte del contrato ni firma. Razón social, teléfono y correo son fijos.">
+          <Seccion titulo="1. Contratante (HABITATUM S.A.S. — firma por su representante legal)" nota="En las obras todo costo el Propietario no es parte del contrato ni firma. HABITATUM imparte las instrucciones, mide los cortes y recibe la obra. Razón social, teléfono y correo son fijos.">
             <div className="grid sm:grid-cols-3 gap-2">
               <Campo etiqueta="Razón social"><input disabled value={`${fijo.razon_social} – NIT ${fijo.nit}`} className={CAMPO} /></Campo>
               <Campo etiqueta="Representante legal *"><input disabled={bloqueado} value={c.contratante_rep_legal || ''} onChange={(e) => setC('contratante_rep_legal', e.target.value)} className={CAMPO} /></Campo>
               <Campo etiqueta="C.C. del representante legal *"><input disabled={bloqueado} value={c.contratante_cc_rep || ''} onChange={(e) => setC('contratante_cc_rep', e.target.value)} className={CAMPO} /></Campo>
-              <Campo etiqueta="Director de Obra *"><input disabled={bloqueado} value={c.director_obra || ''} onChange={(e) => setC('director_obra', e.target.value)} className={CAMPO} /></Campo>
               <Campo etiqueta="Teléfono"><input disabled value={fijo.telefono || ''} className={CAMPO} /></Campo>
               <Campo etiqueta="Correo"><input disabled value={fijo.correo || ''} className={CAMPO} /></Campo>
             </div>
@@ -354,15 +376,32 @@ export default function DocumentoContrato() {
                   <textarea disabled={bloqueado} rows={2} value={c.suministros_contratante || ''} onChange={(e) => setC('suministros_contratante', e.target.value)} className={CAMPO} />
                 </Campo>
                 <div className="sm:col-span-2 space-y-2">
-                  <span className="text-[11px] text-neutral-500 block">Documentos que hacen parte integral (Cláusula 3) — ej.: pliego de condiciones, cuadro de precios aprobados</span>
-                  {(f.anexos_integrales || []).map((a, i) => (
-                    <div key={i} className="flex gap-2 items-center">
-                      <span className="text-sm font-semibold w-6">{i + 1}.</span>
-                      <input disabled={bloqueado} value={a} onChange={(e) => setAnexo(i, e.target.value)} className={CAMPO} />
-                      {!bloqueado && <button type="button" onClick={() => set('anexos_integrales', f.anexos_integrales.filter((_, j) => j !== i))} className="border border-red-200 text-red-700 rounded px-2 text-xs py-1">✕</button>}
+                  <span className="text-[11px] text-neutral-500 block">Documentos que hacen parte integral (Cláusula 3) — ej.: pliego de condiciones, cuadro de precios aprobados. Los PDF e imágenes adjuntos se pegan al final del contrato; los Excel quedan solo para descarga (si quiere que vayan dentro del contrato, súbalos en PDF).</span>
+                  {normalizarAnexos(f.anexos_integrales).map((a, i) => (
+                    <div key={i} className="border rounded p-2 space-y-2">
+                      <div className="flex gap-2 items-center">
+                        <span className="text-sm font-semibold w-6">{i + 1}.</span>
+                        <input disabled={bloqueado} value={a.nombre || ''} placeholder="Nombre del documento *" onChange={(e) => setAnexo(i, { nombre: e.target.value })} className={CAMPO} />
+                        {!bloqueado && <button type="button" title="Quitar de la lista" onClick={() => set('anexos_integrales', normalizarAnexos(f.anexos_integrales).filter((_, j) => j !== i))} className="border border-red-200 text-red-700 rounded px-2 text-xs py-1">✕</button>}
+                      </div>
+                      <div className="flex flex-wrap items-center gap-2 pl-8 text-xs">
+                        {a.path ? (
+                          <>
+                            <button type="button" onClick={() => verAnexo(a)} className="underline text-carbon">📎 {a.archivo || 'Ver adjunto'}</button>
+                            <span className="text-neutral-400">{a.tamano ? `${(a.tamano / 1048576).toFixed(1)} MB` : ''}{/excel|sheet/.test(a.tipo || '') ? ' · Excel: no se pega al PDF' : ''}</span>
+                          </>
+                        ) : <span className="text-neutral-400">Sin archivo adjunto</span>}
+                        {!bloqueado && (
+                          <label className="border rounded px-2 py-1 cursor-pointer bg-white">
+                            {trabajando === `anexo${i}` ? 'Subiendo…' : a.path ? 'Reemplazar archivo' : 'Adjuntar archivo'}
+                            <input type="file" className="hidden" accept=".pdf,.xlsx,.xls,.jpg,.jpeg,.png" disabled={!!trabajando}
+                              onChange={(e) => { adjuntarAnexo(i, e.target.files?.[0]); e.target.value = ''; }} />
+                          </label>
+                        )}
+                      </div>
                     </div>
                   ))}
-                  {!bloqueado && <button type="button" onClick={() => set('anexos_integrales', [...(f.anexos_integrales || []), ''])} className="border border-dorado text-[#6b4a22] rounded px-3 py-1.5 text-sm">+ Agregar documento</button>}
+                  {!bloqueado && <button type="button" onClick={() => set('anexos_integrales', [...normalizarAnexos(f.anexos_integrales), { nombre: '' }])} className="border border-dorado text-[#6b4a22] rounded px-3 py-1.5 text-sm">+ Agregar documento</button>}
                 </div>
               </>
             )}

@@ -12,6 +12,13 @@ export const NOMBRE_REGIMEN = { SIN_IVA: 'Sin IVA', IVA: 'IVA', AIU: 'AIU', IVA_
 // Plantilla de obras TODO COSTO (067): HABITATUM es el Contratante; no hay propietarios en el documento.
 export const esTodoCosto = (datos) => !!datos?.plantilla?.contenido?.contratante_fijo;
 
+// Documentos que hacen parte integral (068): objetos {nombre, path, archivo, tipo, tamano}; acepta textos antiguos.
+export function normalizarAnexos(lista) {
+  return (Array.isArray(lista) ? lista : []).map((a) => (typeof a === 'string' ? { nombre: a } : { ...(a || {}) }));
+}
+export const anexoEsPdf = (a) => !!a?.path && (a.tipo === 'application/pdf' || /\.pdf$/i.test(a.archivo || a.path));
+export const anexoEsImagen = (a) => !!a?.path && /^image\/(jpeg|png)$/.test(a.tipo || '');
+
 export const txt = (v) => (v === null || v === undefined ? '' : String(v)).trim();
 const num = (v) => { const n = Number(String(v ?? '').replace(',', '.')); return Number.isFinite(n) ? n : 0; };
 const redondear = (n) => Math.round(Number(n) || 0);
@@ -114,7 +121,7 @@ export function precargar(datos) {
       anticipo_pct: doc.anticipo_pct, retencion_pct: doc.retencion_pct,
       garantias: unirGarantias(P, doc.garantias), obligaciones: doc.obligaciones || [],
       fecha_firma: doc.fecha_firma || '', referencias,
-      precios_con_iva: !!doc.precios_con_iva, anexos_integrales: Array.isArray(doc.anexos_integrales) ? doc.anexos_integrales : [],
+      precios_con_iva: !!doc.precios_con_iva, anexos_integrales: normalizarAnexos(doc.anexos_integrales),
     };
   }
   if (esTodoCosto(datos)) return precargarTodoCosto(datos, P, def, pro, prov, referencias);
@@ -166,7 +173,6 @@ function precargarTodoCosto(datos, P, def, pro, prov, referencias) {
   return {
     campos: {
       contratante_rep_legal: P.contratante_fijo?.rep_legal || '', contratante_cc_rep: '',
-      director_obra: txt(pro.director_obra) || def('director_obra') || '',
       contratista_nombre: txt(prov.nombre), contratista_identificacion: txt(prov.nit),
       contratista_tipo_persona: prov.tipo_persona || 'NATURAL',
       contratista_rep_legal: txt(prov.representante_legal), contratista_cc_rep: txt(prov.cc_representante),
@@ -245,6 +251,13 @@ export function validar(datos, f, smmlv) {
   if (esTodoCosto(datos)) {
     if (!txt(c.contratante_rep_legal) || !txt(c.contratante_cc_rep)) errores.push('Falta el representante legal de HABITATUM o su cédula.');
     if (f.regimen === 'IVA_UTILIDAD' && !(num(f.pct_u) > 0)) errores.push('Indique el % de utilidad gravable del régimen IVA sobre la utilidad.');
+    // El documento no puede quedar por un valor distinto al del contrato en la app (tolerancia $2 por redondeos).
+    const vi = num(datos?.contrato?.valor_inicial);
+    const tt = calcular(datos?.items, f).total;
+    if (vi > 0 && Math.abs(tt - vi) > 2) {
+      errores.push(`El total del documento ($ ${tt.toLocaleString('es-CO')}) no coincide con el valor del contrato en la app ($ ${Math.round(vi).toLocaleString('es-CO')}). Revise el régimen, los porcentajes, la casilla "precios con IVA" o los ítems.`);
+    }
+    if (normalizarAnexos(f.anexos_integrales).some((a) => !txt(a.nombre))) errores.push('Cada documento que hace parte integral necesita un nombre.');
   } else if (!f.contratante?.length) errores.push('Agregue al menos un propietario (Contratante).');
   else if (f.contratante.some((o) => !txt(o.nombre) || !txt(o.identificacion))) errores.push('Cada propietario necesita nombre e identificación.');
   if (!txt(c.contratista_nombre) || !txt(c.contratista_identificacion)) errores.push('Falta el nombre o la identificación del Contratista.');
@@ -327,8 +340,9 @@ export function modeloDocumento(datos, f) {
     contratista_correo: c.contratista_correo, contratista_regimen: c.contratista_regimen, encargado_obra: c.encargado_obra,
     admin_director: c.admin_director,
     contratante_rep: tc ? [txt(c.contratante_rep_legal), txt(c.contratante_cc_rep) ? `C.C. ${txt(c.contratante_cc_rep)}` : ''].filter(Boolean).join(' · ') : '',
-    director_obra: c.director_obra, suministros_contratante: c.suministros_contratante,
-    anexos_integrales: (f.anexos_integrales || []).map(txt).filter(Boolean).map((a, i) => `${i + 1}. ${a}`).join('\n'),
+    suministros_contratante: c.suministros_contratante,
+    anexos_integrales: normalizarAnexos(f.anexos_integrales).filter((a) => txt(a.nombre))
+      .map((a, i) => `${i + 1}. ${txt(a.nombre)}${anexoEsPdf(a) || anexoEsImagen(a) ? ' (adjunto al final de este documento)' : ''}`).join('\n'),
     subtotal: pesos(t.subtotal),
     impuesto: f.regimen === 'IVA_UTILIDAD' ? `${pesos(t.valor_iva)} (${pctTexto(f.pct_iva)} sobre la base gravable de ${pesos(t.base_gravable)}, ${pctTexto(f.pct_u)} del subtotal)`
       : f.regimen === 'IVA' ? `${pesos(t.valor_iva)} (${pctTexto(f.pct_iva)} sobre el subtotal)`
@@ -381,5 +395,6 @@ export function modeloDocumento(datos, f) {
     itemsA: items.filter((i) => !esRef(i)), itemsB: items.filter(esRef),
     regimen: f.regimen, pct: { a: num(f.pct_a), i: num(f.pct_i), u: num(f.pct_u), iva: num(f.pct_iva) },
     obligaciones: (f.obligaciones || []).map(txt).filter(Boolean),
+    adjuntos: tc ? normalizarAnexos(f.anexos_integrales).filter((a) => anexoEsPdf(a) || anexoEsImagen(a)) : [],
   };
 }
