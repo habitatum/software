@@ -9,6 +9,7 @@ import { formatoPesos } from '@/lib/calculosOC';
 import { compartirOAbrirArchivo } from '@/lib/compartirArchivo';
 import { precargar, calcular, validar, valorEnLetras, defectoCampo, esTodoCosto, itemsDocumento, factorRegimen, normalizarAnexos, conPreciosAutomaticos } from '@/lib/documentoContrato';
 import NavBar from '@/components/NavBar';
+import { adjuntarAnexosContrato } from '@/lib/adjuntarAnexosContrato';
 
 // ============================================================
 // Documento del contrato estándar con contratista (059; todo costo desde la 067: plantilla propia, HABITATUM es el Contratante).
@@ -79,6 +80,13 @@ export default function DocumentoContrato() {
   const setC = (k, v) => setF((x) => ({ ...x, campos: { ...x.campos, [k]: v } }));
   const set = (k, v) => setF((x) => ({ ...x, [k]: v }));
 
+  // Adjuntos PDF/imagen que se pegan al final del contrato (todo costo). Generado/Firmado: los de la foto fija.
+  function adjuntosDe(fuente) {
+    if (!esTodoCosto(datos)) return [];
+    return normalizarAnexos(fuente).filter((a) => a.path && (/pdf/.test(a.tipo || '') || /\.pdf$/i.test(a.path) || /^image\/(jpeg|png)$/.test(a.tipo || '')));
+  }
+  const conAdjuntos = (lista) => (lista.length ? { transformar: (blob) => adjuntarAnexosContrato({ supabase: crearClienteSupabase(), pdfBlob: blob, adjuntos: lista }) } : {});
+
   async function token() {
     const { data: { session } } = await crearClienteSupabase().auth.getSession();
     return session?.access_token || '';
@@ -114,20 +122,25 @@ export default function DocumentoContrato() {
       const { data, error: err } = await s.rpc('generar_documento_contrato', { p_contrato: id });
       if (err) throw err;
       setDatos(data); setF(precargar(data));
-      await compartirOAbrirArchivo(`/api/contratos/${id}/documento/pdf`, `Contrato ${datos.contrato.numero_contrato}.pdf`, { headers: { Authorization: `Bearer ${await token()}` } });
+      await compartirOAbrirArchivo(`/api/contratos/${id}/documento/pdf`, `Contrato ${datos.contrato.numero_contrato}.pdf`, {
+        headers: { Authorization: `Bearer ${await token()}` }, ...conAdjuntos(adjuntosDe(data.snapshot?.documento?.anexos_integrales)),
+      });
     }, 'Contrato generado: quedó guardada la foto fija del documento.');
   }
   async function vistaPrevia() {
     setError(''); setTrabajando('vista');
     await compartirOAbrirArchivo(`/api/contratos/${id}/documento/pdf`, `Vista previa ${datos.contrato.numero_contrato}.pdf`, {
       method: 'POST', body: JSON.stringify({ form: f }),
-      headers: { Authorization: `Bearer ${await token()}`, 'Content-Type': 'application/json' },
+      headers: { Authorization: `Bearer ${await token()}`, 'Content-Type': 'application/json' }, ...conAdjuntos(adjuntosDe(f.anexos_integrales)),
     });
     setTrabajando('');
   }
   async function descargar() {
     setTrabajando('pdf');
-    await compartirOAbrirArchivo(`/api/contratos/${id}/documento/pdf`, `Contrato ${datos.contrato.numero_contrato}.pdf`, { headers: { Authorization: `Bearer ${await token()}` } });
+    await compartirOAbrirArchivo(`/api/contratos/${id}/documento/pdf`, `Contrato ${datos.contrato.numero_contrato}.pdf`, {
+      headers: { Authorization: `Bearer ${await token()}` },
+      ...conAdjuntos(adjuntosDe(datos.snapshot?.documento?.anexos_integrales ?? datos.documento?.anexos_integrales)),
+    });
     setTrabajando('');
   }
   function marcarFirmado() {
