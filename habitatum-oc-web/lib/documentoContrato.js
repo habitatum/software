@@ -124,7 +124,7 @@ export function precargar(datos) {
       precios_con_iva: !!doc.precios_con_iva, anexos_integrales: normalizarAnexos(doc.anexos_integrales),
     };
   }
-  if (esTodoCosto(datos)) return precargarTodoCosto(datos, P, def, pro, prov, referencias);
+  if (esTodoCosto(datos)) return conPreciosAutomaticos(datos, precargarTodoCosto(datos, P, def, pro, prov, referencias));
   return {
     campos: {
       contratante_direccion: txt(p0.direccion), contratante_telefono: txt(p0.telefono), contratante_correo: txt(p0.correo),
@@ -190,7 +190,7 @@ function precargarTodoCosto(datos, P, def, pro, prov, referencias) {
     pct_a: 0, pct_i: 0, pct_u: 0, pct_iva: 19,
     anticipo_pct: num(k.pct_anticipo), retencion_pct: num(def('retencion_pct')) * 100 || 10,
     garantias: unirGarantias(P, []), obligaciones: [], fecha_firma: k.fecha_contrato || '', referencias,
-    precios_con_iva: responsable, anexos_integrales: [],
+    precios_con_iva: false, anexos_integrales: [],
   };
 }
 
@@ -226,6 +226,18 @@ export function itemsDocumento(items, f) {
   });
 }
 
+// Todo costo: se detecta solo si los valores unitarios ya traen el IVA. Si la suma de los ítems (sin los de
+// referencia) es el valor del contrato en la app (±$2), los precios incluyen el IVA y el documento lo separa.
+// Si no, el IVA se suma encima y el bloqueo de validar() exige que el total cuadre con el contrato.
+export function conPreciosAutomaticos(datos, f) {
+  if (!f || !esTodoCosto(datos)) return f;
+  const vi = num(datos?.contrato?.valor_inicial);
+  const suma = (datos?.items || []).filter((i) => !(f.referencias || []).includes(i.id))
+    .reduce((a, i) => a + num(i.cantidad) * num(i.valor_unitario), 0);
+  const auto = f.regimen !== 'SIN_IVA' && vi > 0 && Math.abs(suma - vi) <= 2;
+  return auto === !!f.precios_con_iva ? f : { ...f, precios_con_iva: auto };
+}
+
 export function calcular(items, f) {
   const lista = itemsDocumento(items, f).filter((i) => !(f?.referencias || []).includes(i.id));
   const subtotal = redondear(lista.reduce((a, i) => a + i.total, 0));
@@ -238,6 +250,13 @@ export function calcular(items, f) {
     // IVA sobre la utilidad (todo costo): base gravable = % utilidad × subtotal; no se suma la utilidad.
     imp.base_gravable = redondear(subtotal * num(f?.pct_u) / 100);
     imp.valor_iva = redondear(subtotal * num(f?.pct_u) / 100 * num(f?.pct_iva) / 100);
+  }
+  if (f?.precios_con_iva && factorRegimen(f) !== 1) {
+    // Los precios ya traían el IVA: el total es exactamente la suma original de los ítems (el valor del
+    // contrato) y el IVA es lo que queda después del subtotal (y del AIU), sin descuadres por redondeo.
+    const bruto = redondear((items || []).filter((i) => !(f?.referencias || []).includes(i.id))
+      .reduce((a, i) => a + num(i.cantidad) * num(i.valor_unitario), 0));
+    imp.valor_iva = bruto - subtotal - redondear(imp.valor_aiu);
   }
   const total = redondear(subtotal + imp.valor_aiu + imp.valor_iva);
   const anticipo = redondear(total * num(f?.anticipo_pct) / 100);
@@ -255,7 +274,7 @@ export function validar(datos, f, smmlv) {
     const vi = num(datos?.contrato?.valor_inicial);
     const tt = calcular(datos?.items, f).total;
     if (vi > 0 && Math.abs(tt - vi) > 2) {
-      errores.push(`El total del documento ($ ${tt.toLocaleString('es-CO')}) no coincide con el valor del contrato en la app ($ ${Math.round(vi).toLocaleString('es-CO')}). Revise el régimen, los porcentajes, la casilla "precios con IVA" o los ítems.`);
+      errores.push(`El total del documento ($ ${tt.toLocaleString('es-CO')}) no coincide con el valor del contrato en la app ($ ${Math.round(vi).toLocaleString('es-CO')}). Revise el régimen, los porcentajes o los ítems del contrato.`);
     }
     if (normalizarAnexos(f.anexos_integrales).some((a) => !txt(a.nombre))) errores.push('Cada documento que hace parte integral necesita un nombre.');
   } else if (!f.contratante?.length) errores.push('Agregue al menos un propietario (Contratante).');

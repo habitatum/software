@@ -7,7 +7,7 @@ import { useProyectoActual } from '@/lib/useProyectoActual';
 import { crearClienteSupabase } from '@/lib/supabaseClient';
 import { formatoPesos } from '@/lib/calculosOC';
 import { compartirOAbrirArchivo } from '@/lib/compartirArchivo';
-import { precargar, calcular, validar, valorEnLetras, defectoCampo, esTodoCosto, itemsDocumento, factorRegimen, normalizarAnexos } from '@/lib/documentoContrato';
+import { precargar, calcular, validar, valorEnLetras, defectoCampo, esTodoCosto, itemsDocumento, factorRegimen, normalizarAnexos, conPreciosAutomaticos } from '@/lib/documentoContrato';
 import NavBar from '@/components/NavBar';
 
 // ============================================================
@@ -52,7 +52,9 @@ export default function DocumentoContrato() {
   const { usuario, cargando } = useUsuarioActual();
   const { proyecto } = useProyectoActual();
   const [datos, setDatos] = useState(null);
-  const [f, setF] = useState(null);
+  const [f0, setF] = useState(null);
+  // En todo costo, "precios con IVA" no se marca a mano: se deduce del valor del contrato.
+  const f = useMemo(() => (datos && f0 ? conPreciosAutomaticos(datos, f0) : f0), [datos, f0]);
   const [error, setError] = useState('');
   const [aviso, setAviso] = useState('');
   const [trabajando, setTrabajando] = useState('');
@@ -432,13 +434,11 @@ export default function DocumentoContrato() {
               </Campo>
             )}
             {f.regimen !== 'SIN_IVA' && <Campo etiqueta="IVA %"><input disabled={bloqueado} type="number" step="any" value={f.pct_iva} onChange={(e) => set('pct_iva', e.target.value)} className={CAMPO} /></Campo>}
-            {f.regimen !== 'SIN_IVA' && (
-              <label className="sm:col-span-3 flex items-start gap-2 text-sm">
-                <input type="checkbox" className="mt-1" disabled={bloqueado} checked={!!f.precios_con_iva} onChange={(e) => set('precios_con_iva', e.target.checked)} />
-                <span>Los valores unitarios del contrato ya incluyen el IVA
-                  <span className="block text-[11px] text-neutral-500">El documento los presenta sin IVA (valor unitario ÷ {factorRegimen(f).toLocaleString('es-CO', { maximumFractionDigits: 6 })}) y el IVA aparte. No cambia los ítems ni los cortes.</span>
-                </span>
-              </label>
+            {f.precios_con_iva && (
+              <p className="sm:col-span-3 text-[11px] text-neutral-600 bg-hueso border rounded p-2">
+                Los valores unitarios del contrato ya incluyen el IVA (la suma de los ítems es el valor del contrato). El documento los presenta sin IVA
+                (valor unitario ÷ {factorRegimen(f).toLocaleString('es-CO', { maximumFractionDigits: 6 })}) y el IVA aparte. No cambia los ítems ni los cortes.
+              </p>
             )}
             <Campo etiqueta="Anticipo %"><input disabled={bloqueado} type="number" step="any" min="0" max="100" value={f.anticipo_pct} onChange={(e) => set('anticipo_pct', e.target.value)} className={CAMPO} /></Campo>
             <Campo etiqueta="Valor del anticipo"><input disabled value={Number(f.anticipo_pct) > 0 ? formatoPesos(t.anticipo) : 'Sin anticipo (no se imprime)'} className={CAMPO} /></Campo>
