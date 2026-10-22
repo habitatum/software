@@ -130,19 +130,23 @@ export default function PlantillaDocumentoContratoPDF({ m, borrador }) {
   const lineaAnexo = `${m.proyecto}  ·  Contrato No. ${m.numero}`;
   const marca = borrador ? <Text fixed style={{ position: 'absolute', top: 300, left: 60, fontSize: 64, color: '#b88a52', opacity: 0.12, transform: 'rotate(-30deg)' }}>BORRADOR</Text> : null;
   const totalesA = [
-    ['Subtotal costo directo', '', m.t.subtotal],
-    ['Régimen de la cotización', '', null, { AIU: 'AIU', IVA: 'IVA', SIN_IVA: 'Sin IVA' }[m.regimen]],
+    [m.P.contratante_fijo ? 'Subtotal (antes de IVA)' : 'Subtotal costo directo', '', m.t.subtotal],
+    ['Régimen de la cotización', '', null, { AIU: 'AIU', IVA: 'IVA', SIN_IVA: 'Sin IVA', IVA_UTILIDAD: 'IVA sobre la utilidad' }[m.regimen]],
     ...(m.regimen === 'AIU' ? [
       ['Administración (A)', `${m.pct.a} %`, m.t.valor_administracion],
       ['Imprevistos (I)', `${m.pct.i} %`, m.t.valor_imprevistos],
       ['Utilidad (U)', `${m.pct.u} %`, m.t.valor_utilidad],
       ['IVA (en AIU solo sobre la U)', `${m.pct.iva} %`, m.t.valor_iva],
-    ] : m.regimen === 'IVA' ? [['IVA', `${m.pct.iva} %`, m.t.valor_iva]] : []),
+    ] : m.regimen === 'IVA' ? [['IVA', `${m.pct.iva} %`, m.t.valor_iva]]
+      : m.regimen === 'IVA_UTILIDAD' ? [
+        ['Base gravable (utilidad)', `${m.pct.u} %`, m.t.base_gravable],
+        ['IVA sobre la base gravable', `${m.pct.iva} %`, m.t.valor_iva],
+      ] : []),
   ];
   const nB = P.anexo_2.B_obligaciones_generales.length;
 
   return (
-    <Document title={`Contrato ${m.numero} · ${m.proyecto}`} author="HABITATUM S.A.S. · Administrador de Obra">
+    <Document title={`Contrato ${m.numero} · ${m.proyecto}`} author={P.documento.pie_izquierdo || 'HABITATUM S.A.S.'}>
       {/* ---------------- CONTRATO ---------------- */}
       <Page size="LETTER" style={e.pagina}>
         <Encabezado m={m} subtitulo={P.documento.encabezado_subtitulo} linea={lineaContrato} />
@@ -225,7 +229,7 @@ export default function PlantillaDocumentoContratoPDF({ m, borrador }) {
             <Text style={{ width: '6%' }}>{it.unidad || ''}</Text>
             <Text style={{ width: '10%', textAlign: 'right' }}>{cant(it.cantidad)}</Text>
             <Text style={{ width: '14%', textAlign: 'right' }}>{pesos(it.valor_unitario)}</Text>
-            <Text style={{ width: '18%', textAlign: 'right' }}>{pesos(Number(it.cantidad || 0) * Number(it.valor_unitario || 0))}</Text>
+            <Text style={{ width: '18%', textAlign: 'right' }}>{pesos(it.total ?? Number(it.cantidad || 0) * Number(it.valor_unitario || 0))}</Text>
           </View>
         ))}
         <Text style={e.nota}>{P.anexo_1.nota_A}</Text>

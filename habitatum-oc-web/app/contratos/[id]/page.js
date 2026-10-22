@@ -144,15 +144,9 @@ export default function DetalleContrato() {
             {usuario.rol !== 'lectura' && !editando && !anulado && (
               <button onClick={abrirEdicion} className="border px-4 py-2 rounded text-sm">Editar</button>
             )}
-            {todoCosto ? (
-              <span title="Formato todo costo pendiente" className="bg-neutral-200 text-neutral-500 px-4 py-2 rounded text-sm cursor-not-allowed">
-                Documento del contrato · Formato todo costo pendiente
-              </span>
-            ) : (
-              <Link href={`/contratos/${id}/documento`} className="bg-carbon text-hueso px-4 py-2 rounded text-sm">
-                Documento del contrato{estadoDoc ? ` · ${ETIQUETA_DOC[estadoDoc]}` : ''}
-              </Link>
-            )}
+            <Link href={`/contratos/${id}/documento`} className="bg-carbon text-hueso px-4 py-2 rounded text-sm">
+              Documento del contrato{todoCosto ? ' (todo costo)' : ''}{estadoDoc ? ` · ${ETIQUETA_DOC[estadoDoc]}` : ''}
+            </Link>
             {usuario.rol === 'admin' && !editando && (
               <button
                 onClick={alternarAnulado}

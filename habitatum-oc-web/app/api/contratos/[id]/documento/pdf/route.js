@@ -18,7 +18,6 @@ function cliente(request) {
 }
 
 async function responder(datos, form, borrador) {
-  if (datos?.proyecto?.modelo_contratacion === 'TODO_COSTO') return new Response('Formato todo costo pendiente.', { status: 400 });
   if (!datos?.plantilla?.contenido) return new Response('No hay plantilla de contrato vigente.', { status: 400 });
   const m = modeloDocumento(datos, form || precargar(datos));
   const buffer = await renderToBuffer(PlantillaDocumentoContratoPDF({ m, borrador }));

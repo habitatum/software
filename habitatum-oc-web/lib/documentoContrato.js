@@ -7,7 +7,10 @@
 import { calcularImpuestos } from './calculosOC';
 
 const MESES = ['enero', 'febrero', 'marzo', 'abril', 'mayo', 'junio', 'julio', 'agosto', 'septiembre', 'octubre', 'noviembre', 'diciembre'];
-export const NOMBRE_REGIMEN = { SIN_IVA: 'Sin IVA', IVA: 'IVA', AIU: 'AIU' };
+export const NOMBRE_REGIMEN = { SIN_IVA: 'Sin IVA', IVA: 'IVA', AIU: 'AIU', IVA_UTILIDAD: 'IVA sobre la utilidad' };
+
+// Plantilla de obras TODO COSTO (067): HABITATUM es el Contratante; no hay propietarios en el documento.
+export const esTodoCosto = (datos) => !!datos?.plantilla?.contenido?.contratante_fijo;
 
 export const txt = (v) => (v === null || v === undefined ? '' : String(v)).trim();
 const num = (v) => { const n = Number(String(v ?? '').replace(',', '.')); return Number.isFinite(n) ? n : 0; };
@@ -111,8 +114,10 @@ export function precargar(datos) {
       anticipo_pct: doc.anticipo_pct, retencion_pct: doc.retencion_pct,
       garantias: unirGarantias(P, doc.garantias), obligaciones: doc.obligaciones || [],
       fecha_firma: doc.fecha_firma || '', referencias,
+      precios_con_iva: !!doc.precios_con_iva, anexos_integrales: Array.isArray(doc.anexos_integrales) ? doc.anexos_integrales : [],
     };
   }
+  if (esTodoCosto(datos)) return precargarTodoCosto(datos, P, def, pro, prov, referencias);
   return {
     campos: {
       contratante_direccion: txt(p0.direccion), contratante_telefono: txt(p0.telefono), contratante_correo: txt(p0.correo),
@@ -134,6 +139,52 @@ export function precargar(datos) {
     pct_a: 0, pct_i: 0, pct_u: 0, pct_iva: 19,
     anticipo_pct: num(datos?.contrato?.pct_anticipo), retencion_pct: num(def('retencion_pct')) * 100 || 10,
     garantias: unirGarantias(P, []), obligaciones: [], fecha_firma: datos?.contrato?.fecha_contrato || '', referencias,
+    precios_con_iva: false, anexos_integrales: [],
+  };
+}
+
+const capitalizar = (s) => (s ? s.charAt(0) + s.slice(1).toLowerCase() : '');
+
+// "Noventa y siete (97) días calendario contados a partir del 26 de octubre de 2026"
+export function textoPlazo(contrato) {
+  const n = num(contrato?.plazo_valor);
+  const u = txt(contrato?.plazo_unidad);
+  if (!n || !u) return '';
+  const desde = contrato?.fecha_inicio ? `a partir del ${fechaLarga(contrato.fecha_inicio)}` : 'a partir de la firma del Contrato';
+  return `${capitalizar(numeroEnLetras(n))} (${n}) ${u} contados ${desde}`;
+}
+
+export function textoGarantia(meses) {
+  const n = num(meses);
+  if (!n) return '';
+  return `${capitalizar(numeroEnLetras(n))} (${n}) ${n === 1 ? 'mes' : 'meses'} contados desde el Acta de Recibo Final`;
+}
+
+function precargarTodoCosto(datos, P, def, pro, prov, referencias) {
+  const k = datos?.contrato || {};
+  const responsable = prov.regimen_iva === 'RESPONSABLE';
+  return {
+    campos: {
+      contratante_rep_legal: P.contratante_fijo?.rep_legal || '', contratante_cc_rep: '',
+      director_obra: txt(pro.director_obra) || def('director_obra') || '',
+      contratista_nombre: txt(prov.nombre), contratista_identificacion: txt(prov.nit),
+      contratista_tipo_persona: prov.tipo_persona || 'NATURAL',
+      contratista_rep_legal: txt(prov.representante_legal), contratista_cc_rep: txt(prov.cc_representante),
+      contratista_direccion: txt(prov.direccion), contratista_telefono: txt(prov.telefono), contratista_correo: txt(prov.correo),
+      contratista_regimen: textoRegimenProveedor(prov), encargado_obra: '',
+      proyecto_nombre: txt(pro.nombre), proyecto_ubicacion: [txt(pro.direccion_obra), txt(pro.ciudad)].filter(Boolean).join(', '),
+      actividad: txt(k.concepto), alcance: txt(k.alcance_detallado), suministros_contratante: '',
+      cortes_pagos: def('cortes_pagos') || '', medio_pago: def('medio_pago') || '',
+      plazo: textoPlazo(k) || def('plazo') || '', horario: txt(pro.horario_obra) || def('horario') || '',
+      garantia: textoGarantia(k.garantia_meses) || def('garantia') || '', reclamos: def('reclamos') || '',
+      lugar_firma: txt(pro.ciudad), domicilio: txt(pro.ciudad),
+    },
+    contratante: [],
+    regimen: responsable ? 'IVA' : 'SIN_IVA',
+    pct_a: 0, pct_i: 0, pct_u: 0, pct_iva: 19,
+    anticipo_pct: num(k.pct_anticipo), retencion_pct: num(def('retencion_pct')) * 100 || 10,
+    garantias: unirGarantias(P, []), obligaciones: [], fecha_firma: k.fecha_contrato || '', referencias,
+    precios_con_iva: responsable, anexos_integrales: [],
   };
 }
 
@@ -149,14 +200,39 @@ export function unirGarantias(P, guardadas) {
 }
 
 // ---------- Cálculos (misma función de impuestos de la app) ----------
+// Cuánto pesa el IVA (y el AIU) sobre el subtotal: sirve para quitarlo de precios que ya lo traen.
+export function factorRegimen(f) {
+  const iva = num(f?.pct_iva) / 100, a = num(f?.pct_a) / 100, i = num(f?.pct_i) / 100, u = num(f?.pct_u) / 100;
+  if (f?.regimen === 'IVA') return 1 + iva;
+  if (f?.regimen === 'IVA_UTILIDAD') return 1 + u * iva;
+  if (f?.regimen === 'AIU') return 1 + a + i + u + u * iva;
+  return 1;
+}
+
+// Ítems tal como se imprimen: si los precios del contrato ya traen el IVA (precios_con_iva), el
+// documento los presenta sin IVA (valor unitario ÷ factor) y el IVA va aparte. No cambia los ítems guardados.
+export function itemsDocumento(items, f) {
+  const factor = f?.precios_con_iva ? factorRegimen(f) : 1;
+  return (items || []).map((i) => {
+    const vu = factor !== 1 ? num(i.valor_unitario) / factor : num(i.valor_unitario);
+    const total = factor !== 1 ? redondear(num(i.cantidad) * vu) : num(i.cantidad) * vu;
+    return { ...i, valor_unitario: vu, total };
+  });
+}
+
 export function calcular(items, f) {
-  const lista = (items || []).filter((i) => !(f?.referencias || []).includes(i.id));
-  const subtotal = redondear(lista.reduce((a, i) => a + num(i.cantidad) * num(i.valor_unitario), 0));
+  const lista = itemsDocumento(items, f).filter((i) => !(f?.referencias || []).includes(i.id));
+  const subtotal = redondear(lista.reduce((a, i) => a + i.total, 0));
   const tipo = f?.regimen === 'AIU' ? 'CON_AIU' : f?.regimen === 'IVA' ? 'CON_IVA' : 'SIN_IVA';
   const imp = calcularImpuestos({
     tipo_impuesto: tipo, porcentaje_iva: num(f?.pct_iva), porcentaje_administracion: num(f?.pct_a),
     porcentaje_imprevistos: num(f?.pct_i), porcentaje_utilidad: num(f?.pct_u),
   }, subtotal);
+  if (f?.regimen === 'IVA_UTILIDAD') {
+    // IVA sobre la utilidad (todo costo): base gravable = % utilidad × subtotal; no se suma la utilidad.
+    imp.base_gravable = redondear(subtotal * num(f?.pct_u) / 100);
+    imp.valor_iva = redondear(subtotal * num(f?.pct_u) / 100 * num(f?.pct_iva) / 100);
+  }
   const total = redondear(subtotal + imp.valor_aiu + imp.valor_iva);
   const anticipo = redondear(total * num(f?.anticipo_pct) / 100);
   return { subtotal, ...imp, total, anticipo };
@@ -166,7 +242,10 @@ export function calcular(items, f) {
 export function validar(datos, f, smmlv) {
   const errores = []; const avisos = [];
   const c = f.campos || {};
-  if (!f.contratante?.length) errores.push('Agregue al menos un propietario (Contratante).');
+  if (esTodoCosto(datos)) {
+    if (!txt(c.contratante_rep_legal) || !txt(c.contratante_cc_rep)) errores.push('Falta el representante legal de HABITATUM o su cédula.');
+    if (f.regimen === 'IVA_UTILIDAD' && !(num(f.pct_u) > 0)) errores.push('Indique el % de utilidad gravable del régimen IVA sobre la utilidad.');
+  } else if (!f.contratante?.length) errores.push('Agregue al menos un propietario (Contratante).');
   else if (f.contratante.some((o) => !txt(o.nombre) || !txt(o.identificacion))) errores.push('Cada propietario necesita nombre e identificación.');
   if (!txt(c.contratista_nombre) || !txt(c.contratista_identificacion)) errores.push('Falta el nombre o la identificación del Contratista.');
   if (!txt(c.proyecto_nombre) || !txt(c.proyecto_ubicacion)) errores.push('Falta el proyecto o la ubicación.');
@@ -203,33 +282,43 @@ export function unirConY(lista) {
 }
 
 export function textoPartes(P, f) {
+  const c0 = f.campos || {};
+  if (P.contratante_fijo) {
+    return P.partes.plantilla.replace('{{rep_legal_habitatum}}', txt(c0.contratante_rep_legal).toUpperCase())
+      .replace('{{cc_rep_legal_habitatum}}', txt(c0.contratante_cc_rep))
+      .replace('{{contratista_identificacion}}', textoContratista(P, c0));
+  }
   const props = f.contratante || [];
   const unidos = unirConY(props.map((o) => parteContratante(P, o)));
   const sufijo = props.length > 1
     ? ', quienes obran en nombre propio como propietarios del predio donde se ejecuta la Obra y responden solidariamente por las obligaciones a su cargo'
     : ', quien obra en nombre propio como propietario(a) del predio donde se ejecuta la Obra';
-  const c = f.campos || {};
+  return P.partes.plantilla.replace('{{contratante_identificacion}}', unidos + sufijo).replace('{{contratista_identificacion}}', textoContratista(P, f.campos || {}));
+}
+
+function textoContratista(P, c) {
   const tplC = c.contratista_tipo_persona === 'JURIDICA' ? P.partes.contratista_persona_juridica : P.partes.contratista_persona_natural;
-  const contratista = tplC.replace('{{NOMBRE_MAYUSCULAS}}', txt(c.contratista_nombre).toUpperCase())
+  return tplC.replace('{{NOMBRE_MAYUSCULAS}}', txt(c.contratista_nombre).toUpperCase())
     .replace('{{RAZON_SOCIAL}}', txt(c.contratista_nombre).toUpperCase())
     .replace('{{cedula}}', txt(c.contratista_identificacion)).replace('{{nit}}', txt(c.contratista_identificacion))
     .replace('{{rep_legal}}', txt(c.contratista_rep_legal).toUpperCase()).replace('{{cc_rep_legal}}', txt(c.contratista_cc_rep));
-  return P.partes.plantilla.replace('{{contratante_identificacion}}', unidos + sufijo).replace('{{contratista_identificacion}}', contratista);
 }
 
 const REGIMEN_TEXTO = {
   SIN_IVA: 'Sin IVA (no responsable de IVA)',
   IVA: (f) => `IVA ${pctTexto(f.pct_iva)} sobre el subtotal`,
   AIU: (f) => `AIU: Administración ${pctTexto(f.pct_a)}, Imprevistos ${pctTexto(f.pct_i)}, Utilidad ${pctTexto(f.pct_u)}; IVA ${pctTexto(f.pct_iva)} solo sobre la Utilidad`,
+  IVA_UTILIDAD: (f) => `IVA ${pctTexto(f.pct_iva)} sobre la utilidad (base gravable: ${pctTexto(f.pct_u)} del subtotal)`,
 };
 
 /** Arma todo lo que se imprime. `datos` = documento_contrato_datos (o la foto fija); `f` = formulario. */
 export function modeloDocumento(datos, f) {
   const P = datos.plantilla.contenido;
   const c = f.campos || {};
-  const items = datos.items || [];
+  const items = itemsDocumento(datos.items || [], f);
   const esRef = (i) => (f.referencias || []).includes(i.id);
-  const t = calcular(items, f);
+  const tc = !!P.contratante_fijo;
+  const t = calcular(datos.items || [], f); // con los ítems originales (calcular quita el IVA si aplica)
   const pesos = (v) => `$ ${redondear(v).toLocaleString('es-CO')}`;
   const valores = {
     contratante_nombre: (f.contratante || []).map((o) => txt(o.nombre)).filter(Boolean).join(' y '),
@@ -237,6 +326,13 @@ export function modeloDocumento(datos, f) {
     contratista_nombre: c.contratista_nombre, contratista_direccion: c.contratista_direccion, contratista_telefono: c.contratista_telefono,
     contratista_correo: c.contratista_correo, contratista_regimen: c.contratista_regimen, encargado_obra: c.encargado_obra,
     admin_director: c.admin_director,
+    contratante_rep: tc ? [txt(c.contratante_rep_legal), txt(c.contratante_cc_rep) ? `C.C. ${txt(c.contratante_cc_rep)}` : ''].filter(Boolean).join(' · ') : '',
+    director_obra: c.director_obra, suministros_contratante: c.suministros_contratante,
+    anexos_integrales: (f.anexos_integrales || []).map(txt).filter(Boolean).map((a, i) => `${i + 1}. ${a}`).join('\n'),
+    subtotal: pesos(t.subtotal),
+    impuesto: f.regimen === 'IVA_UTILIDAD' ? `${pesos(t.valor_iva)} (${pctTexto(f.pct_iva)} sobre la base gravable de ${pesos(t.base_gravable)}, ${pctTexto(f.pct_u)} del subtotal)`
+      : f.regimen === 'IVA' ? `${pesos(t.valor_iva)} (${pctTexto(f.pct_iva)} sobre el subtotal)`
+      : f.regimen === 'AIU' ? `AIU ${pesos(t.valor_aiu)} + IVA ${pesos(t.valor_iva)} (${pctTexto(f.pct_iva)} sobre la utilidad)` : '',
     proyecto_nombre: c.proyecto_nombre, proyecto_ubicacion: c.proyecto_ubicacion,
     actividad: c.actividad, alcance: c.alcance,
     valor: pesos(t.total), valor_letras: valorEnLetras(t.total),
@@ -260,7 +356,10 @@ export function modeloDocumento(datos, f) {
     const base = g.clave === 'anticipo' ? t.anticipo : t.total;
     return { amparo: o.amparo, pct: pctTexto(g.pct), base: o.base, valor: pesos(base * num(g.pct) / 100), vigencia: txt(g.vigencia) };
   });
-  const firmantesContratante = (f.contratante || []).map((o) => ({
+  const firmantesContratante = tc ? [{
+    rol: 'EL CONTRATANTE', nombre: txt(P.contratante_fijo.razon_social), id: `NIT ${txt(P.contratante_fijo.nit)}`,
+    extra: `Rep. legal: ${txt(c.contratante_rep_legal)}${txt(c.contratante_cc_rep) ? ` · C.C. ${txt(c.contratante_cc_rep)}` : ''}`,
+  }] : (f.contratante || []).map((o) => ({
     rol: 'EL CONTRATANTE', nombre: txt(o.nombre).toUpperCase(),
     id: `${o.tipo_persona === 'JURIDICA' ? 'NIT' : 'C.C.'} ${txt(o.identificacion)}`,
     extra: o.tipo_persona === 'JURIDICA' && txt(o.representante_legal) ? `Rep. legal: ${txt(o.representante_legal)}` : '',

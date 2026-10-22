@@ -7,11 +7,11 @@ import { useProyectoActual } from '@/lib/useProyectoActual';
 import { crearClienteSupabase } from '@/lib/supabaseClient';
 import { formatoPesos } from '@/lib/calculosOC';
 import { compartirOAbrirArchivo } from '@/lib/compartirArchivo';
-import { precargar, calcular, validar, valorEnLetras, defectoCampo } from '@/lib/documentoContrato';
+import { precargar, calcular, validar, valorEnLetras, defectoCampo, esTodoCosto, itemsDocumento, factorRegimen } from '@/lib/documentoContrato';
 import NavBar from '@/components/NavBar';
 
 // ============================================================
-// Documento del contrato estándar con contratista v1.0 (059) — solo administración delegada.
+// Documento del contrato estándar con contratista (059; todo costo desde la 067: plantilla propia, HABITATUM es el Contratante).
 // Borrador → Generado (foto fija) → Firmado (escaneado subido, bloqueado). Solo admin edita.
 // ============================================================
 
@@ -91,6 +91,7 @@ export default function DocumentoContrato() {
       anticipo_pct: Number(f.anticipo_pct) || 0, retencion_pct: Number(f.retencion_pct) || 0,
       garantias: f.garantias.map((g) => ({ ...g, pct: Number(g.pct) || 0 })), obligaciones: f.obligaciones.filter((o) => String(o).trim()),
       fecha_firma: f.fecha_firma || null, referencias: f.referencias,
+      precios_con_iva: !!f.precios_con_iva, anexos_integrales: (f.anexos_integrales || []).map((a) => String(a).trim()).filter(Boolean),
     };
   }
   async function guardarBorrador(s) {
@@ -166,22 +167,12 @@ export default function DocumentoContrato() {
   const setOblig = (i, v) => set('obligaciones', f.obligaciones.map((o, j) => (j === i ? v : o)));
   const moverOblig = (i, d) => { const l = [...f.obligaciones]; const [x] = l.splice(i, 1); l.splice(i + d, 0, x); set('obligaciones', l); };
   const setGar = (i, k, v) => set('garantias', f.garantias.map((g, j) => (j === i ? { ...g, [k]: v } : g)));
+  const setAnexo = (i, v) => set('anexos_integrales', (f.anexos_integrales || []).map((a, j) => (j === i ? v : a)));
   const toggleRef = (itemId) => set('referencias', f.referencias.includes(itemId) ? f.referencias.filter((x) => x !== itemId) : [...f.referencias, itemId]);
 
   if (cargando || !usuario) return null;
   if (!datos || !f) {
     return (<div><NavBar usuario={usuario} proyecto={proyecto} /><main className="p-8 text-sm text-neutral-500">{error || 'Cargando...'}</main></div>);
-  }
-  if (datos.proyecto?.modelo_contratacion === 'TODO_COSTO') {
-    return (
-      <div><NavBar usuario={usuario} proyecto={proyecto} />
-        <main className="p-8 max-w-3xl mx-auto text-center text-neutral-500">
-          <p className="font-medium">Formato todo costo pendiente.</p>
-          <p className="text-sm mt-1">El contrato estándar aplica por ahora solo a proyectos de administración delegada.</p>
-          <Link href={`/contratos/${id}`} className="text-sm underline mt-4 inline-block">← Volver al contrato</Link>
-        </main>
-      </div>
-    );
   }
   if (!P) return (<div><NavBar usuario={usuario} proyecto={proyecto} /><main className="p-8 text-sm text-red-700">No hay plantilla de contrato vigente.</main></div>);
 
@@ -189,6 +180,10 @@ export default function DocumentoContrato() {
   const opciones = Object.fromEntries(P.garantias_exigidas.opciones.map((o) => [o.clave, o]));
   const [estTxt, estCls] = ESTADOS[estado] || ['Sin generar', 'bg-neutral-100 text-neutral-700'];
   const valorNucleo = Number(datos.contrato?.valor_inicial ?? NaN);
+  const tc = esTodoCosto(datos);
+  const fijo = P.contratante_fijo || {};
+  const itemsDoc = itemsDocumento(datos.items || [], f);
+  const n = (k) => (tc ? k - 1 : k); // en todo costo no hay sección "Administrador de obra"; se corre la numeración
 
   return (
     <div>
@@ -249,6 +244,18 @@ export default function DocumentoContrato() {
           </div>
         )}
 
+        {tc ? (
+          <Seccion titulo="1. Contratante (HABITATUM S.A.S. — firma por su representante legal)" nota="En las obras todo costo el Propietario no es parte del contrato ni firma. Razón social, teléfono y correo son fijos.">
+            <div className="grid sm:grid-cols-3 gap-2">
+              <Campo etiqueta="Razón social"><input disabled value={`${fijo.razon_social} – NIT ${fijo.nit}`} className={CAMPO} /></Campo>
+              <Campo etiqueta="Representante legal *"><input disabled={bloqueado} value={c.contratante_rep_legal || ''} onChange={(e) => setC('contratante_rep_legal', e.target.value)} className={CAMPO} /></Campo>
+              <Campo etiqueta="C.C. del representante legal *"><input disabled={bloqueado} value={c.contratante_cc_rep || ''} onChange={(e) => setC('contratante_cc_rep', e.target.value)} className={CAMPO} /></Campo>
+              <Campo etiqueta="Director de Obra *"><input disabled={bloqueado} value={c.director_obra || ''} onChange={(e) => setC('director_obra', e.target.value)} className={CAMPO} /></Campo>
+              <Campo etiqueta="Teléfono"><input disabled value={fijo.telefono || ''} className={CAMPO} /></Campo>
+              <Campo etiqueta="Correo"><input disabled value={fijo.correo || ''} className={CAMPO} /></Campo>
+            </div>
+          </Seccion>
+        ) : (
         <Seccion titulo="1. Contratante (propietarios — firman el contrato)" nota="Se precargan desde la ficha del proyecto y se editan solo para este contrato. El primero es el propietario principal (dirección, teléfono y correo del cuadro).">
           {f.contratante.map((o, i) => (
             <div key={i} className="border rounded p-3 space-y-2">
@@ -292,6 +299,7 @@ export default function DocumentoContrato() {
             <Campo etiqueta="Correo (opcional)"><input disabled={bloqueado} value={c.contratante_correo || ''} onChange={(e) => setC('contratante_correo', e.target.value)} className={CAMPO} /></Campo>
           </div>
         </Seccion>
+        )}
 
         <Seccion titulo="2. Contratista" nota="Precargado desde el proveedor. Los campos opcionales vacíos no se imprimen.">
           <div className="grid sm:grid-cols-3 gap-2">
@@ -319,6 +327,7 @@ export default function DocumentoContrato() {
           {!bloqueado && <button type="button" onClick={guardarProveedor} className="border rounded px-3 py-1.5 text-sm">Actualizar ficha del proveedor</button>}
         </Seccion>
 
+        {!tc && (
         <Seccion titulo="3. Administrador de obra (designado por el Contratante – no es parte)">
           <div className="grid sm:grid-cols-2 gap-2">
             <Campo etiqueta="Razón social"><input disabled value={defectoCampo(P, 'admin_razon_social')} className={CAMPO} /></Campo>
@@ -327,8 +336,9 @@ export default function DocumentoContrato() {
             <Campo etiqueta="Correo"><input disabled value={defectoCampo(P, 'admin_correo')} className={CAMPO} /></Campo>
           </div>
         </Seccion>
+        )}
 
-        <Seccion titulo="4. Obra · 5. Objeto y alcance">
+        <Seccion titulo={`${n(4)}. Obra · ${n(5)}. Objeto y alcance`}>
           <div className="grid sm:grid-cols-2 gap-2">
             <Campo etiqueta="Proyecto *"><input disabled={bloqueado} value={c.proyecto_nombre || ''} onChange={(e) => setC('proyecto_nombre', e.target.value)} className={CAMPO} /></Campo>
             <Campo etiqueta="Ubicación *"><input disabled={bloqueado} value={c.proyecto_ubicacion || ''} onChange={(e) => setC('proyecto_ubicacion', e.target.value)} className={CAMPO} /></Campo>
@@ -338,16 +348,35 @@ export default function DocumentoContrato() {
             <Campo etiqueta="Alcance *" ancho="sm:col-span-2" ayuda='Debe incluir "INCLUYE: …" y "NO INCLUYE: …" (materiales, equipos mayores, etc.)'>
               <textarea disabled={bloqueado} rows={5} value={c.alcance || ''} onChange={(e) => setC('alcance', e.target.value)} className={CAMPO} />
             </Campo>
+            {tc && (
+              <>
+                <Campo etiqueta="Suministros del Contratante (opcional)" ancho="sm:col-span-2" ayuda="Qué entrega HABITATUM (materiales, equipos). Si se deja vacío no se imprime.">
+                  <textarea disabled={bloqueado} rows={2} value={c.suministros_contratante || ''} onChange={(e) => setC('suministros_contratante', e.target.value)} className={CAMPO} />
+                </Campo>
+                <div className="sm:col-span-2 space-y-2">
+                  <span className="text-[11px] text-neutral-500 block">Documentos que hacen parte integral (Cláusula 3) — ej.: pliego de condiciones, cuadro de precios aprobados</span>
+                  {(f.anexos_integrales || []).map((a, i) => (
+                    <div key={i} className="flex gap-2 items-center">
+                      <span className="text-sm font-semibold w-6">{i + 1}.</span>
+                      <input disabled={bloqueado} value={a} onChange={(e) => setAnexo(i, e.target.value)} className={CAMPO} />
+                      {!bloqueado && <button type="button" onClick={() => set('anexos_integrales', f.anexos_integrales.filter((_, j) => j !== i))} className="border border-red-200 text-red-700 rounded px-2 text-xs py-1">✕</button>}
+                    </div>
+                  ))}
+                  {!bloqueado && <button type="button" onClick={() => set('anexos_integrales', [...(f.anexos_integrales || []), ''])} className="border border-dorado text-[#6b4a22] rounded px-3 py-1.5 text-sm">+ Agregar documento</button>}
+                </div>
+              </>
+            )}
           </div>
         </Seccion>
 
-        <Seccion titulo="6. Condiciones económicas">
+        <Seccion titulo={`${n(6)}. Condiciones económicas`}>
           <div className="grid sm:grid-cols-3 gap-2">
             <Campo etiqueta="Modalidad de precio"><input disabled value={defectoCampo(P, 'modalidad_precio')} className={CAMPO} /></Campo>
             <Campo etiqueta="Valor estimado del contrato (total Anexo 1)"><input disabled value={formatoPesos(t.total)} className={`${CAMPO} font-semibold`} /></Campo>
             <Campo etiqueta="Régimen tributario">
               <select disabled={bloqueado} value={f.regimen} onChange={(e) => set('regimen', e.target.value)} className={CAMPO}>
                 <option value="SIN_IVA">Sin IVA</option><option value="IVA">IVA (sobre el subtotal)</option><option value="AIU">AIU (IVA solo sobre la U)</option>
+                {(tc || f.regimen === 'IVA_UTILIDAD') && <option value="IVA_UTILIDAD">IVA sobre la utilidad</option>}
               </select>
             </Campo>
             <Campo etiqueta="Valor en letras" ancho="sm:col-span-3"><textarea disabled rows={2} value={valorEnLetras(t.total)} className={CAMPO} /></Campo>
@@ -358,7 +387,20 @@ export default function DocumentoContrato() {
                 <Campo etiqueta="Utilidad (U) %"><input disabled={bloqueado} type="number" step="any" value={f.pct_u} onChange={(e) => set('pct_u', e.target.value)} className={CAMPO} /></Campo>
               </>
             )}
+            {f.regimen === 'IVA_UTILIDAD' && (
+              <Campo etiqueta="Utilidad gravable (U) %" ayuda="Base gravable = este % del subtotal; el IVA se cobra sobre esa base.">
+                <input disabled={bloqueado} type="number" step="any" value={f.pct_u} onChange={(e) => set('pct_u', e.target.value)} className={CAMPO} />
+              </Campo>
+            )}
             {f.regimen !== 'SIN_IVA' && <Campo etiqueta="IVA %"><input disabled={bloqueado} type="number" step="any" value={f.pct_iva} onChange={(e) => set('pct_iva', e.target.value)} className={CAMPO} /></Campo>}
+            {f.regimen !== 'SIN_IVA' && (
+              <label className="sm:col-span-3 flex items-start gap-2 text-sm">
+                <input type="checkbox" className="mt-1" disabled={bloqueado} checked={!!f.precios_con_iva} onChange={(e) => set('precios_con_iva', e.target.checked)} />
+                <span>Los valores unitarios del contrato ya incluyen el IVA
+                  <span className="block text-[11px] text-neutral-500">El documento los presenta sin IVA (valor unitario ÷ {factorRegimen(f).toLocaleString('es-CO', { maximumFractionDigits: 6 })}) y el IVA aparte. No cambia los ítems ni los cortes.</span>
+                </span>
+              </label>
+            )}
             <Campo etiqueta="Anticipo %"><input disabled={bloqueado} type="number" step="any" min="0" max="100" value={f.anticipo_pct} onChange={(e) => set('anticipo_pct', e.target.value)} className={CAMPO} /></Campo>
             <Campo etiqueta="Valor del anticipo"><input disabled value={Number(f.anticipo_pct) > 0 ? formatoPesos(t.anticipo) : 'Sin anticipo (no se imprime)'} className={CAMPO} /></Campo>
             <Campo etiqueta="Retención de garantía %"><input disabled={bloqueado} type="number" step="any" min="0" max="100" value={f.retencion_pct} onChange={(e) => set('retencion_pct', e.target.value)} className={CAMPO} /></Campo>
@@ -372,7 +414,7 @@ export default function DocumentoContrato() {
           )}
         </Seccion>
 
-        <Seccion titulo="7. Plazo y horario · 8. Garantía de los trabajos · 9. Firma y anexos">
+        <Seccion titulo={`${n(7)}. Plazo y horario · ${n(8)}. Garantía de los trabajos · ${n(9)}. Firma y anexos`}>
           <div className="grid sm:grid-cols-2 gap-2">
             <Campo etiqueta="Plazo de ejecución *" ayuda='Ej.: "Siete (7) meses contados a partir de la firma del Contrato". Reemplace [N].'><input disabled={bloqueado} value={c.plazo || ''} onChange={(e) => setC('plazo', e.target.value)} className={CAMPO} /></Campo>
             <Campo etiqueta="Horario de la obra"><textarea disabled={bloqueado} rows={2} value={c.horario || ''} onChange={(e) => setC('horario', e.target.value)} className={CAMPO} /></Campo>
@@ -411,14 +453,14 @@ export default function DocumentoContrato() {
           </div>
         </Seccion>
 
-        <Seccion titulo="Anexo 1 · Ítems del contrato" nota='Los ítems se editan en "Ítems del contrato". Marque como Referencia los precios sin cantidad contratada (horas, ítems por orden): van en la sección B y no suman al valor.'>
+        <Seccion titulo="Anexo 1 · Ítems del contrato" nota={`Los ítems se editan en "Ítems del contrato". Marque como Referencia los precios sin cantidad contratada (horas, ítems por orden): van en la sección B y no suman al valor.${f.precios_con_iva ? ' Valores unitarios mostrados sin IVA.' : ''}`}>
           <div className="overflow-x-auto">
             <table className="w-full text-xs min-w-[640px]">
               <thead className="text-left text-neutral-500">
                 <tr><th className="p-2">Referencia</th><th className="p-2">Ítem</th><th className="p-2">Descripción</th><th className="p-2">Un</th><th className="p-2 text-right">Cant.</th><th className="p-2 text-right">V. unitario</th><th className="p-2 text-right">V. total</th></tr>
               </thead>
               <tbody>
-                {(datos.items || []).map((it) => {
+                {itemsDoc.map((it) => {
                   const ref = f.referencias.includes(it.id);
                   return (
                     <tr key={it.id} className={`border-t ${ref ? 'bg-hueso/60' : ''}`}>
@@ -428,7 +470,7 @@ export default function DocumentoContrato() {
                       <td className="p-2">{it.unidad}</td>
                       <td className="p-2 text-right">{ref ? '—' : Number(it.cantidad || 0).toLocaleString('es-CO')}</td>
                       <td className="p-2 text-right">{formatoPesos(it.valor_unitario)}</td>
-                      <td className="p-2 text-right">{ref ? '—' : formatoPesos(Number(it.cantidad || 0) * Number(it.valor_unitario || 0))}</td>
+                      <td className="p-2 text-right">{ref ? '—' : formatoPesos(Math.round(it.total))}</td>
                     </tr>
                   );
                 })}
@@ -436,6 +478,7 @@ export default function DocumentoContrato() {
               <tfoot className="text-sm">
                 <tr className="border-t"><td colSpan={6} className="p-2 text-right">Subtotal</td><td className="p-2 text-right">{formatoPesos(t.subtotal)}</td></tr>
                 {t.valor_aiu > 0 && <tr><td colSpan={6} className="p-2 text-right">A + I + U</td><td className="p-2 text-right">{formatoPesos(t.valor_aiu)}</td></tr>}
+                {f.regimen === 'IVA_UTILIDAD' && <tr><td colSpan={6} className="p-2 text-right">Base gravable ({Number(f.pct_u) || 0} % del subtotal)</td><td className="p-2 text-right">{formatoPesos(t.base_gravable)}</td></tr>}
                 {t.valor_iva > 0 && <tr><td colSpan={6} className="p-2 text-right">IVA</td><td className="p-2 text-right">{formatoPesos(t.valor_iva)}</td></tr>}
                 <tr className="bg-carbon text-hueso font-semibold"><td colSpan={6} className="p-2 text-right">VALOR TOTAL DEL CONTRATO</td><td className="p-2 text-right">{formatoPesos(t.total)}</td></tr>
               </tfoot>
