@@ -548,9 +548,10 @@ export default function Caja() {
                 <span className="text-xs text-neutral-500">Total {formatoPesos(totalPlan)} · pendiente {formatoPesos(planPendiente)}</span>
               </div>
               <div className="p-4">
-                {Math.abs(totalPlan - Number(d.contrato.total)) > 1 && d.plan_pagos.length > 0 && (
+                {/* 069: el plan es informativo y se arma solo con el contrato; los adicionales se cobran aparte. */}
+                {Math.abs(totalPlan - Number(d.contrato.valor_base)) > 1 && d.plan_pagos.length > 0 && (
                   <p className="text-xs text-amber-800 bg-amber-50 border border-amber-200 rounded p-2 mb-2">
-                    El plan suma {formatoPesos(totalPlan)} y el contrato más adicionales suma {formatoPesos(d.contrato.total)}.
+                    El plan suma {formatoPesos(totalPlan)} y el contrato suma {formatoPesos(d.contrato.valor_base)}.
                   </p>
                 )}
                 <div className="overflow-x-auto">
@@ -570,6 +571,22 @@ export default function Caja() {
                     </tbody>
                   </table>
                 </div>
+                {d.cobro && (
+                  <div className="mt-3 border-t pt-2 text-sm space-y-1">
+                    <p className="flex flex-wrap justify-between gap-2">
+                      <span className="font-medium">Contrato</span>
+                      <span className="tabular-nums text-neutral-700">{formatoPesos(d.cobro.contrato.valor)} · Pagado {formatoPesos(d.cobro.contrato.pagado)} · Pendiente <b>{formatoPesos(d.cobro.contrato.pendiente)}</b></span>
+                    </p>
+                    <p className="flex flex-wrap justify-between gap-2">
+                      <span className="font-medium">Pagos de adicionales</span>
+                      <span className="tabular-nums text-neutral-700">Adicionales {formatoPesos(d.cobro.adicionales.valor)} · Pagado {formatoPesos(d.cobro.adicionales.pagado)} · Pendiente <b>{formatoPesos(d.cobro.adicionales.pendiente)}</b></span>
+                    </p>
+                    {Number(d.cobro.excedente) > 0 && (
+                      <p className="text-xs text-amber-800">El cliente pagó {formatoPesos(d.cobro.excedente)} más que el contrato y los adicionales.</p>
+                    )}
+                    <p className="text-[11px] text-neutral-500">Los hitos se llenan en orden con lo pagado. Lo que pase del valor del contrato se cuenta como pago de adicionales (capítulos de adicionales cobrables con su IVA). Por cobrar total: {formatoPesos(d.por_cobrar)}.</p>
+                  </div>
+                )}
                 <div className="grid sm:grid-cols-4 gap-2 mt-3">
                   <input placeholder="Hito (ej. Pago final contra entrega)" value={hito.concepto} onChange={(e) => setHito({ ...hito, concepto: e.target.value })} className={`${CAMPO} sm:col-span-2`} />
                   <input type="number" placeholder="Valor" value={hito.valor} onChange={(e) => setHito({ ...hito, valor: e.target.value })} className={CAMPO} />
