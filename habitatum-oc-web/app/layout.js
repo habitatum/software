@@ -9,7 +9,7 @@ const cormorant = Cormorant_Garamond({
 });
 
 export const metadata = {
-  title: 'HABITATUM · Órdenes de Compra',
+  title: 'HABITATUM',
   description: 'Sistema de Contratos, Proveedores y Órdenes de Compra',
   manifest: '/manifest.json',
   icons: {
