@@ -16,6 +16,8 @@ export default function ListadoOrdenesCompra() {
   const [corteDeOC, setCorteDeOC] = useState({});
   const [filtroEstado, setFiltroEstado] = useState('TODAS');
   const [busqueda, setBusqueda] = useState('');
+  // 070: retenido, devuelto y descuentos por OC (misma base que retenido_por_devolver_contrato y la Caja).
+  const [retenciones, setRetenciones] = useState([]);
 const [imputacionCompleta, setImputacionCompleta] = useState({});
 
   useEffect(() => {
@@ -28,6 +30,8 @@ const [imputacionCompleta, setImputacionCompleta] = useState({});
         .eq('proyecto_id', proyecto.id)
         .order('creado_en', { ascending: false });
       setOrdenes(data || []);
+      const { data: ret } = await supabase.rpc('retenciones_oc_proyecto', { p_proyecto: proyecto.id });
+      setRetenciones(ret || []);
       if ((data || []).length > 0) {
         const { data: enCortes } = await supabase
           .from('v_oc_corte_cerrado')
@@ -82,10 +86,18 @@ setImputacionCompleta({});
   // en las cifras del proyecto. Sí respetan la búsqueda por folio/proveedor.
   const paraSumar = filtradas.filter((o) => o.estado !== 'ANULADA');
   const totalNetoAPagar = paraSumar.reduce((acc, o) => acc + (Number(o.neto_a_pagar) || 0), 0);
-  const totalRetenciones = paraSumar.reduce(
-    (acc, o) => acc + ((Number(o.valor_retenido) || 0) - (Number(o.devolucion_retenido) || 0)),
-    0
-  );
+  // Retenciones: solo las OC a la vista (búsqueda y filtro de estado, nunca anuladas). Los descuentos al retenido
+  // que no están ligados a una OC se cuentan cuando no hay búsqueda activa.
+  const visibles = new Set(paraSumar.map((o) => o.id));
+  const filasRet = retenciones.filter((r) => (r.id ? visibles.has(r.id) : !busqueda && filtroEstado !== 'ANULADA'));
+  const sumaRet = (lista, k) => lista.reduce((a, r) => a + (Number(r[k]) || 0), 0);
+  const pendienteDe = (lista) => sumaRet(lista, 'retenido') - sumaRet(lista, 'devuelto') - sumaRet(lista, 'descuento');
+  const ret = {
+    bruto: sumaRet(filasRet, 'retenido'), devuelto: sumaRet(filasRet, 'devuelto'), descuento: sumaRet(filasRet, 'descuento'),
+    pendiente: pendienteDe(filasRet),
+    habitatum: pendienteDe(filasRet.filter((r) => !r.paga_cliente)), cliente: pendienteDe(filasRet.filter((r) => r.paga_cliente)),
+  };
+  const esTodoCosto = proyecto?.modelo_contratacion === 'TODO_COSTO';
   const totalAnticipoPendiente = paraSumar
     .filter((o) => o.tipo_pago === 'ANTICIPO')
     .reduce((acc, o) => acc + (Number(o.saldo_anticipo_por_amortizar) || 0), 0);
@@ -178,11 +190,42 @@ setImputacionCompleta({});
             <td className="p-3 text-right">{formatoPesos(totalNetoAPagar)}</td>
             <td className="p-3" colSpan={2}></td>
           </tr>
-          <tr className="border-t font-semibold">
-            <td className="p-3" colSpan={4}>Total Retenciones</td>
-            <td className="p-3 text-right">{formatoPesos(totalRetenciones)}</td>
-            <td className="p-3" colSpan={2}></td>
+          <tr className="border-t">
+            <td className="p-3 pb-1" colSpan={4}>Retenido total (bruto)</td>
+            <td className="p-3 pb-1 text-right">{formatoPesos(ret.bruto)}</td>
+            <td className="p-3 pb-1" colSpan={2}></td>
           </tr>
+          <tr>
+            <td className="px-3 py-1" colSpan={4}>(−) Devuelto</td>
+            <td className="px-3 py-1 text-right">{formatoPesos(ret.devuelto)}</td>
+            <td className="px-3 py-1" colSpan={2}></td>
+          </tr>
+          {ret.descuento !== 0 && (
+            <tr>
+              <td className="px-3 py-1" colSpan={4}>(−) Descuentos al retenido</td>
+              <td className="px-3 py-1 text-right">{formatoPesos(ret.descuento)}</td>
+              <td className="px-3 py-1" colSpan={2}></td>
+            </tr>
+          )}
+          <tr className="font-semibold">
+            <td className="p-3 pt-1" colSpan={4}>= Retenido pendiente por devolver</td>
+            <td className="p-3 pt-1 text-right">{formatoPesos(ret.pendiente)}</td>
+            <td className="p-3 pt-1" colSpan={2}></td>
+          </tr>
+          {esTodoCosto && ret.cliente !== 0 && (
+            <>
+              <tr className="text-neutral-600">
+                <td className="px-3 py-1 pl-6" colSpan={4}>· Paga HABITATUM (igual a Caja)</td>
+                <td className="px-3 py-1 text-right">{formatoPesos(ret.habitatum)}</td>
+                <td className="px-3 py-1" colSpan={2}></td>
+              </tr>
+              <tr className="text-neutral-600">
+                <td className="px-3 py-1 pb-3 pl-6" colSpan={4}>· Paga el cliente</td>
+                <td className="px-3 py-1 pb-3 text-right">{formatoPesos(ret.cliente)}</td>
+                <td className="px-3 py-1 pb-3" colSpan={2}></td>
+              </tr>
+            </>
+          )}
           <tr className="border-t font-semibold">
             <td className="p-3" colSpan={4}>Total Anticipos pendientes por amortizar</td>
             <td className="p-3 text-right">{formatoPesos(totalAnticipoPendiente)}</td>
