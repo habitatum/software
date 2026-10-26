@@ -35,6 +35,9 @@ export function calcularImpuestos(oc, subtotal, subtotalGravable = subtotal) {
     // Regla clave: el IVA de una orden CON AIU se cobra SOLO sobre la Utilidad,
     // nunca sobre Administración + Imprevistos, y se suma aparte al total.
     valor_iva = redondear(valor_utilidad * (oc.porcentaje_iva || 0) / 100);
+  } else if (oc.tipo_impuesto === 'CON_IVA_UTILIDAD') {
+    // 071: IVA sobre la utilidad (la utilidad va incluida en los precios y NO se suma): IVA = base × %U × %IVA.
+    valor_iva = redondear(subtotal * ((oc.porcentaje_utilidad || 0) / 100) * ((oc.porcentaje_iva || 0) / 100));
   }
 
   const porcentaje_aiu = oc.tipo_impuesto === 'CON_AIU'
@@ -88,7 +91,9 @@ export function calcularOrdenCompra(oc, items, pagado = 0, totalAnticipoReferenc
 
   const total = redondear(subtotal - descuento + valor_iva + valor_aiu);
 
-  const valor_retenido = redondear(total * (Number(oc.porcentaje_retencion) || 0) / 100);
+  // Las OC de cortes (071) retienen sobre el subtotal antes de impuestos; las demás, sobre el total.
+  const baseRetencion = oc.retencion_sobre_subtotal ? baseNeta : total;
+  const valor_retenido = redondear(baseRetencion * (Number(oc.porcentaje_retencion) || 0) / 100);
 
   // El Anticipo es una OC más: no se amortiza a sí mismo. Fuera de eso, la
   // amortización puede ser un % del total (con toda la precisión decimal que
@@ -284,3 +289,37 @@ export function nombreCapitulo(nombre) {
   return l.charAt(0).toUpperCase() + l.slice(1);
 }
 
+
+// ---------- Régimen de impuestos del contrato (071) ----------
+export const REGIMENES_CONTRATO = [
+  { valor: 'SIN_DISCRIMINAR', nombre: 'Precio final (sin discriminar impuestos)', ayuda: 'Contratos anteriores: los ítems llevan el precio final y las OC de los cortes salen sin IVA.' },
+  { valor: 'SIN_IVA', nombre: 'Sin IVA (no responsable)' },
+  { valor: 'IVA', nombre: 'IVA sobre el subtotal' },
+  { valor: 'AIU', nombre: 'AIU (IVA solo sobre la Utilidad)' },
+  { valor: 'IVA_UTILIDAD', nombre: 'IVA sobre la utilidad' },
+];
+export const nombreRegimen = (r) => (REGIMENES_CONTRATO.find((x) => x.valor === r) || {}).nombre || r || '';
+export const regimenDiscrimina = (r) => !!r && r !== 'SIN_DISCRIMINAR';
+
+/** Impuestos de una base según el régimen del contrato, con el mismo redondeo de la base de datos. */
+export function impuestosRegimen(contrato, base) {
+  const b = Number(base) || 0;
+  const a = Number(contrato?.pct_a) || 0, i = Number(contrato?.pct_i) || 0, u = Number(contrato?.pct_u) || 0;
+  const iva = Number(contrato?.pct_iva ?? 19) || 0;
+  const r2 = (x) => Math.round(x * 100) / 100;
+  switch (contrato?.regimen_impuesto) {
+    case 'IVA': return { aiu: 0, iva: r2(b * iva / 100) };
+    case 'AIU': return { aiu: r2(b * a / 100) + r2(b * i / 100) + r2(b * u / 100), iva: r2(b * (u / 100) * (iva / 100)) };
+    case 'IVA_UTILIDAD': return { aiu: 0, iva: r2(b * (u / 100) * (iva / 100)) };
+    default: return { aiu: 0, iva: 0 };
+  }
+}
+
+/** Texto corto del régimen con sus porcentajes, ej. "IVA sobre la utilidad (U 5 % · IVA 19 %)". */
+export function textoRegimen(c) {
+  const r = c?.regimen_impuesto;
+  if (r === 'IVA') return `IVA ${Number(c.pct_iva) || 0} %`;
+  if (r === 'AIU') return `AIU (A ${Number(c.pct_a) || 0} % · I ${Number(c.pct_i) || 0} % · U ${Number(c.pct_u) || 0} % · IVA ${Number(c.pct_iva) || 0} % sobre la U)`;
+  if (r === 'IVA_UTILIDAD') return `IVA sobre la utilidad (U ${Number(c.pct_u) || 0} % · IVA ${Number(c.pct_iva) || 0} %)`;
+  return nombreRegimen(r);
+}

@@ -224,6 +224,7 @@ export default function FormularioOC({
               <option value="SIN_IVA">Sin IVA</option>
               <option value="CON_IVA">Con IVA</option>
               <option value="CON_AIU">Con AIU</option>
+              <option value="CON_IVA_UTILIDAD">IVA sobre la utilidad</option>
             </select>
           </Campo>
 
@@ -231,6 +232,17 @@ export default function FormularioOC({
             <Campo label="% IVA">
               <input type="number" value={oc.porcentaje_iva} onChange={(e) => setOc({ ...oc, porcentaje_iva: e.target.value })} className={INPUT} />
             </Campo>
+          )}
+
+          {oc.tipo_impuesto === 'CON_IVA_UTILIDAD' && (
+            <div className="grid grid-cols-2 gap-4">
+              <Campo label="% Utilidad gravable (incluida en los precios)">
+                <input type="number" value={oc.porcentaje_utilidad} onChange={(e) => setOc({ ...oc, porcentaje_utilidad: e.target.value })} className={INPUT} />
+              </Campo>
+              <Campo label="% IVA (sobre la utilidad)">
+                <input type="number" value={oc.porcentaje_iva} onChange={(e) => setOc({ ...oc, porcentaje_iva: e.target.value })} className={INPUT} />
+              </Campo>
+            </div>
           )}
 
           {oc.tipo_impuesto === 'CON_AIU' && (
@@ -373,6 +385,9 @@ export default function FormularioOC({
           {Number(oc.descuento) > 0 && <FilaResumen label="- Descuento" valor={oc.descuento} negativo />}
           {!esAnticipo && oc.tipo_impuesto === 'CON_IVA' && (
             <FilaResumen label={`+ IVA (${oc.porcentaje_iva || 0}%)`} valor={calculo.valor_iva} />
+          )}
+          {!esAnticipo && oc.tipo_impuesto === 'CON_IVA_UTILIDAD' && (
+            <FilaResumen label={`+ IVA sobre la utilidad (${oc.porcentaje_iva || 0}% × U ${oc.porcentaje_utilidad || 0}%)`} valor={calculo.valor_iva} />
           )}
           {!esAnticipo && oc.tipo_impuesto === 'CON_AIU' && (
             <>

@@ -140,7 +140,7 @@ export default function CorteDeObra() {
       numero: form.numero, fecha: form.fecha, cantidades, vus, nuevos, pctRetencion: form.pctRetencion, amortizacion: 0,
       descuento: aprobado ? Number(corte.descuento || 0) : 0, titulo: aprobado ? 'EDITANDO' : 'NUEVO',
     };
-    const m0 = construirSabana({ items: d.items, cortes: cortesPrevios, anticipos: d.anticipos, edicion: edicionBase, valorContrato: d.contrato.valor_inicial });
+    const m0 = construirSabana({ items: d.items, cortes: cortesPrevios, anticipos: d.anticipos, edicion: edicionBase, valorContrato: d.contrato.valor_inicial, contrato: d.contrato });
     const total = m0.columnas.find((c) => c.editable).total;
     // Al editar un corte aprobado, su propia amortización vuelve a estar disponible.
     const saldo = Math.max(num(d.anticipo.saldo), 0) + (aprobado ? num(corte.valor_amortizacion) : 0);
@@ -148,11 +148,11 @@ export default function CorteDeObra() {
       : form.tipo_amortizacion === 'SALDO' ? saldo
       : form.tipo_amortizacion === 'VALOR_FIJO' ? num(form.valor_amortizacion_fijo) : 0;
     amort = Math.min(Math.max(amort, 0), saldo, total);
-    m = construirSabana({ items: d.items, cortes: cortesPrevios, anticipos: d.anticipos, edicion: { ...edicionBase, amortizacion: amort }, valorContrato: d.contrato.valor_inicial });
+    m = construirSabana({ items: d.items, cortes: cortesPrevios, anticipos: d.anticipos, edicion: { ...edicionBase, amortizacion: amort }, valorContrato: d.contrato.valor_inicial, contrato: d.contrato });
     const colEd = m.columnas.find((c) => c.editable);
     excedidos = m.todos.filter((i) => m.excede(i) && colEd.cantidad(i.id) > 0);
   } else if (d) {
-    m = construirSabana({ items: d.items, cortes: d.cortes, anticipos: d.anticipos, valorContrato: d.contrato.valor_inicial });
+    m = construirSabana({ items: d.items, cortes: d.cortes, anticipos: d.anticipos, valorContrato: d.contrato.valor_inicial, contrato: d.contrato });
   }
   const colEdicion = m && modoEdicion ? m.columnas.find((c) => c.editable) : null;
 
@@ -202,7 +202,7 @@ export default function CorteDeObra() {
     const sinCant = nuevos.filter((x) => !num(x.cantidad));
     if (sinCant.length) { setError(`Hay ${sinCant.length} adicional(es) nuevo(s) sin cantidad en este corte.`); return; }
     const aviso = excedidos.length ? `\n\n⚠️ ${excedidos.length} ítem(s) superan la cantidad contratada.` : '';
-    if (!window.confirm(`¿Aprobar el corte No. ${form.numero} y generar la Orden de Compra?\n\nTOTAL CORTE ${formatoPesos(colEdicion.total)}\n(-) Retenido ${formatoPesos(colEdicion.retencion)}\n(-) Amortización ${formatoPesos(colEdicion.amortizacion)}\nTOTAL PAGO ${formatoPesos(colEdicion.neto)}${aviso}`)) return;
+    if (!window.confirm(`¿Aprobar el corte No. ${form.numero} y generar la Orden de Compra?\n\nTOTAL CORTE ${formatoPesos(colEdicion.total)}${colEdicion.impuestos > 0 ? `\n(+) ${m.etiquetaImpuestos} ${formatoPesos(colEdicion.impuestos)}` : ''}\n(-) Retenido ${formatoPesos(colEdicion.retencion)}\n(-) Amortización ${formatoPesos(colEdicion.amortizacion)}\nTOTAL PAGO ${formatoPesos(colEdicion.neto)}${aviso}`)) return;
     setGuardando(true);
     try {
       const idC = await guardar();
@@ -287,6 +287,7 @@ export default function CorteDeObra() {
                 </div>
                 <div className="bg-carbon text-hueso rounded-lg p-4 text-sm space-y-1.5">
                   <div className="flex justify-between"><span>TOTAL CORTE {form.numero}</span><span>{formatoPesos(colEdicion.total)}</span></div>
+                  {colEdicion.impuestos > 0 && <div className="flex justify-between"><span>(+) {m.etiquetaImpuestos}</span><span>{formatoPesos(colEdicion.impuestos)}</span></div>}
                   <div className="flex justify-between"><span>(-) Retenido {num(form.pctRetencion)}%</span><span>{formatoPesos(colEdicion.retencion)}</span></div>
                   <div className="flex justify-between"><span>(-) Amortización anticipo</span><span>{formatoPesos(colEdicion.amortizacion)}</span></div>
                   <div className="flex justify-between text-lg font-semibold border-t border-dorado pt-2 text-[#e6c89c]"><span>TOTAL PAGO</span><span>{formatoPesos(colEdicion.neto)}</span></div>

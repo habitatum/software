@@ -122,6 +122,9 @@ export default function PlantillaOrdenCompraPDF({ oc, items, acumulados, anticip
           {!esAnticipo && oc.tipo_impuesto === 'CON_IVA' && (
             <FilaCuadro label={`+ IVA (${oc.porcentaje_iva || 0}%)`} valor={oc.valor_iva} />
           )}
+          {!esAnticipo && oc.tipo_impuesto === 'CON_IVA_UTILIDAD' && (
+            <FilaCuadro label={`+ IVA sobre la utilidad (${oc.porcentaje_iva || 0}% × U ${oc.porcentaje_utilidad || 0}%)`} valor={oc.valor_iva} />
+          )}
           {!esAnticipo && oc.tipo_impuesto === 'CON_AIU' && (
             <>
               <FilaCuadro label={`+ AIU (${oc.porcentaje_aiu || 0}%)`} valor={oc.valor_aiu} />

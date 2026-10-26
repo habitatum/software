@@ -8,6 +8,8 @@ import { crearClienteSupabase } from '@/lib/supabaseClient';
 import { formatoPesos } from '@/lib/calculosOC';
 import NavBar from '@/components/NavBar';
 import SeccionCortes from '@/lib/SeccionCortes';
+import RegimenContrato from '@/lib/RegimenContrato';
+import { textoRegimen, regimenDiscrimina, impuestosRegimen } from '@/lib/calculosOC';
 
 // 059: la capa DOCUMENTO del contrato (tipo, cláusulas, pólizas, cuadro Excel, plazo, garantía y su PDF)
 // se reemplazó por el Documento del contrato estándar v1.0 (/contratos/[id]/documento). Aquí solo
@@ -21,6 +23,8 @@ function campoFormEdicion(contrato) {
     fecha_inicio: contrato.fecha_inicio || '',
     incluye_anticipo: !!contrato.incluye_anticipo,
     pct_anticipo: contrato.pct_anticipo || 0,
+    regimen_impuesto: contrato.regimen_impuesto || 'SIN_DISCRIMINAR',
+    pct_a: contrato.pct_a ?? 0, pct_i: contrato.pct_i ?? 0, pct_u: contrato.pct_u ?? 0, pct_iva: contrato.pct_iva ?? 19,
   };
 }
 
@@ -31,6 +35,7 @@ export default function DetalleContrato() {
   const { proyecto } = useProyectoActual();
   const [contrato, setContrato] = useState(null);
   const [acumulados, setAcumulados] = useState(null);
+  const [conCortes, setConCortes] = useState(false);
   const [ordenes, setOrdenes] = useState([]);
   const [editando, setEditando] = useState(false);
   const [form, setForm] = useState(null);
@@ -44,6 +49,9 @@ export default function DetalleContrato() {
     const { data: c } = await supabase.from('contratos').select('*, proveedores(nombre, nit, representante_legal, telefono), proyectos(modelo_contratacion), contrato_documentos(estado)').eq('id', id).single();
     const { data: acum } = await supabase.from('v_acumulados_contrato').select('*').eq('contrato_id', id).single();
     const { data: oc } = await supabase.from('v_ordenes_compra_calculadas').select('*').eq('contrato_id', id).order('fecha');
+    const { count: nCortes } = await supabase.from('cortes').select('id', { count: 'exact', head: true })
+      .eq('contrato_id', id).eq('estado', 'APROBADO').neq('tipo', 'DEVOLUCION');
+    setConCortes((nCortes || 0) > 0);
     setContrato(c);
     setAcumulados(acum);
     setOrdenes(oc || []);
@@ -72,6 +80,10 @@ export default function DetalleContrato() {
       fecha_inicio: form.fecha_inicio || null,
       incluye_anticipo: form.incluye_anticipo,
       pct_anticipo: form.pct_anticipo || 0,
+      ...(conCortes ? {} : {
+        regimen_impuesto: form.regimen_impuesto,
+        pct_a: Number(form.pct_a) || 0, pct_i: Number(form.pct_i) || 0, pct_u: Number(form.pct_u) || 0, pct_iva: Number(form.pct_iva) || 0,
+      }),
     }).eq('id', id);
     setGuardando(false);
     if (err) { setError(err.message); return; }
@@ -181,7 +193,13 @@ export default function DetalleContrato() {
               <div><span className="text-neutral-500">Contratista: </span>{contrato.proveedores?.nombre}</div>
               <div><span className="text-neutral-500">NIT: </span>{contrato.proveedores?.nit}</div>
               <div><span className="text-neutral-500">Concepto: </span>{contrato.concepto}</div>
-              <div><span className="text-neutral-500">Valor inicial: </span>{formatoPesos(contrato.valor_inicial)}</div>
+              <div><span className="text-neutral-500">{regimenDiscrimina(contrato.regimen_impuesto) ? 'Valor antes de impuestos: ' : 'Valor inicial: '}</span>{formatoPesos(contrato.valor_inicial)}</div>
+              <div className="col-span-2"><span className="text-neutral-500">Régimen de impuestos: </span>{textoRegimen(contrato)}
+                {regimenDiscrimina(contrato.regimen_impuesto) && contrato.regimen_impuesto !== 'SIN_IVA' && (() => {
+                  const imp = impuestosRegimen(contrato, contrato.valor_inicial);
+                  return <span className="text-neutral-500"> · total con impuestos {formatoPesos(Number(contrato.valor_inicial) + imp.aiu + imp.iva)}</span>;
+                })()}
+              </div>
               <div><span className="text-neutral-500">Fecha inicio: </span>{contrato.fecha_inicio || '-'}</div>
               <div><span className="text-neutral-500">Anticipo: </span>{contrato.incluye_anticipo ? `${contrato.pct_anticipo || 0}%` : 'No'}</div>
             </div>
@@ -220,7 +238,14 @@ export default function DetalleContrato() {
           <form onSubmit={guardarEdicion} className="bg-white border rounded-lg p-5 space-y-4">
             <div className="grid grid-cols-2 gap-3">
               <input placeholder="Concepto" value={form.concepto} onChange={(e) => setForm({ ...form, concepto: e.target.value })} className="border rounded px-3 py-2 text-sm" />
-              <input type="number" placeholder="Valor inicial" value={form.valor_inicial} onChange={(e) => setForm({ ...form, valor_inicial: e.target.value })} className="border rounded px-3 py-2 text-sm" />
+              <label className="block">
+                <span className="block text-xs text-neutral-500 mb-1">{form.regimen_impuesto === 'SIN_DISCRIMINAR' ? 'Valor del contrato (precio final)' : 'Valor antes de impuestos (subtotal de la cotización)'}</span>
+                <input type="number" placeholder="Valor inicial" value={form.valor_inicial} onChange={(e) => setForm({ ...form, valor_inicial: e.target.value })} className="border rounded px-3 py-2 text-sm w-full" />
+              </label>
+            </div>
+
+            <div className="border-t pt-3">
+              <RegimenContrato form={form} setForm={setForm} bloqueado={conCortes} />
             </div>
 
             <div className="grid grid-cols-2 gap-3 border-t pt-3">

@@ -135,6 +135,7 @@ export async function construirLibroSabana({ m, contrato, proyecto, logoBase64, 
   r++;
   cierre({ etq: (c) => `TOTAL CORTE ${c.numero}`, valor: (c) => c.total, etqAcum: 'TOTAL CORTES', valorAcum: m.acumulado.total });
   if (cols.some((c) => c.descuento)) cierre({ etq: () => '(-) Descuento', valor: (c) => c.descuento, etqAcum: '(-) TOTAL DESCUENTOS', valorAcum: m.acumulado.descuento });
+  if (cols.some((c) => c.impuestos)) cierre({ etq: () => `(+) ${m.etiquetaImpuestos}`, valor: (c) => c.impuestos, etqAcum: `(+) TOTAL ${m.etiquetaImpuestos.toUpperCase()}`, valorAcum: m.acumulado.impuestos });
   cierre({ etq: (c) => `(-) Retenido ${c.pctRetencion}%`, valor: (c) => c.retencion, etqAcum: '(-) TOTAL RETENIDO', valorAcum: m.acumulado.retencion });
   // Devolución de retenidos (047)
   const hayDevolucion = cols.some((c) => c.devolucion || c.descuentoRetenido);

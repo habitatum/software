@@ -1,3 +1,4 @@
+import { impuestosRegimen, regimenDiscrimina } from './calculosOC';
 // ============================================================
 // Modelo de la SÁBANA DE CORTES (réplica del Excel de cortes de obra).
 // Lo usan: la pantalla de la sábana, la pantalla del corte nuevo (columna
@@ -13,7 +14,9 @@ const r2 = (x) => Math.round(x * 100) / 100;
  * @param anticipos OC tipo anticipo del contrato ({ total })
  * @param edicion   opcional: corte en edición { numero, fecha, cantidades:{itemId:cant}, nuevos:[{tmpId, descripcion, unidad, valor_unitario, cantidad}], pctRetencion, amortizacion }
  */
-export function construirSabana({ items = [], cortes = [], anticipos = [], edicion = null, valorContrato = 0 }) {
+export function construirSabana({ items = [], cortes = [], anticipos = [], edicion = null, valorContrato = 0, contrato = null }) {
+  // 071: impuestos del régimen del contrato (IVA / AIU) en cada corte; contratos sin régimen = 0, como siempre.
+  const conRegimen = regimenDiscrimina(contrato?.regimen_impuesto);
   const contractuales = items.filter((i) => !i.es_adicional);
   const adicionales = [
     ...items.filter((i) => i.es_adicional),
@@ -72,8 +75,14 @@ export function construirSabana({ items = [], cortes = [], anticipos = [], edici
     col.subAdicionales = r2(adicionales.reduce((a, i) => a + col.cantidad(i.id) * col.vu(i.id), 0));
     col.total = r2(col.subContrato + col.subAdicionales);
     if (col.editable) {
+      const imp = conRegimen ? impuestosRegimen(contrato, col.total - col.descuento) : { aiu: 0, iva: 0 };
+      col.impuestos = r2(imp.aiu + imp.iva);
       col.retencion = r2((col.total - col.descuento) * col.pctRetencion / 100);
-      col.neto = r2(col.total - col.descuento - col.retencion - col.amortizacion);
+      col.neto = r2(col.total - col.descuento + col.impuestos - col.retencion - col.amortizacion);
+    } else {
+      // Corte aprobado: los impuestos son los de su OC (neto − (total − descuento − retenido − amortización)).
+      const dif = col.tipo === 'OBRA' && conRegimen ? r2(col.neto - (col.total - col.descuento - n(col.retencion) - col.amortizacion)) : 0;
+      col.impuestos = Math.abs(dif) >= 0.5 ? dif : 0;
     }
     col.pctAmortizacion = col.total > 0 ? Math.round((col.amortizacion / col.total) * 10000) / 100 : 0;
   });
@@ -93,6 +102,7 @@ export function construirSabana({ items = [], cortes = [], anticipos = [], edici
     subAdicionales: r2(columnas.reduce((a, c) => a + c.subAdicionales, 0)),
     total: r2(columnas.reduce((a, c) => a + c.total, 0)),
     descuento: r2(columnas.reduce((a, c) => a + c.descuento, 0)),
+    impuestos: r2(columnas.reduce((a, c) => a + n(c.impuestos), 0)),
     retencion: r2(columnas.reduce((a, c) => a + n(c.retencion), 0)),
     amortizacion: r2(columnas.reduce((a, c) => a + c.amortizacion, 0)),
     devolucion: r2(columnas.reduce((a, c) => a + n(c.devolucion), 0)),
@@ -102,12 +112,13 @@ export function construirSabana({ items = [], cortes = [], anticipos = [], edici
   acumulado.porAmortizar = r2(totalAnticipos - acumulado.amortizacion);
   // Igual que el Excel: TOTAL PAGADO = total cortes + por amortizar − retenido (= pagos de cortes + anticipos).
   // + lo devuelto del retenido (047).
-  acumulado.pagado = r2(acumulado.total - acumulado.descuento - acumulado.retencion + totalAnticipos - acumulado.amortizacion + acumulado.devolucion);
+  acumulado.pagado = r2(acumulado.total - acumulado.descuento + acumulado.impuestos - acumulado.retencion + totalAnticipos - acumulado.amortizacion + acumulado.devolucion);
 
   const subtotalContratado = r2(contractuales.reduce((a, i) => a + n(i.cantidad) * n(i.valor_unitario), 0));
   return {
     ultimoVU, vuContrato,
     contractuales, adicionales, todos, columnas, acumulado, totalAnticipos, subtotalContratado,
+    etiquetaImpuestos: contrato?.regimen_impuesto === 'AIU' ? 'AIU + IVA' : contrato?.regimen_impuesto === 'IVA_UTILIDAD' ? 'IVA sobre la utilidad' : 'IVA',
     pctAnticipo: n(valorContrato) > 0 ? Math.round((totalAnticipos / n(valorContrato)) * 1000) / 10 : 0,
     excede: (item) => item.cantidad != null && acumulado.cantidad(item.id) > n(item.cantidad) + 0.0005,
   };

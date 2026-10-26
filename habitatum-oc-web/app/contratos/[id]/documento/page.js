@@ -5,7 +5,7 @@ import Link from 'next/link';
 import { useUsuarioActual } from '@/lib/useUsuarioActual';
 import { useProyectoActual } from '@/lib/useProyectoActual';
 import { crearClienteSupabase } from '@/lib/supabaseClient';
-import { formatoPesos } from '@/lib/calculosOC';
+import { formatoPesos, regimenDiscrimina } from '@/lib/calculosOC';
 import { compartirOAbrirArchivo } from '@/lib/compartirArchivo';
 import { precargar, calcular, validar, valorEnLetras, defectoCampo, esTodoCosto, itemsDocumento, factorRegimen, normalizarAnexos, conPreciosAutomaticos } from '@/lib/documentoContrato';
 import NavBar from '@/components/NavBar';
@@ -218,6 +218,9 @@ export default function DocumentoContrato() {
   const opciones = Object.fromEntries(P.garantias_exigidas.opciones.map((o) => [o.clave, o]));
   const [estTxt, estCls] = ESTADOS[estado] || ['Sin generar', 'bg-neutral-100 text-neutral-700'];
   const valorNucleo = Number(datos.contrato?.valor_inicial ?? NaN);
+  // 071: con régimen en el contrato, el documento usa ese régimen (no se elige aquí) y el valor va antes de impuestos.
+  const regimenFijo = regimenDiscrimina(datos.contrato?.regimen_impuesto);
+  const valorComparado = regimenFijo ? t.subtotal : t.total;
   const tc = esTodoCosto(datos);
   const fijo = P.contratante_fijo || {};
   const itemsDoc = itemsDocumento(datos.items || [], f);
@@ -427,8 +430,8 @@ export default function DocumentoContrato() {
           <div className="grid sm:grid-cols-3 gap-2">
             <Campo etiqueta="Modalidad de precio"><input disabled value={defectoCampo(P, 'modalidad_precio')} className={CAMPO} /></Campo>
             <Campo etiqueta="Valor estimado del contrato (total Anexo 1)"><input disabled value={formatoPesos(t.total)} className={`${CAMPO} font-semibold`} /></Campo>
-            <Campo etiqueta="Régimen tributario">
-              <select disabled={bloqueado} value={f.regimen} onChange={(e) => set('regimen', e.target.value)} className={CAMPO}>
+            <Campo etiqueta="Régimen tributario" ayuda={regimenFijo ? 'Viene del régimen del contrato (se cambia en Editar del contrato mientras no tenga cortes aprobados).' : undefined}>
+              <select disabled={bloqueado || regimenFijo} value={f.regimen} onChange={(e) => set('regimen', e.target.value)} className={CAMPO}>
                 <option value="SIN_IVA">Sin IVA / IVA incluido (no se discrimina)</option><option value="IVA">IVA (sobre el subtotal)</option><option value="AIU">AIU (IVA solo sobre la U)</option>
                 {(tc || f.regimen === 'IVA_UTILIDAD') && <option value="IVA_UTILIDAD">IVA sobre la utilidad</option>}
               </select>
@@ -436,17 +439,17 @@ export default function DocumentoContrato() {
             <Campo etiqueta="Valor en letras" ancho="sm:col-span-3"><textarea disabled rows={2} value={valorEnLetras(t.total)} className={CAMPO} /></Campo>
             {f.regimen === 'AIU' && (
               <>
-                <Campo etiqueta="Administración (A) %"><input disabled={bloqueado} type="number" step="any" value={f.pct_a} onChange={(e) => set('pct_a', e.target.value)} className={CAMPO} /></Campo>
-                <Campo etiqueta="Imprevistos (I) %"><input disabled={bloqueado} type="number" step="any" value={f.pct_i} onChange={(e) => set('pct_i', e.target.value)} className={CAMPO} /></Campo>
-                <Campo etiqueta="Utilidad (U) %"><input disabled={bloqueado} type="number" step="any" value={f.pct_u} onChange={(e) => set('pct_u', e.target.value)} className={CAMPO} /></Campo>
+                <Campo etiqueta="Administración (A) %"><input disabled={bloqueado || regimenFijo} type="number" step="any" value={f.pct_a} onChange={(e) => set('pct_a', e.target.value)} className={CAMPO} /></Campo>
+                <Campo etiqueta="Imprevistos (I) %"><input disabled={bloqueado || regimenFijo} type="number" step="any" value={f.pct_i} onChange={(e) => set('pct_i', e.target.value)} className={CAMPO} /></Campo>
+                <Campo etiqueta="Utilidad (U) %"><input disabled={bloqueado || regimenFijo} type="number" step="any" value={f.pct_u} onChange={(e) => set('pct_u', e.target.value)} className={CAMPO} /></Campo>
               </>
             )}
             {f.regimen === 'IVA_UTILIDAD' && (
               <Campo etiqueta="Utilidad gravable (U) %" ayuda="Base gravable = este % del subtotal; el IVA se cobra sobre esa base.">
-                <input disabled={bloqueado} type="number" step="any" value={f.pct_u} onChange={(e) => set('pct_u', e.target.value)} className={CAMPO} />
+                <input disabled={bloqueado || regimenFijo} type="number" step="any" value={f.pct_u} onChange={(e) => set('pct_u', e.target.value)} className={CAMPO} />
               </Campo>
             )}
-            {f.regimen !== 'SIN_IVA' && <Campo etiqueta="IVA %"><input disabled={bloqueado} type="number" step="any" value={f.pct_iva} onChange={(e) => set('pct_iva', e.target.value)} className={CAMPO} /></Campo>}
+            {f.regimen !== 'SIN_IVA' && <Campo etiqueta="IVA %"><input disabled={bloqueado || regimenFijo} type="number" step="any" value={f.pct_iva} onChange={(e) => set('pct_iva', e.target.value)} className={CAMPO} /></Campo>}
             {f.precios_con_iva && (
               <p className="sm:col-span-3 text-[11px] text-neutral-600 bg-hueso border rounded p-2">
                 Los valores unitarios del contrato ya incluyen el IVA (la suma de los ítems es el valor del contrato). El documento los presenta sin IVA
@@ -459,9 +462,9 @@ export default function DocumentoContrato() {
             <Campo etiqueta="Cortes y pagos" ancho="sm:col-span-3"><textarea disabled={bloqueado} rows={2} value={c.cortes_pagos || ''} onChange={(e) => setC('cortes_pagos', e.target.value)} className={CAMPO} /></Campo>
             <Campo etiqueta="Medio de pago" ancho="sm:col-span-3"><input disabled={bloqueado} value={c.medio_pago || ''} onChange={(e) => setC('medio_pago', e.target.value)} className={CAMPO} /></Campo>
           </div>
-          {Number.isFinite(valorNucleo) && valorNucleo > 0 && Math.round(valorNucleo) !== t.total && (
+          {Number.isFinite(valorNucleo) && valorNucleo > 0 && Math.abs(Math.round(valorNucleo) - valorComparado) > 2 && (
             <p className="text-[11px] text-amber-800 bg-amber-50 border border-amber-200 rounded p-2">
-              El valor del contrato en la app es {formatoPesos(valorNucleo)}; el documento usa el total del Anexo 1 ({formatoPesos(t.total)}).
+              El valor del contrato en la app es {formatoPesos(valorNucleo)}{regimenFijo ? ' antes de impuestos' : ''}; el Anexo 1 suma {formatoPesos(valorComparado)}{regimenFijo ? ' antes de impuestos' : ''}.
             </p>
           )}
         </Seccion>

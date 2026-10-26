@@ -5,7 +5,7 @@ import Link from 'next/link';
 import { useUsuarioActual } from '@/lib/useUsuarioActual';
 import { useProyectoActual } from '@/lib/useProyectoActual';
 import { crearClienteSupabase } from '@/lib/supabaseClient';
-import { formatoPesos } from '@/lib/calculosOC';
+import { formatoPesos, regimenDiscrimina, textoRegimen } from '@/lib/calculosOC';
 import NavBar from '@/components/NavBar';
 
 // ============================================================
@@ -135,8 +135,20 @@ export default function ItemsContrato() {
           <>
             <div>
               <h1 className="text-2xl font-semibold">Ítems del contrato {contrato.numero_contrato}</h1>
-              <p className="text-sm text-neutral-500">{contrato.proveedores?.nombre} · {contrato.concepto} · Valor del contrato {formatoPesos(contrato.valor_inicial)}</p>
+              <p className="text-sm text-neutral-500">{contrato.proveedores?.nombre} · {contrato.concepto} · {regimenDiscrimina(contrato.regimen_impuesto) ? 'Valor antes de impuestos' : 'Valor del contrato'} {formatoPesos(contrato.valor_inicial)}</p>
             </div>
+            {/* 071: cómo cargar los valores de los ítems según el régimen del contrato. */}
+            {regimenDiscrimina(contrato.regimen_impuesto) ? (
+              <div className="rounded-lg p-3 text-sm bg-blue-50 border border-blue-200 text-blue-900">
+                <p className="font-semibold">Cómo cargar los valores · Régimen: {textoRegimen(contrato)}</p>
+                <p className="mt-1">Cargue cantidades y valores unitarios <strong>exactamente como la cotización aprobada, ANTES de impuestos</strong> (sin IVA ni AIU). No multiplique por ningún factor: el IVA {contrato.regimen_impuesto === 'AIU' ? 'y el AIU se calculan' : 'se calcula'} solo en cada corte y en su Orden de Compra, según el régimen del contrato. La suma de los ítems debe dar el valor antes de impuestos del contrato.</p>
+              </div>
+            ) : (
+              <div className="rounded-lg p-3 text-sm bg-amber-50 border border-amber-200 text-amber-900">
+                <p className="font-semibold">Cómo cargar los valores · Contrato sin régimen de impuestos (precio final)</p>
+                <p className="mt-1">Las OC de los cortes de este contrato salen <strong>sin IVA</strong>: cargue cada valor unitario a <strong>precio final</strong> (con el IVA o el AIU ya incluidos) para que se pague lo correcto. Si la cotización discrimina impuestos, mejor elija el régimen en <em>Editar</em> del contrato (mientras no tenga cortes aprobados) y cargue los valores antes de impuestos.</p>
+              </div>
+            )}
             <div className="bg-hueso rounded-lg p-3 text-xs text-neutral-600">
               Estos ítems son la base de los cortes de obra: en cada corte solo se escriben las cantidades ejecutadas.
               En <strong>Código ppto</strong> escribe el código del ítem del presupuesto (ej. <em>7.04</em>) o el del capítulo (ej. <em>7</em>) para que cada corte se impute solo al control presupuestal.

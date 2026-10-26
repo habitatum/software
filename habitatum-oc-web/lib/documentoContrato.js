@@ -4,7 +4,7 @@
 // base de datos (contrato_plantillas.contenido = JSON oficial); aquí solo se arman los
 // datos variables, los cálculos y el orden de impresión.
 // ============================================================
-import { calcularImpuestos } from './calculosOC';
+import { calcularImpuestos, regimenDiscrimina } from './calculosOC';
 
 const MESES = ['enero', 'febrero', 'marzo', 'abril', 'mayo', 'junio', 'julio', 'agosto', 'septiembre', 'octubre', 'noviembre', 'diciembre'];
 export const NOMBRE_REGIMEN = { SIN_IVA: 'Sin IVA', IVA: 'IVA', AIU: 'AIU', IVA_UTILIDAD: 'IVA sobre la utilidad' };
@@ -125,6 +125,10 @@ export function precargar(datos) {
     };
   }
   if (esTodoCosto(datos)) return conPreciosAutomaticos(datos, precargarTodoCosto(datos, P, def, pro, prov, referencias));
+  return conPreciosAutomaticos(datos, precargarAdministracion(datos, P, def, pro, prov, props, p0, referencias));
+}
+
+function precargarAdministracion(datos, P, def, pro, prov, props, p0, referencias) {
   return {
     campos: {
       contratante_direccion: txt(p0.direccion), contratante_telefono: txt(p0.telefono), contratante_correo: txt(p0.correo),
@@ -230,8 +234,15 @@ export function itemsDocumento(items, f) {
 // referencia) es el valor del contrato en la app (±$2), los precios incluyen el IVA y el documento lo separa.
 // Si no, el IVA se suma encima y el bloqueo de validar() exige que el total cuadre con el contrato.
 export function conPreciosAutomaticos(datos, f) {
-  if (!f || !esTodoCosto(datos)) return f;
-  const vi = num(datos?.contrato?.valor_inicial);
+  if (!f) return f;
+  const k = datos?.contrato || {};
+  // 071: si el contrato tiene régimen de impuestos, el documento usa ese régimen y los ítems van antes de impuestos.
+  if (regimenDiscrimina(k.regimen_impuesto)) {
+    const g = { regimen: k.regimen_impuesto, pct_a: num(k.pct_a), pct_i: num(k.pct_i), pct_u: num(k.pct_u), pct_iva: num(k.pct_iva), precios_con_iva: false };
+    return Object.keys(g).every((x) => (x === 'regimen' || x === 'precios_con_iva' ? f[x] === g[x] : num(f[x]) === g[x])) ? f : { ...f, ...g };
+  }
+  // Contratos sin régimen (precio final), en las dos modalidades: se detecta si los precios ya traen el IVA.
+  const vi = num(k.valor_inicial);
   const suma = (datos?.items || []).filter((i) => !(f.referencias || []).includes(i.id))
     .reduce((a, i) => a + num(i.cantidad) * num(i.valor_unitario), 0);
   const auto = f.regimen !== 'SIN_IVA' && vi > 0 && Math.abs(suma - vi) <= 2;
@@ -270,15 +281,22 @@ export function validar(datos, f, smmlv) {
   if (esTodoCosto(datos)) {
     if (!txt(c.contratante_rep_legal) || !txt(c.contratante_cc_rep)) errores.push('Falta el representante legal de HABITATUM o su cédula.');
     if (f.regimen === 'IVA_UTILIDAD' && !(num(f.pct_u) > 0)) errores.push('Indique el % de utilidad gravable del régimen IVA sobre la utilidad.');
-    // El documento no puede quedar por un valor distinto al del contrato en la app (tolerancia $2 por redondeos).
-    const vi = num(datos?.contrato?.valor_inicial);
-    const tt = calcular(datos?.items, f).total;
-    if (vi > 0 && Math.abs(tt - vi) > 2) {
-      errores.push(`El total del documento ($ ${tt.toLocaleString('es-CO')}) no coincide con el valor del contrato en la app ($ ${Math.round(vi).toLocaleString('es-CO')}). Revise el régimen, los porcentajes o los ítems del contrato.`);
-    }
     if (normalizarAnexos(f.anexos_integrales).some((a) => !txt(a.nombre))) errores.push('Cada documento que hace parte integral necesita un nombre.');
   } else if (!f.contratante?.length) errores.push('Agregue al menos un propietario (Contratante).');
   else if (f.contratante.some((o) => !txt(o.nombre) || !txt(o.identificacion))) errores.push('Cada propietario necesita nombre e identificación.');
+  // El documento no puede quedar por un valor distinto al del contrato en la app (tolerancia $2 por redondeos), en las
+  // dos modalidades. Con régimen en el contrato (071) se compara el subtotal antes de impuestos; sin régimen, el total.
+  {
+    const vi = num(datos?.contrato?.valor_inicial);
+    const t0 = calcular(datos?.items, f);
+    const conReg = regimenDiscrimina(datos?.contrato?.regimen_impuesto);
+    const v = conReg ? t0.subtotal : t0.total;
+    if (vi > 0 && Math.abs(v - vi) > 2) {
+      errores.push(conReg
+        ? `Los ítems suman $ ${v.toLocaleString('es-CO')} antes de impuestos y el valor del contrato es $ ${Math.round(vi).toLocaleString('es-CO')}. Corrija los ítems o el valor del contrato.`
+        : `El total del documento ($ ${v.toLocaleString('es-CO')}) no coincide con el valor del contrato en la app ($ ${Math.round(vi).toLocaleString('es-CO')}). Revise el régimen, los porcentajes o los ítems del contrato.`);
+    }
+  }
   if (!txt(c.contratista_nombre) || !txt(c.contratista_identificacion)) errores.push('Falta el nombre o la identificación del Contratista.');
   if (!txt(c.proyecto_nombre) || !txt(c.proyecto_ubicacion)) errores.push('Falta el proyecto o la ubicación.');
   if (!txt(c.actividad)) errores.push('Falta la actividad.');

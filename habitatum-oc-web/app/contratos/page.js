@@ -8,6 +8,7 @@ import { formatoPesos } from '@/lib/calculosOC';
 import NavBar from '@/components/NavBar';
 import DevolverRetenido from '@/lib/DevolverRetenido';
 import { compartirOAbrirArchivo } from '@/lib/compartirArchivo';
+import RegimenContrato from '@/lib/RegimenContrato';
 
 const ANIO_ACTUAL = new Date().getFullYear();
 // 059: el texto del contrato, las garantías y el PDF ahora viven en "Documento del contrato".
@@ -18,7 +19,7 @@ const VACIO_LEGAL = {
   incluye_anticipo: false,
   pct_anticipo: 0,
 };
-const VACIO = { anio: ANIO_ACTUAL, consecutivo: 1, contratista_id: '', concepto: '', valor_inicial: 0, ...VACIO_LEGAL };
+const VACIO = { anio: ANIO_ACTUAL, consecutivo: 1, contratista_id: '', concepto: '', valor_inicial: 0, regimen_impuesto: '', pct_a: 0, pct_i: 0, pct_u: 0, pct_iva: 19, ...VACIO_LEGAL };
 
 export default function Contratos() {
   const { usuario, cargando } = useUsuarioActual();
@@ -111,6 +112,8 @@ export default function Contratos() {
         fecha_inicio: form.fecha_inicio || null,
         incluye_anticipo: form.incluye_anticipo,
         pct_anticipo: form.pct_anticipo || 0,
+        regimen_impuesto: form.regimen_impuesto || 'SIN_IVA',
+        pct_a: Number(form.pct_a) || 0, pct_i: Number(form.pct_i) || 0, pct_u: Number(form.pct_u) || 0, pct_iva: Number(form.pct_iva) || 0,
       });
     setGuardando(false);
     if (err) {
@@ -187,7 +190,7 @@ export default function Contratos() {
                 </select>
               </div>
               <div>
-                <label className="block text-xs text-neutral-500 mb-1">Valor inicial</label>
+                <label className="block text-xs text-neutral-500 mb-1">{form.regimen_impuesto === 'SIN_DISCRIMINAR' ? 'Valor del contrato (precio final)' : 'Valor antes de impuestos (subtotal de la cotización)'}</label>
                 <input type="number" placeholder="Valor inicial" value={form.valor_inicial} onChange={(e) => setForm({ ...form, valor_inicial: e.target.value })} className="border rounded px-3 py-2 text-sm w-full" />
               </div>
               <p className="col-span-3 text-xs text-neutral-400 -mt-1">
@@ -204,6 +207,10 @@ export default function Contratos() {
                 <label className="block text-xs text-neutral-500 mb-1">Concepto</label>
                 <input placeholder="Concepto" value={form.concepto} onChange={(e) => setForm({ ...form, concepto: e.target.value })} className="border rounded px-3 py-2 text-sm w-full" />
               </div>
+            </div>
+
+            <div className="border-t pt-3">
+              <RegimenContrato form={form} setForm={setForm} exigir />
             </div>
 
             <div className="grid grid-cols-2 gap-3 border-t pt-3">

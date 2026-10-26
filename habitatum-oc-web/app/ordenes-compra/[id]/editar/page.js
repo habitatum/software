@@ -87,9 +87,9 @@ export default function EditarOrdenCompra() {
       setFolio(ocData?.folio || '');
       // excluir_control no está en la vista calculada: se lee de la tabla. Las
       // órdenes con excluir_control están exentas de exigir anticipo (044).
-      const { data: ocBase } = await supabase.from('ordenes_compra').select('excluir_control, es_devolucion_retenido').eq('id', id).single();
+      const { data: ocBase } = await supabase.from('ordenes_compra').select('excluir_control, es_devolucion_retenido, retencion_sobre_subtotal').eq('id', id).single();
       setEsDevolucion(!!ocBase?.es_devolucion_retenido);
-      const ocCargada = ocData ? { ...ocData, excluir_control: !!ocBase?.excluir_control } : ocData;
+      const ocCargada = ocData ? { ...ocData, excluir_control: !!ocBase?.excluir_control, retencion_sobre_subtotal: !!ocBase?.retencion_sobre_subtotal } : ocData;
       setOc(ocCargada);
       setOcOriginal(ocCargada);
       const { data: enCorte } = await supabase

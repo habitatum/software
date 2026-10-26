@@ -247,6 +247,10 @@ export default function SabanaCortes({ m, contrato, edicion, onPdf, hrefCorte, p
             etiquetaCorte: () => '(-) Descuento', valorCorte: (c) => c.descuento,
             etiquetaAcum: '(-) TOTAL DESCUENTOS', valorAcum: m.acumulado.descuento,
           })}
+          {cols.some((c) => c.impuestos) && filaCierre({
+            etiquetaCorte: () => `(+) ${m.etiquetaImpuestos}`, valorCorte: (c) => c.impuestos,
+            etiquetaAcum: `(+) TOTAL ${m.etiquetaImpuestos.toUpperCase()}`, valorAcum: m.acumulado.impuestos,
+          })}
           {filaCierre({
             etiquetaCorte: (c) => (c.editable ? '(-) Retenido ' : `(-) Retenido ${c.pctRetencion}%`),
             valorCorte: (c) => c.retencion,
