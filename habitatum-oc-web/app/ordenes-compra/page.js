@@ -50,7 +50,7 @@ const ids = (data || []).map((o) => o.id);
 if (ids.length > 0) {
 const { data: itemsData } = await supabase
 .from('items_oc')
-.select('orden_compra_id, items_oc_presupuesto(porcentaje)')
+.select('orden_compra_id, capitulo_id, items_oc_presupuesto(porcentaje)')
 .in('orden_compra_id', ids);
 const itemsPorOC = {};
 (itemsData || []).forEach((it) => {
@@ -61,6 +61,8 @@ const mapaImputacion = {};
 ids.forEach((id) => {
 const itemsDeEstaOC = itemsPorOC[id] || [];
 mapaImputacion[id] = itemsDeEstaOC.length > 0 && itemsDeEstaOC.every((it) => {
+// Una línea imputada a un capítulo completo (054, todo costo) también cuenta como imputada.
+if (it.capitulo_id) return true;
 const suma = (it.items_oc_presupuesto || []).reduce((acc, a) => acc + Number(a.porcentaje || 0), 0);
 return suma >= 99.99;
 });
@@ -162,7 +164,7 @@ setImputacionCompleta({});
                       </span>
                     )}
 {imputacionCompleta[o.id] && (
-<span className="ml-2 inline-flex items-center justify-center w-4 h-4 bg-green-100 text-green-700 rounded-full align-middle text-[10px] font-bold" title="Todos los ítems de esta orden están imputados al presupuesto">
+<span className="ml-2 inline-flex items-center justify-center w-4 h-4 bg-green-100 text-green-700 rounded-full align-middle text-[10px] font-bold" title="Todos los ítems de esta orden están imputados al presupuesto (a ítems o a un capítulo completo)">
 ✓
 </span>
 )}
