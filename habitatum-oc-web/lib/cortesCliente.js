@@ -69,6 +69,26 @@ export function recalcular(detalle, edic = { caps: {}, items: {} }) {
       });
       return { ...it, porCorte: porCorteIt };
     });
+    // Capítulos globales (por %): para el detalle, cada ítem avanza en la misma proporción del capítulo en cada
+    // corte (cantidad = contratada × %; valor repartido según el valor del ítem, el redondeo va al ítem mayor).
+    if (modo === 'GLOBAL' && itemsH.length && num(c.contratado) > 0) {
+      const mayor = itemsH.reduce((m, it, j) => (num(it.valor_contratado) > num(itemsH[m].valor_contratado) ? j : m), 0);
+      const cortesIt = porCorte.map((h) => {
+        const f = h.valor / num(c.contratado);
+        const vals = itemsH.map((it) => Math.round(num(it.valor_contratado) * f));
+        vals[mayor] += h.valor - vals.reduce((a, v) => a + v, 0);
+        return { numero: h.numero, f, vals };
+      });
+      itemsH.forEach((it, j) => {
+        it.porCorte = cortesIt.map((x) => ({ numero: x.numero, cantidad: num(it.contratado) * x.f, valor: x.vals[j] }));
+        it.acumulado = it.porCorte.reduce((a, h) => a + h.cantidad, 0);
+        it.valor_acumulado = it.porCorte.reduce((a, h) => a + h.valor, 0);
+        const act = it.porCorte.find((h) => h.numero === numActual) || { cantidad: 0, valor: 0 };
+        it.este = act.cantidad; it.valor_este = act.valor;
+        it.anterior = it.acumulado - act.cantidad; it.valor_anterior = it.valor_acumulado - act.valor;
+        it.excede = false; it.proporcional = true;
+      });
+    }
     // % del capítulo antes de este corte (para escribir el % de ESTE corte en los capítulos globales).
     const pctAnterior = c.modo_anterior === 'GLOBAL' ? num(c.porcentaje_anterior)
       : (num(c.contratado) > 0 ? (anterior / num(c.contratado)) * 100 : 0);
@@ -174,7 +194,7 @@ export async function exportarCorteClienteExcel(calc, proyecto) {
       filasCap.push(r.number);
       // Opción A: los ADICIONALES conservan su detalle ítem por ítem en la hoja principal.
       if ((g.clave === 'ADICIONAL_COSTO' || g.clave === 'PAGO_DIRECTO_CLIENTE') && c.modo === 'CANTIDAD') {
-        c.items.filter((it) => Number(it.contratado) || Number(it.acumulado)).forEach((it) => {
+        c.items.forEach((it) => {
           const ri = ws.addRow([it.codigo, `   ${it.descripcion}${it.unidad ? ` (${cantCC(it.acumulado)} de ${cantCC(it.contratado)} ${it.unidad})` : ''}`]);
           filaValores(ri, Number(it.valor_contratado), it.porCorte.map((h) => h.valor), it.valor_acumulado, { item: true });
           ri.getCell(2).alignment = { wrapText: true, vertical: 'top' };
@@ -236,8 +256,7 @@ export async function exportarCorteClienteExcel(calc, proyecto) {
   if (corte.notas) { ws.addRow([]); ws.addRow(['', `Observaciones: ${corte.notas}`]).getCell(2).alignment = { wrapText: true }; }
 
   // ===== Hoja 2: DETALLE POR CANTIDADES (solo el contrato; los adicionales y pagos directos van detallados en el resumen) =====
-  const capsCant = calc.capitulos.filter((c) => c.grupo === 'CONTRATO' && c.modo === 'CANTIDAD'
-    && c.items.some((it) => Number(it.contratado) || Number(it.acumulado)));
+  const capsCant = calc.capitulos.filter((c) => c.grupo === 'CONTRATO' && c.items.length);
   if (capsCant.length) {
     const wd = wb.addWorksheet('DETALLE POR CANTIDADES', { views: [{ showGridLines: false }] });
     // A ítem · B descripción · C und · D cant. contratada · E vr unit · F valor contratado · por corte (cant, valor) · acum cant · acum valor · avance
@@ -250,9 +269,9 @@ export async function exportarCorteClienteExcel(calc, proyecto) {
     encabezado(wd, ['Ítem', 'Descripción', 'Und', 'Cant. contratada', 'Vr. unitario', 'Valor contratado',
       ...cortes.flatMap((n) => [`Corte ${n} cant.`, `Corte ${n} valor`]), 'Cant. acumulada', 'Valor acumulado', '% avance']);
     capsCant.forEach((c) => {
-      const t = wd.addRow([c.codigo, c.nombre + (c.grupo === 'PAGO_DIRECTO_CLIENTE' ? ' (informativo, no suma)' : '')]);
+      const t = wd.addRow([c.codigo, c.nombre + (c.modo === 'GLOBAL' ? ' (global por %: cantidades en proporción al avance del capítulo)' : '')]);
       for (let i = 1; i <= nD; i++) { relleno(t.getCell(i), H); t.getCell(i).font = { bold: true }; }
-      c.items.filter((it) => Number(it.contratado) || Number(it.acumulado)).forEach((it) => {
+      c.items.forEach((it) => {
         const r = wd.addRow([it.codigo, it.descripcion, it.unidad || '', Number(it.contratado), Number(it.valor_unitario), Number(it.valor_contratado)]);
         const n = r.number;
         it.porCorte.forEach((h, k) => { r.getCell(dQ(k)).value = h.cantidad || 0; r.getCell(dV(k)).value = h.valor || 0; });

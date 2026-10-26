@@ -106,8 +106,7 @@ function TablaCapitulos({ calc, final }) {
           {g.capitulos.map((c, j) => (
             <View key={c.id}>
               {fila(c, j)}
-              {(g.clave === 'ADICIONAL_COSTO' || g.clave === 'PAGO_DIRECTO_CLIENTE') && c.modo === 'CANTIDAD' && c.items
-                .filter((it) => Number(it.contratado) || Number(it.acumulado)).map((it, k) => fila(it, k, true))}
+              {(g.clave === 'ADICIONAL_COSTO' || g.clave === 'PAGO_DIRECTO_CLIENTE') && c.modo === 'CANTIDAD' && c.items.map((it, k) => fila(it, k, true))}
             </View>
           ))}
           {filaTotal(`Subtotal ${g.titulo.toLowerCase()}`, g, e.tt)}
@@ -119,13 +118,14 @@ function TablaCapitulos({ calc, final }) {
 }
 
 function TablaItems({ cap }) {
-  const filas = cap.items.filter((it) => Number(it.contratado) || Number(it.acumulado));
+  // Todos los ítems del capítulo, también los que no tienen cantidad ejecutada en este corte.
+  const filas = cap.items;
   if (!filas.length) return null;
   const N = { width: '7.5%', textAlign: 'right' };
   const V = { width: '10%', textAlign: 'right' };
   return (
     <View style={{ marginBottom: 6 }}>
-      <View style={e.grupo} wrap={false} minPresenceAhead={60}><Text>{cap.codigo} · {cap.nombre}{cap.grupo === 'PAGO_DIRECTO_CLIENTE' ? ' (informativo)' : ''}</Text></View>
+      <View style={e.grupo} wrap={false} minPresenceAhead={60}><Text>{cap.codigo} · {cap.nombre}{cap.modo === 'GLOBAL' ? ' (global por %: cantidades en proporción al avance del capítulo)' : ''}</Text></View>
       <View style={e.th} wrap={false}>
         <Text style={{ width: '5%' }}>Ítem</Text><Text style={{ width: '29%' }}>Descripción</Text><Text style={{ width: '4%' }}>Und</Text>
         <Text style={N}>Contratado</Text><Text style={N}>Anterior</Text><Text style={N}>Este corte</Text><Text style={N}>Acumulado</Text>
@@ -157,7 +157,7 @@ export default function PlantillaCorteClientePDF({ calc }) {
   const estado = corte.estado === 'CERRADO' ? 'Cerrado' : 'BORRADOR (sin cerrar)';
   const info = grupos.find((g) => !g.suma);
   // El detalle por cantidades va en página aparte, sin los adicionales (ya van detallados en el resumen).
-  const capsCant = calc.capitulos.filter((c) => c.grupo === 'CONTRATO' && c.modo === 'CANTIDAD' && c.items.some((it) => Number(it.contratado) || Number(it.acumulado)));
+  const capsCant = calc.capitulos.filter((c) => c.grupo === 'CONTRATO' && c.items.length);
   const aFavor = tot.saldo < 0;
 
   return (
