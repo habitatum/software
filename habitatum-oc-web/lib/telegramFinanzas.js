@@ -23,6 +23,21 @@ const RE_CAJA_MENOR = /caja\s*menor/i;
 // "cap 7", "capítulo 7", "cap 19.09" o "ítem 19.09"
 const RE_CAPITULO = /(?:\bcap(?:[íi]tulo)?|[íi]tem)\.?\s*(\d{1,2}(?:\.\d{1,2})?)/i;
 
+// Concepto escrito por quien envía el soporte ("pago transporte madera"): la nota sin "cap 7"/"ítem 7.04",
+// sin "CAJA MENOR" y sin valores en pesos. Manda sobre lo que lea la IA (los comprobantes de transferencia no
+// dicen qué se pagó). Devuelve null si no queda texto útil.
+export function conceptoDeNota(texto) {
+  let t = String(texto || '')
+    .replace(new RegExp(RE_CAPITULO.source, 'gi'), ' ')
+    .replace(RE_CAJA_MENOR, ' ')
+    .replace(/\$\s*[\d.,]+/g, ' ')
+    .replace(/\b\d{1,3}(?:[.,]\d{3})+\b|\b\d{4,}\b/g, ' ')
+    .replace(/\s+/g, ' ').replace(/^[\s,.;:\-–]+|[\s,.;:\-–]+$/g, '').trim();
+  if (!/[a-záéíóúñ]{3,}/i.test(t)) return null;
+  t = t.slice(0, 200);
+  return t.charAt(0).toUpperCase() + t.slice(1);
+}
+
 const AYUDA =
   '<b>Residente C · Finanzas</b>\n' +
   '• Envía la <b>foto o PDF de la factura</b> y creo la Orden de Compra.\n' +
@@ -105,13 +120,15 @@ function promptFactura(ctx, nota) {
     'de pago en una Orden de Compra. Lee el documento y responde SOLO un JSON con esta forma exacta:\n' +
     '{"es_documento_de_pago":true,"tipo_orden":"COMPRA|SERVICIO","proveedor_nombre":"","proveedor_nit":"",' +
     '"numero_factura":"","fecha":"YYYY-MM-DD","items":[{"descripcion":"","unidad":"","cantidad":1,"valor_unitario":0}],' +
-    '"precios_incluyen_iva":false,"descuento":0,"iva_porcentaje":0,"total":0,"capitulo_codigo":"","item_codigo":"","concepto":""}\n' +
+    '"precios_incluyen_iva":false,"descuento":0,"iva_porcentaje":0,"total":0,"capitulo_codigo":"","item_codigo":"","concepto":"","sin_detalle":false}\n' +
     `Hoy es ${new Date().toISOString().slice(0, 10)}; si la fecha trae el año en dos dígitos (ej. 29/09/26), es 20xx. ` +
     'Reglas: valores numéricos sin puntos ni signos. "valor_unitario" tal como aparece en la factura. Si la factura ' +
     'discrimina IVA, pon iva_porcentaje (normalmente 19) y precios_incluyen_iva=false; si es un tiquete/recibo donde ' +
     'el precio ya trae el IVA incluido o no hay IVA, pon precios_incluyen_iva=true e iva_porcentaje=0. "total" es el ' +
     'valor final pagado. "tipo_orden": SERVICIO si es mano de obra, transporte, alquiler o servicio; si no, COMPRA. ' +
-    '"concepto": resumen de 3 a 8 palabras. ' +
+    '"concepto": resumen de 3 a 8 palabras; si quien lo envió escribió en la nota qué se pagó, usa esa nota como concepto. ' +
+    '"sin_detalle": true si es un comprobante de transferencia, consignación o pago que NO dice qué se compró o pagó ' +
+    '(en ese caso el único ítem lleva como descripción lo que diga la nota). ' +
     (ctx.porItem ? '"item_codigo": el código del ÍTEM del presupuesto que mejor corresponde (y "capitulo_codigo" su capítulo), elegido de estos ' : '"capitulo_codigo": el código del capítulo del presupuesto que mejor corresponde, elegido de estos ') +
     listaPresupuesto(ctx) +
     '\nSi el documento no es una factura/recibo/comprobante de pago, pon es_documento_de_pago=false.' +
@@ -256,6 +273,7 @@ function resumenBorrador(b) {
     `🧾 <b>Orden de Compra propuesta</b> (${d.tipo_orden === 'SERVICIO' ? 'servicio' : 'compra'})\n` +
     `Proveedor: <b>${escaparHTML(d.proveedor_nombre || 'Sin identificar')}</b>${d.proveedor_nit ? ` · NIT ${escaparHTML(d.proveedor_nit)}` : ''}\n` +
     `Factura: ${escaparHTML(d.numero_factura || '—')} · Fecha: ${d.fecha}\n` +
+    (d.concepto ? `Concepto: <b>${escaparHTML(d.concepto)}</b>\n` : '') +
     lineas.join('\n') + '\n' +
     (Number(d.descuento) > 0 ? `Descuento: −${pesos(d.descuento)}\n` : '') +
     (Number(d.iva_porcentaje) > 0 ? `IVA ${d.iva_porcentaje}%\n` : '') +
@@ -282,6 +300,8 @@ function tecladoReintentar(id) {
 // Lee el documento con la IA y arma el borrador. No toca Telegram ni la base de datos.
 async function leerDocumento(ctx, { texto, esCajaMenor, parteArchivo, fecha }) {
   const capNota = texto.match(RE_CAPITULO)?.[1] || null;
+  // Con foto o PDF, la nota es el concepto del pago (en caja menor por texto, la IA separa valor y concepto).
+  const conceptoNota = parteArchivo ? conceptoDeNota(texto) : null;
   const fallaIA = () => ({
     ok: false,
     reintentable: comun.geminiSaturado(),
@@ -311,7 +331,7 @@ async function leerDocumento(ctx, { texto, esCajaMenor, parteArchivo, fecha }) {
       tipo: 'CAJA_MENOR',
       datos: {
         valor: Math.round(Number(lectura.valor)),
-        concepto: String(lectura.concepto || 'Gasto de caja menor').slice(0, 200),
+        concepto: String(conceptoNota || lectura.concepto || 'Gasto de caja menor').slice(0, 200),
         fecha: fechaValida(lectura.fecha),
         beneficiario_nombre: String(lectura.beneficiario_nombre || '').slice(0, 120),
         beneficiario_documento: String(lectura.beneficiario_documento || '').slice(0, 40),
@@ -328,6 +348,15 @@ async function leerDocumento(ctx, { texto, esCajaMenor, parteArchivo, fecha }) {
   if (lectura.es_documento_de_pago === false) {
     return { ok: false, mensaje: '🤔 Esto no parece una factura o comprobante de pago. Si es un gasto sin factura, reenvíalo con la nota <b>CAJA MENOR</b>.' };
   }
+  // Comprobante de transferencia/pago sin detalle de lo comprado: el ítem toma el concepto de la nota.
+  if (conceptoNota) {
+    const its = Array.isArray(lectura.items) ? lectura.items : [];
+    const generico = (d) => !String(d || '').trim() || /transferencia|consignaci[oó]n|comprobante|pago\b|env[ií]o de dinero|nequi|daviplata|bancolombia|transacci[oó]n/i.test(String(d));
+    if (lectura.sin_detalle === true || its.length === 0 || (its.length === 1 && generico(its[0].descripcion))) {
+      lectura.items = its.length ? [{ ...its[0], descripcion: conceptoNota }] : [];
+      lectura.concepto = conceptoNota;
+    }
+  }
   const cuadre = cuadrarConTotal(lectura);
   const destino = destinoPresupuesto(ctx, capNota, lectura);
   return {
@@ -339,7 +368,7 @@ async function leerDocumento(ctx, { texto, esCajaMenor, parteArchivo, fecha }) {
       proveedor_nit: String(lectura.proveedor_nit || '').slice(0, 30),
       numero_factura: String(lectura.numero_factura || '').slice(0, 60),
       fecha: fechaValida(lectura.fecha),
-      concepto: String(lectura.concepto || '').slice(0, 200),
+      concepto: String(conceptoNota || lectura.concepto || '').slice(0, 200),
       items: cuadre.items,
       descuento: cuadre.descuento,
       iva_porcentaje: cuadre.iva_porcentaje,
