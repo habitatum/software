@@ -1,13 +1,14 @@
 'use client';
-import { Fragment, useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { useUsuarioActual } from '@/lib/useUsuarioActual';
 import { useProyectoActual } from '@/lib/useProyectoActual';
 import { crearClienteSupabase } from '@/lib/supabaseClient';
 import { formatoPesos } from '@/lib/calculosOC';
 import { compartirOAbrirArchivo } from '@/lib/compartirArchivo';
-import { recalcular, fechaCC, cantCC, tituloCorte, exportarCorteClienteExcel } from '@/lib/cortesCliente';
+import { recalcular, fechaCC, tituloCorte, exportarCorteClienteExcel } from '@/lib/cortesCliente';
 import NavBar from '@/components/NavBar';
+import TablaControlCorteCliente from '@/components/TablaControlCorteCliente';
 
 // ============================================================
 // Cortes de cobro y liquidación al CLIENTE · proyectos TODO COSTO · solo admin (057).
@@ -18,7 +19,6 @@ import NavBar from '@/components/NavBar';
 const hoy = () => new Date().toISOString().slice(0, 10);
 const pesos = (v) => formatoPesos(Math.round(Number(v) || 0));
 const pct1 = (v) => `${(Math.round((Number(v) || 0) * 10) / 10).toLocaleString('es-CO')}%`;
-const COL_CORTE = 'bg-[#f3e9dc]';
 
 function Tarjeta({ titulo, valor, nota, tono = '' }) {
   return (
@@ -37,7 +37,7 @@ export default function CortesCliente() {
   const [detalle, setDetalle] = useState(null);
   const [edic, setEdic] = useState({ caps: {}, items: {} });
   const [meta, setMeta] = useState({ fecha: hoy(), es_final: false, notas: '' });
-  const [abiertos, setAbiertos] = useState({});
+  const [cerrados, setCerrados] = useState({});
   const [error, setError] = useState('');
   const [aviso, setAviso] = useState('');
   const [trabajando, setTrabajando] = useState(false);
@@ -272,220 +272,29 @@ export default function CortesCliente() {
             </div>
             {hayCambios && abierto && <p className="text-xs text-amber-800 bg-amber-50 border border-amber-200 rounded p-2">Hay cambios sin guardar. Los valores ya se ven recalculados; guarda para que queden en el corte.</p>}
 
-            <div className="bg-white rounded-lg border overflow-x-auto">
-              <table className="w-full text-sm min-w-[860px]">
-                <thead className="bg-gris-calido/30 text-left">
-                  <tr>
-                    <th className="p-3">Capítulo</th>
-                    <th className="p-3">Liquidar por</th>
-                    <th className="p-3 text-right">Contratado</th>
-                    <th className="p-3 text-right">Anterior</th>
-                    <th className={`p-3 text-right ${COL_CORTE}`}>Este corte</th>
-                    <th className="p-3 text-right">Acumulado</th>
-                    <th className="p-3 text-right">Avance</th>
-                    {final && <th className="p-3 text-right">Diferencia</th>}
-                  </tr>
-                </thead>
-                <tbody>
-                  {calc.grupos.map((g) => (
-                    <Fragment key={g.clave}>
-                      <tr className="bg-carbon text-hueso">
-                        <td colSpan={final ? 8 : 7} className="px-3 py-2 text-xs font-semibold uppercase tracking-wide">{g.titulo}</td>
-                      </tr>
-                      {g.capitulos.map((c) => {
-                        const ver = !!abiertos[c.id];
-                        return (
-                          <Fragment key={c.id}>
-                            <tr className={`border-t ${g.suma ? '' : 'text-neutral-500 italic'}`}>
-                              <td className="p-3 font-medium">
-                                {c.modo === 'CANTIDAD' ? (
-                                  <button type="button" onClick={() => setAbiertos((p) => ({ ...p, [c.id]: !p[c.id] }))} className="text-left hover:text-dorado">
-                                    <span className="text-neutral-400 mr-1">{ver ? '▾' : '▸'}</span>{c.codigo} · {c.nombre}
-                                  </button>
-                                ) : <span className="pl-4">{c.codigo} · {c.nombre}</span>}
-                              </td>
-                              <td className="p-3">
-                                <div className="inline-flex rounded border overflow-hidden text-xs not-italic">
-                                  {[['CANTIDAD', 'Cantidades'], ['GLOBAL', 'Global']].map(([m, t]) => (
-                                    <button key={m} type="button" disabled={!abierto} onClick={() => setCap(c.id, { modo: m })}
-                                      className={`px-2 py-1 ${c.modo === m ? 'bg-carbon text-hueso' : 'bg-white text-neutral-600'} disabled:cursor-default`}>{t}</button>
-                                  ))}
-                                </div>
-                                {c.modo === 'GLOBAL' && (
-                                  <div className="mt-1 flex items-center gap-1 text-xs not-italic">
-                                    {/* 073: se escribe el % de ESTE corte; por dentro se guarda el acumulado (anterior + este). */}
-                                    <span>+</span>
-                                    <input type="number" inputMode="decimal" min="0" max="100" step="any" disabled={!abierto}
-                                      value={edic.caps[c.id]?.pctEste ?? String(Math.round((Number(c.porcentaje) - c.pctAnterior) * 10000) / 10000)}
-                                      onChange={(e) => setCap(c.id, { pctEste: e.target.value, porcentaje: c.pctAnterior + (Number(e.target.value) || 0) })}
-                                      className="w-20 border rounded px-2 py-1 text-right disabled:bg-neutral-50" />
-                                    <span>% este corte</span>
-                                    <span className="text-neutral-400">(antes {pct1(c.pctAnterior)} → {pct1(c.porcentaje)})</span>
-                                    {Number(c.porcentaje) > 100.0001 && <span className="text-red-700 font-semibold">pasa del 100 %</span>}
-                                  </div>
-                                )}
-                              </td>
-                              <td className="p-3 text-right tabular-nums">{pesos(c.contratado)}</td>
-                              <td className="p-3 text-right tabular-nums">{pesos(c.anterior)}</td>
-                              <td className={`p-3 text-right tabular-nums font-semibold ${COL_CORTE}`}>{pesos(c.este)}</td>
-                              <td className="p-3 text-right tabular-nums font-semibold">{pesos(c.acumulado)}</td>
-                              <td className="p-3 text-right tabular-nums">{pct1(c.avance)}</td>
-                              {final && <td className={`p-3 text-right tabular-nums ${c.diferencia > 0 ? 'text-red-700' : c.diferencia < 0 ? 'text-green-700' : 'text-neutral-400'}`}>{c.diferencia ? pesos(c.diferencia) : '—'}</td>}
-                            </tr>
-                            {ver && c.modo === 'CANTIDAD' && (
-                              <tr className="border-t bg-hueso/40">
-                                <td colSpan={final ? 8 : 7} className="p-0">
-                                  <table className="w-full text-xs">
-                                    <thead className="text-neutral-500">
-                                      <tr>
-                                        <th className="p-2 pl-8 text-left">Ítem</th><th className="p-2 text-left">Und</th>
-                                        <th className="p-2 text-right">Contratado</th><th className="p-2 text-right">Anterior</th>
-                                        <th className={`p-2 text-right ${COL_CORTE}`}>Este corte</th><th className="p-2 text-right">Acumulado</th>
-                                        <th className="p-2 text-right">Vr. unit.</th><th className="p-2 text-right">Valor corte</th><th className="p-2 text-right">Valor acum.</th>
-                                      </tr>
-                                    </thead>
-                                    <tbody>
-                                      {c.items.map((it) => (
-                                        <tr key={it.id} className="border-t border-neutral-200">
-                                          <td className="p-2 pl-8 max-w-[320px]">{it.codigo} · {it.descripcion}</td>
-                                          <td className="p-2">{it.unidad || ''}</td>
-                                          <td className="p-2 text-right tabular-nums">{cantCC(it.contratado)}</td>
-                                          <td className="p-2 text-right tabular-nums">{cantCC(it.anterior)}</td>
-                                          <td className={`p-2 text-right ${COL_CORTE}`}>
-                                            {abierto ? (
-                                              <div className="flex items-center justify-end gap-1">
-                                                <input type="number" inputMode="decimal" step="any" value={it.este === 0 ? '' : it.este}
-                                                  placeholder="0" onChange={(e) => setItem(it.id, e.target.value)}
-                                                  className="w-20 border rounded px-1.5 py-1 text-right bg-white" />
-                                                {Number(it.contratado) - Number(it.anterior) > 0 && (
-                                                  <button type="button" title="Completar lo que falta del ítem"
-                                                    onClick={() => setItem(it.id, String(Math.round((Number(it.contratado) - Number(it.anterior)) * 1000) / 1000))}
-                                                    className="text-[10px] border border-dorado text-[#6b4a22] rounded px-1 py-0.5">Todo</button>
-                                                )}
-                                              </div>
-                                            ) : <span className="tabular-nums font-semibold">{cantCC(it.este)}</span>}
-                                          </td>
-                                          <td className={`p-2 text-right tabular-nums ${it.excede ? 'text-red-700 font-semibold' : ''}`}>{cantCC(it.acumulado)}</td>
-                                          <td className="p-2 text-right tabular-nums">{pesos(it.valor_unitario)}</td>
-                                          <td className="p-2 text-right tabular-nums font-semibold">{it.valor_este ? pesos(it.valor_este) : '—'}</td>
-                                          <td className="p-2 text-right tabular-nums">{it.valor_acumulado ? pesos(it.valor_acumulado) : '—'}</td>
-                                        </tr>
-                                      ))}
-                                    </tbody>
-                                  </table>
-                                </td>
-                              </tr>
-                            )}
-                          </Fragment>
-                        );
-                      })}
-                      <tr className="bg-hueso font-semibold border-t-2 border-dorado">
-                        <td className="p-3" colSpan={2}>Subtotal {g.titulo.toLowerCase()}</td>
-                        <td className="p-3 text-right tabular-nums">{pesos(g.contratado)}</td>
-                        <td className="p-3 text-right tabular-nums">{pesos(g.anterior)}</td>
-                        <td className={`p-3 text-right tabular-nums ${COL_CORTE}`}>{pesos(g.este)}</td>
-                        <td className="p-3 text-right tabular-nums">{pesos(g.acumulado)}</td>
-                        <td className="p-3 text-right tabular-nums">{pct1(g.contratado ? (g.acumulado / g.contratado) * 100 : 0)}</td>
-                        {final && <td className="p-3 text-right tabular-nums">{pesos(g.acumulado - g.contratado)}</td>}
-                      </tr>
-                    </Fragment>
-                  ))}
-                  <tr className="bg-carbon text-hueso font-bold border-t-2 border-dorado">
-                    <td className="p-3" colSpan={2}>TOTAL LIQUIDADO (contrato + adicionales)</td>
-                    <td className="p-3 text-right tabular-nums">{pesos(calc.tot.contratado)}</td>
-                    <td className="p-3 text-right tabular-nums">{pesos(calc.tot.anterior)}</td>
-                    <td className="p-3 text-right tabular-nums">{pesos(calc.tot.este)}</td>
-                    <td className="p-3 text-right tabular-nums">{pesos(calc.tot.acumulado)}</td>
-                    <td className="p-3 text-right tabular-nums">{pct1(calc.tot.contratado ? (calc.tot.acumulado / calc.tot.contratado) * 100 : 0)}</td>
-                    {final && <td className="p-3 text-right tabular-nums">{pesos(calc.tot.acumulado - calc.tot.contratado)}</td>}
-                  </tr>
-                </tbody>
-              </table>
-            </div>
+            {/* 074: un solo cuadro con la estructura del Excel (control presupuestal de AD): todos los capítulos e ítems,
+                un bloque por corte (los cerrados solo lectura, el abierto editable), el acumulado y el avance. */}
+            <TablaControlCorteCliente calc={calc} abierto={abierto} edic={edic} setCap={setCap} setItem={setItem}
+              cerrados={cerrados} setCerrados={setCerrados} final={final} />
             <p className="text-xs text-neutral-500">
-              <strong>Cantidades:</strong> escribe lo ejecutado en este corte por ítem (▸ para abrir el capítulo; &quot;Todo&quot; completa lo que falta).
-              {' '}<strong>Global:</strong> escribe el % de avance de ESTE corte (se suma al anterior). Los pagos directos del cliente se muestran pero no suman.
+              <strong>Cantidades:</strong> escribe en la columna del corte abierto lo ejecutado en este corte (&quot;Todo&quot; completa lo que falta del ítem).
+              {' '}<strong>Global:</strong> escribe en la fila del capítulo el % de avance de ESTE corte (se suma al anterior); sus ítems se reparten en proporción.
+              {' '}Los pagos directos del cliente se muestran pero no suman.
             </p>
 
-            {/* 073: historia por corte, como el control presupuestal de administración delegada. */}
-            {calc.numerosCortes?.length > 0 && (
-              <div className="bg-white rounded-lg border overflow-x-auto">
-                <h3 className="font-semibold text-sm px-4 pt-3">Historia por corte</h3>
-                <p className="text-[11px] text-neutral-500 px-4">Valor (y % del capítulo) que se liquidó en cada corte. La columna del corte actual se actualiza mientras escribes.</p>
-                <table className="w-full text-xs mt-2">
-                  <thead className="bg-gris-calido/30 text-left">
-                    <tr>
-                      <th className="p-2">Capítulo</th><th className="p-2 text-right">Contratado</th>
-                      {calc.numerosCortes.map((n) => <th key={n} className={`p-2 text-right ${n === calc.corte.numero ? COL_CORTE : ''}`}>Corte {n}</th>)}
-                      <th className="p-2 text-right">Acumulado</th><th className="p-2 text-right">Avance</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {calc.grupos.map((g) => (
-                      <Fragment key={g.clave}>
-                        <tr className="bg-hueso"><td className="p-2 font-semibold text-[#6b4a22]" colSpan={calc.numerosCortes.length + 4}>{g.titulo.toUpperCase()}</td></tr>
-                        {g.capitulos.map((c) => (
-                          <tr key={c.id} className={`border-t ${g.suma ? '' : 'text-neutral-500 italic'}`}>
-                            <td className="p-2">{c.codigo} · {c.nombre}</td>
-                            <td className="p-2 text-right tabular-nums">{pesos(c.contratado)}</td>
-                            {c.porCorte.map((h) => (
-                              <td key={h.numero} className={`p-2 text-right tabular-nums ${h.numero === calc.corte.numero ? COL_CORTE : ''}`}>
-                                {h.valor ? <>{pesos(h.valor)}<span className="block text-[10px] text-neutral-400">{pct1(h.pct)}</span></> : '—'}
-                              </td>
-                            ))}
-                            <td className="p-2 text-right tabular-nums font-semibold">{pesos(c.acumulado)}</td>
-                            <td className="p-2 text-right tabular-nums">{pct1(c.avance)}</td>
-                          </tr>
-                        ))}
-                        <tr className="bg-hueso font-semibold border-t">
-                          <td className="p-2">Subtotal {g.titulo.toLowerCase()}</td>
-                          <td className="p-2 text-right tabular-nums">{pesos(g.contratado)}</td>
-                          {g.porCorte.map((h) => <td key={h.numero} className="p-2 text-right tabular-nums">{pesos(h.valor)}</td>)}
-                          <td className="p-2 text-right tabular-nums">{pesos(g.acumulado)}</td>
-                          <td className="p-2 text-right tabular-nums">{pct1(g.contratado ? (g.acumulado / g.contratado) * 100 : 0)}</td>
-                        </tr>
-                      </Fragment>
-                    ))}
-                    <tr className="bg-carbon text-hueso font-bold">
-                      <td className="p-2">TOTAL LIQUIDADO</td>
-                      <td className="p-2 text-right tabular-nums">{pesos(calc.tot.contratado)}</td>
-                      {calc.tot.porCorte.map((h) => <td key={h.numero} className="p-2 text-right tabular-nums">{pesos(h.valor)}</td>)}
-                      <td className="p-2 text-right tabular-nums">{pesos(calc.tot.acumulado)}</td>
-                      <td className="p-2 text-right tabular-nums">{pct1(calc.tot.contratado ? (calc.tot.acumulado / calc.tot.contratado) * 100 : 0)}</td>
-                    </tr>
-                  </tbody>
-                </table>
-              </div>
-            )}
-
-            <div className="grid md:grid-cols-2 gap-4">
-              <div className="bg-white rounded-lg border p-4">
-                <h3 className="font-semibold text-sm mb-2">Pagos del cliente registrados en Caja (hasta {fechaCC(meta.fecha)})</h3>
-                {(calc.pagos || []).length === 0 ? <p className="text-sm text-neutral-500">Sin pagos registrados.</p> : (
-                  <div className="divide-y text-sm">
-                    {calc.pagos.map((p, i) => (
-                      <div key={i} className="flex justify-between gap-3 py-1.5">
-                        <span><span className="text-neutral-500 mr-2">{fechaCC(p.fecha)}</span>{p.concepto}</span>
-                        <span className="tabular-nums text-green-800">{pesos(p.valor)}</span>
-                      </div>
-                    ))}
-                  </div>
-                )}
-                <p className="text-[11px] text-neutral-400 mt-2">Si falta un pago, regístralo en Caja → Registrar movimiento → Ingreso del cliente.</p>
-              </div>
-              <div className="bg-white rounded-lg border p-4 text-sm space-y-1.5">
-                <h3 className="font-semibold mb-2">Estado de cuenta</h3>
-                <div className="flex justify-between"><span>Contrato liquidado</span><span className="tabular-nums">{pesos(calc.grupos.find((g) => g.clave === 'CONTRATO')?.acumulado)}</span></div>
-                <div className="flex justify-between"><span>Adicionales liquidados</span><span className="tabular-nums">{pesos(calc.grupos.find((g) => g.clave === 'ADICIONAL_COSTO')?.acumulado)}</span></div>
-                <div className="flex justify-between font-semibold border-t border-dorado pt-1.5"><span>Total liquidado acumulado</span><span className="tabular-nums">{pesos(calc.tot.acumulado)}</span></div>
-                <div className="flex justify-between text-green-800"><span>(−) Pagos recibidos</span><span className="tabular-nums">{pesos(calc.tot.pagos)}</span></div>
-                <div className={`flex justify-between font-bold rounded px-2 py-2 ${calc.tot.saldo < 0 ? 'bg-green-50 text-green-900' : 'bg-carbon text-hueso'}`}>
-                  <span>{calc.tot.saldo < 0 ? 'Saldo a favor del cliente' : 'Saldo a pagar por el cliente'}</span><span className="tabular-nums">{pesos(Math.abs(calc.tot.saldo))}</span>
+            <div className="bg-white rounded-lg border p-4">
+              <h3 className="font-semibold text-sm mb-2">Pagos del cliente registrados en Caja (hasta {fechaCC(meta.fecha)})</h3>
+              {(calc.pagos || []).length === 0 ? <p className="text-sm text-neutral-500">Sin pagos registrados.</p> : (
+                <div className="divide-y text-sm">
+                  {calc.pagos.map((p, i) => (
+                    <div key={i} className="flex justify-between gap-3 py-1.5">
+                      <span><span className="text-neutral-500 mr-2">{fechaCC(p.fecha)}</span>{p.concepto}</span>
+                      <span className="tabular-nums text-green-800">{pesos(p.valor)}</span>
+                    </div>
+                  ))}
                 </div>
-                {calc.grupos.find((g) => !g.suma) && (
-                  <p className="text-[11px] text-neutral-500 pt-1">Pagos directos del cliente (informativo): {pesos(calc.grupos.find((g) => !g.suma).acumulado)}</p>
-                )}
-              </div>
+              )}
+              <p className="text-[11px] text-neutral-400 mt-2">Si falta un pago, regístralo en Caja → Registrar movimiento → Ingreso del cliente.</p>
             </div>
           </div>
         )}
