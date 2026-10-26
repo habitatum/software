@@ -28,7 +28,7 @@ const AYUDA =
   '• Envía la <b>foto o PDF de la factura</b> y creo la Orden de Compra.\n' +
   '• Si es un gasto pequeño o sin factura, escribe <b>CAJA MENOR</b> en la nota de la foto (o un mensaje como <i>CAJA MENOR 25000 transporte cap 7</i>).\n' +
   '• Caja menor <b>sin foto</b>: genero un <b>recibo de caja menor</b>. Indica a quién se le pagó (ej. <i>CAJA MENOR 120000 revisión citófono cap 5 a Giovanny CC 1036… Bancolombia ahorros</i>) o respóndeme el nombre cuando te lo pida.\n' +
-  '• Para indicar el capítulo escribe <b>cap 7</b> (o el ítem: <b>ítem 19.09</b>) en la nota. Si no, lo sugiero yo.\n' +
+  '• Para indicar el capítulo escribe <b>cap 7</b> (o el ítem: <b>ítem 19.09</b>) en la nota. Si no, lo sugiero yo. Al elegir el capítulo con 📂 puedes escoger su ítem o dejar <b>Todo el capítulo</b>.\n' +
   '• /estado → caja menor acumulada · /cerrarcaja → legalizar la caja menor ya.';
 
 async function capitulosDelProyecto(supabase, proyectoId) {
@@ -46,7 +46,8 @@ async function contextoPresupuesto(supabase, proyectoId, modelo) {
   const capitulos = await capitulosDelProyecto(supabase, proyectoId);
   const porItem = false;
   let items = [];
-  if (porItem && capitulos.length) {
+  // Todo costo: el ítem es OPCIONAL. Al elegir el capítulo se ofrece su lista de ítems o "Todo el capítulo".
+  if (capitulos.length) {
     const { data } = await supabase.from('presupuesto_items').select('id, codigo, descripcion, capitulo_id')
       .in('capitulo_id', capitulos.map((c) => c.id)).order('orden');
     items = data || [];
@@ -74,6 +75,15 @@ function destinoPresupuesto(ctx, codigoNota, lectura) {
     if (it) {
       const cap = ctx.capitulos.find((c) => c.id === it.capitulo_id);
       return { capitulo_id: cap?.id || null, capitulo_codigo: cap?.codigo || null, capitulo_nombre: cap?.nombre || null,
+               presupuesto_item_id: it.id, item_codigo: it.codigo, item_descripcion: String(it.descripcion).slice(0, 80) };
+    }
+  }
+  // Todo costo: si la nota trae un código de ítem ("7.04"), se imputa a ese ítem (y su capítulo).
+  if (!ctx.porItem && codigoNota && codigoNota.includes('.')) {
+    const it = (ctx.items || []).find((i) => i.codigo === String(codigoNota).trim());
+    if (it) {
+      const capI = ctx.capitulos.find((c) => c.id === it.capitulo_id);
+      return { capitulo_id: capI?.id || null, capitulo_codigo: capI?.codigo || null, capitulo_nombre: capI?.nombre || null,
                presupuesto_item_id: it.id, item_codigo: it.codigo, item_descripcion: String(it.descripcion).slice(0, 80) };
     }
   }
@@ -153,11 +163,13 @@ function cuadrarConTotal(l) {
 }
 
 // ---------- Resúmenes y botones ----------
-function tecladoPrincipal(id, sinImputacion = false, pideBeneficiario = false) {
+function tecladoPrincipal(id, sinImputacion = false, pideBeneficiario = false, conCapitulo = false) {
   const botones = [{ text: '✅ Confirmar', callback_data: `c:${id}` }];
   if (!sinImputacion) botones.push({ text: '📂 Capítulo', callback_data: `k:${id}` });
   botones.push({ text: '❌ Descartar', callback_data: `x:${id}` });
   const filas = [botones];
+  // Con capítulo ya elegido (por la IA o a mano): ir directo a sus ítems.
+  if (!sinImputacion && conCapitulo) filas.push([{ text: '📌 Elegir ítem del capítulo', callback_data: `t:${id}` }]);
   if (pideBeneficiario) filas.unshift([{ text: '👤 Omitir beneficiario', callback_data: `o:${id}` }]);
   return { inline_keyboard: filas };
 }
@@ -198,11 +210,13 @@ function tecladoCapitulos(id, capitulos) {
   return { inline_keyboard: filas };
 }
 
-function tecladoItems(id, items) {
-  const filas = items.slice(0, 40).map((i) => [{
+function tecladoItems(id, items, todoCapitulo = false) {
+  const filas = [];
+  if (todoCapitulo) filas.push([{ text: '✅ Todo el capítulo (sin ítem)', callback_data: `a:${id}` }]);
+  items.slice(0, 40).forEach((i) => filas.push([{
     text: `${i.codigo} · ${String(i.descripcion)}`.slice(0, 40),
     callback_data: `i:${id}:${i.codigo}`,
-  }]);
+  }]));
   filas.push([{ text: '↩️ Capítulos', callback_data: `k:${id}` }]);
   return { inline_keyboard: filas };
 }
@@ -212,6 +226,7 @@ function resumenBorrador(b) {
   let cap = d.sin_imputacion ? 'la asigna el administrador en la app'
     : d.capitulo_codigo ? `${d.capitulo_codigo} · ${escaparHTML(d.capitulo_nombre || '')}` : '⚠️ <b>sin capítulo</b> (toca 📂)';
   if (d.item_codigo) cap += `\nÍtem: <b>${escaparHTML(d.item_codigo)}</b> · ${escaparHTML(d.item_descripcion || '')}`;
+  else if (d.capitulo_codigo && !d.sin_imputacion && !b.por_item) cap += ' <i>(todo el capítulo)</i>';
   else if (b.por_item) cap += '\n⚠️ <b>sin ítem del presupuesto</b> (toca 📂)';
   if (b.tipo === 'CAJA_MENOR') {
     // 065: sin foto ni PDF se genera un RECIBO DE CAJA MENOR; se pide el beneficiario antes de confirmar.
@@ -381,7 +396,7 @@ export async function procesarMensajeFinanzas(supabase, mensaje, proyecto) {
       const ctxB = await contextoPresupuesto(supabase, proyecto.id, proyecto.modelo_contratacion);
       await telegramFetch('editMessageText', {
         chat_id: chatId, message_id: bb.bot_mensaje_id, parse_mode: 'HTML',
-        text: resumenBorrador({ ...bb, datos, por_item: ctxB.porItem }), reply_markup: tecladoPrincipal(bb.id, ctxB.sinImputacion),
+        text: resumenBorrador({ ...bb, datos, por_item: ctxB.porItem }), reply_markup: tecladoPrincipal(bb.id, ctxB.sinImputacion, false, !!datos?.capitulo_id),
       });
       return;
     }
@@ -433,7 +448,7 @@ export async function procesarMensajeFinanzas(supabase, mensaje, proyecto) {
       mensaje_id: mensaje.message_id, bot_mensaje_id: avisoId,
     }).select().single();
     if (error) throw error;
-    await editar(resumenBorrador({ ...borrador, por_item: ctx.porItem }), tecladoPrincipal(borrador.id, ctx.sinImputacion, pideBeneficiario(borrador)));
+    await editar(resumenBorrador({ ...borrador, por_item: ctx.porItem }), tecladoPrincipal(borrador.id, ctx.sinImputacion, pideBeneficiario(borrador), !!borrador.datos?.capitulo_id));
   } catch (e) {
     console.error('Bot finanzas:', e);
     await editar('❌ Ocurrió un error procesando el documento: ' + escaparHTML(e.message || String(e)));
@@ -481,7 +496,7 @@ export async function procesarCallbackFinanzas(supabase, cb) {
     }
     const actualizado = { ...b, tipo: r.tipo, datos: r.datos };
     await supabase.from('telegram_borradores').update({ tipo: r.tipo, datos: r.datos }).eq('id', id);
-    return editar(resumenBorrador({ ...actualizado, por_item: ctxR.porItem }), tecladoPrincipal(id, ctxR.sinImputacion, pideBeneficiario(actualizado)));
+    return editar(resumenBorrador({ ...actualizado, por_item: ctxR.porItem }), tecladoPrincipal(id, ctxR.sinImputacion, pideBeneficiario(actualizado), !!actualizado.datos?.capitulo_id));
   }
   const { data: proyecto } = await supabase.from('proyectos').select('id, tope_caja_menor, modelo_contratacion').eq('id', b.proyecto_id).single();
   const ctx = await contextoPresupuesto(supabase, b.proyecto_id, proyecto?.modelo_contratacion);
@@ -494,12 +509,25 @@ export async function procesarCallbackFinanzas(supabase, cb) {
     return editar(resumenBorrador(b).replace(/\n\n¿(Creo la OC|Lo registro)\?$/, '') + `\n\n❌ <i>Descartado por ${escaparHTML(quien)}</i>`);
   }
   if (accion === 'k') { await contestar(); return editar(resumenBorrador(b) + '\n\n📂 Elige el capítulo:', tecladoCapitulos(id, capitulos)); }
-  if (accion === 'v') { await contestar(); return editar(resumenBorrador(b), tecladoPrincipal(id, ctx.sinImputacion, pideBeneficiario(b))); }
+  if (accion === 'v') { await contestar(); return editar(resumenBorrador(b), tecladoPrincipal(id, ctx.sinImputacion, pideBeneficiario(b), !!b.datos.capitulo_id)); }
+  // Ítems del capítulo ya elegido (todo costo), con la opción de dejarlo en todo el capítulo.
+  if (accion === 't') {
+    if (!b.datos.capitulo_id) { await contestar(); return editar(resumenBorrador(b) + '\n\n📂 Elige el capítulo:', tecladoCapitulos(id, capitulos)); }
+    await contestar();
+    return editar(resumenBorrador(b) + '\n\n📌 Elige el ítem del presupuesto o deja todo el capítulo:',
+      tecladoItems(id, ctx.items.filter((i) => i.capitulo_id === b.datos.capitulo_id), true));
+  }
+  if (accion === 'a') {
+    const datos = { ...b.datos, presupuesto_item_id: null, item_codigo: null, item_descripcion: null };
+    await supabase.from('telegram_borradores').update({ datos }).eq('id', id);
+    await contestar(`Todo el capítulo ${datos.capitulo_codigo || ''}`);
+    return editar(resumenBorrador({ ...b, datos }), tecladoPrincipal(id, false, pideBeneficiario({ ...b, datos }), true));
+  }
   if (accion === 'o') {
     const datos = { ...b.datos, beneficiario_omitido: true };
     await supabase.from('telegram_borradores').update({ datos }).eq('id', id);
     await contestar('Beneficiario en blanco');
-    return editar(resumenBorrador({ ...b, datos }), tecladoPrincipal(id, ctx.sinImputacion));
+    return editar(resumenBorrador({ ...b, datos }), tecladoPrincipal(id, ctx.sinImputacion, false, !!datos.capitulo_id));
   }
   if (accion === 's') {
     const cap = capituloPorCodigo(capitulos, extra);
@@ -512,9 +540,13 @@ export async function procesarCallbackFinanzas(supabase, cb) {
       await contestar(`Capítulo ${cap.codigo}`);
       return editar(resumenBorrador({ ...b, datos }) + '\n\n📌 Elige el ítem del presupuesto:', tecladoItems(id, ctx.items.filter((i) => i.capitulo_id === cap.id)));
     }
+    // Todo costo: al elegir el capítulo se ofrece su lista de ítems o "Todo el capítulo".
+    Object.assign(datos, { presupuesto_item_id: null, item_codigo: null, item_descripcion: null });
     await supabase.from('telegram_borradores').update({ datos }).eq('id', id);
     await contestar(`Capítulo ${cap.codigo}`);
-    return editar(resumenBorrador({ ...b, datos }), tecladoPrincipal(id, false, pideBeneficiario({ ...b, datos })));
+    const delCapitulo = ctx.items.filter((i) => i.capitulo_id === cap.id);
+    if (!delCapitulo.length) return editar(resumenBorrador({ ...b, datos }), tecladoPrincipal(id, false, pideBeneficiario({ ...b, datos }), false));
+    return editar(resumenBorrador({ ...b, datos }) + '\n\n📌 Elige el ítem del presupuesto o deja todo el capítulo:', tecladoItems(id, delCapitulo, true));
   }
   if (accion === 'i') {
     const it = ctx.items.find((x) => x.codigo === extra);
@@ -524,7 +556,7 @@ export async function procesarCallbackFinanzas(supabase, cb) {
                     presupuesto_item_id: it.id, item_codigo: it.codigo, item_descripcion: String(it.descripcion).slice(0, 80) };
     await supabase.from('telegram_borradores').update({ datos }).eq('id', id);
     await contestar(`Ítem ${it.codigo}`);
-    return editar(resumenBorrador({ ...b, datos }), tecladoPrincipal(id, false, pideBeneficiario({ ...b, datos })));
+    return editar(resumenBorrador({ ...b, datos }), tecladoPrincipal(id, false, pideBeneficiario({ ...b, datos }), true));
   }
   if (accion === 'c') {
     if (!b.datos.capitulo_id && !ctx.sinImputacion) {
