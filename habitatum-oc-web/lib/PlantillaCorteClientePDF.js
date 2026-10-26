@@ -48,48 +48,72 @@ function Dato({ et, va }) {
   return <View style={e.dato}><Text style={e.et}>{et}</Text><Text style={e.va}>{va || '-'}</Text></View>;
 }
 
-// Resumen por capítulo (columnas en %).
-function TablaCapitulos({ grupos, final }) {
-  const w = final
-    ? { cap: '30%', modo: '8%', n: '11%', av: '7%' }
-    : { cap: '35%', modo: '9%', n: '12%', av: '8%' };
-  const N = { width: w.n, textAlign: 'right' };
-  const filaCap = (c, i) => (
-    <View key={c.id} style={i % 2 ? e.trAlt : e.tr} wrap={false}>
-      <Text style={{ width: w.cap, paddingRight: 3 }}>{c.codigo} · {c.nombre}</Text>
-      <Text style={{ width: w.modo, color: TEXTO_SUAVE }}>{c.modo === 'GLOBAL' ? 'Global' : 'Cantidades'}</Text>
-      <Text style={N}>{pesos(c.contratado)}</Text>
-      <Text style={N}>{pesos(c.anterior)}</Text>
-      <Text style={[N, e.corte]}>{pesos(c.este)}</Text>
-      <Text style={[N, { fontFamily: 'Helvetica-Bold' }]}>{pesos(c.acumulado)}</Text>
-      <Text style={{ width: w.av, textAlign: 'right' }}>{pct(c.avance)}</Text>
-      {final && <Text style={[N, { color: c.diferencia > 0 ? ROJO : c.diferencia < 0 ? VERDE : TEXTO_SUAVE }]}>{c.diferencia ? pesos(c.diferencia) : '—'}</Text>}
+// 073: resumen por capítulo con una columna por corte (máx. 6 visibles; los más antiguos se agrupan),
+// como el control presupuestal de administración delegada. Los adicionales llevan su detalle ítem por ítem.
+function columnasCortes(numeros, actual) {
+  const MAX = 6;
+  if (numeros.length <= MAX) return numeros.map((n, k) => ({ titulo: `Corte ${n}`, idx: [k], actual: n === actual }));
+  const extra = numeros.length - (MAX - 1);
+  return [{ titulo: `Cortes ${numeros[0]}–${numeros[extra - 1]}`, idx: Array.from({ length: extra }, (_, k) => k), actual: false },
+    ...numeros.slice(extra).map((n, k) => ({ titulo: `Corte ${n}`, idx: [extra + k], actual: n === actual }))];
+}
+
+function TablaCapitulos({ calc, final }) {
+  const { grupos, tot } = calc;
+  const cols = columnasCortes(calc.numerosCortes || [calc.corte.numero], calc.corte.numero);
+  const wCorte = `${Math.min(10, 36 / cols.length)}%`;
+  const wCap = `${100 - 10 - 10 - 6 - 10 - Math.min(10, 36 / cols.length) * cols.length}%`;
+  const N = { width: '10%', textAlign: 'right' };
+  const NC = { width: wCorte, textAlign: 'right' };
+  const valorCol = (porCorte, col) => col.idx.reduce((a, k) => a + (Number(porCorte?.[k]?.valor) || 0), 0);
+  const ultima = (c) => (final ? c.diferencia : Number(c.contratado) - Number(c.acumulado));
+  const fila = (c, i, item = false) => (
+    <View key={(item ? 'i' : 'c') + c.id} style={[i % 2 ? e.trAlt : e.tr, item ? { color: TEXTO_SUAVE, fontSize: 6.8 } : null]} wrap={false}>
+      <Text style={{ width: wCap, paddingRight: 3, paddingLeft: item ? 10 : 0, fontFamily: item ? 'Helvetica' : 'Helvetica-Bold' }}>
+        {c.codigo} · {item ? c.descripcion : c.nombre}{!item && c.modo === 'GLOBAL' ? ' (global %)' : ''}
+      </Text>
+      <Text style={N}>{pesos(item ? c.valor_contratado : c.contratado)}</Text>
+      {cols.map((col) => {
+        const v = valorCol(c.porCorte, col);
+        return <Text key={col.titulo} style={[NC, col.actual ? e.corte : null]}>{v ? pesos(v) : '—'}</Text>;
+      })}
+      <Text style={[N, { fontFamily: 'Helvetica-Bold' }]}>{pesos(item ? c.valor_acumulado : c.acumulado)}</Text>
+      <Text style={{ width: '6%', textAlign: 'right' }}>{pct(item ? (Number(c.valor_contratado) ? (c.valor_acumulado / Number(c.valor_contratado)) * 100 : 0) : c.avance)}</Text>
+      <Text style={N}>{item ? pesos(Number(c.valor_contratado) - Number(c.valor_acumulado)) : pesos(ultima(c))}</Text>
+    </View>
+  );
+  const filaTotal = (titulo, base, estilo) => (
+    <View style={estilo} wrap={false}>
+      <Text style={{ width: wCap }}>{titulo}</Text>
+      <Text style={N}>{pesos(base.contratado)}</Text>
+      {cols.map((col) => <Text key={col.titulo} style={NC}>{pesos(valorCol(base.porCorte, col))}</Text>)}
+      <Text style={N}>{pesos(base.acumulado)}</Text>
+      <Text style={{ width: '6%', textAlign: 'right' }}>{pct(base.contratado ? (base.acumulado / base.contratado) * 100 : 0)}</Text>
+      <Text style={N}>{pesos(final ? base.acumulado - base.contratado : base.contratado - base.acumulado)}</Text>
     </View>
   );
   return (
     <View>
       <View style={e.th} fixed>
-        <Text style={{ width: w.cap }}>Capítulo</Text><Text style={{ width: w.modo }}>Modo</Text>
-        <Text style={N}>Contratado</Text><Text style={N}>Anterior</Text><Text style={N}>Este corte</Text><Text style={N}>Acumulado</Text>
-        <Text style={{ width: w.av, textAlign: 'right' }}>Avance</Text>
-        {final && <Text style={N}>Diferencia</Text>}
+        <Text style={{ width: wCap }}>Capítulo</Text><Text style={N}>Contratado</Text>
+        {cols.map((col) => <Text key={col.titulo} style={NC}>{col.titulo}{col.actual ? ' (este)' : ''}</Text>)}
+        <Text style={N}>Acumulado</Text><Text style={{ width: '6%', textAlign: 'right' }}>Avance</Text>
+        <Text style={N}>{final ? 'Diferencia' : 'Por ejecutar'}</Text>
       </View>
       {grupos.map((g) => (
         <View key={g.clave}>
-          <View wrap={false}>
-            <View style={e.grupo}><Text>{g.titulo.toUpperCase()}</Text></View>
-            {g.capitulos[0] && filaCap(g.capitulos[0], 0)}
-          </View>
-          {g.capitulos.slice(1).map((c, j) => filaCap(c, j + 1))}
-          <View style={e.tt} wrap={false}>
-            <Text style={{ width: `${parseFloat(w.cap) + parseFloat(w.modo)}%` }}>Subtotal {g.titulo.toLowerCase()}</Text>
-            <Text style={N}>{pesos(g.contratado)}</Text><Text style={N}>{pesos(g.anterior)}</Text>
-            <Text style={N}>{pesos(g.este)}</Text><Text style={N}>{pesos(g.acumulado)}</Text>
-            <Text style={{ width: w.av }} />
-            {final && <Text style={N}>{pesos(g.acumulado - g.contratado)}</Text>}
-          </View>
+          <View style={e.grupo} wrap={false} minPresenceAhead={30}><Text>{g.titulo.toUpperCase()}</Text></View>
+          {g.capitulos.map((c, j) => (
+            <View key={c.id}>
+              {fila(c, j)}
+              {(g.clave === 'ADICIONAL_COSTO' || g.clave === 'PAGO_DIRECTO_CLIENTE') && c.modo === 'CANTIDAD' && c.items
+                .filter((it) => Number(it.contratado) || Number(it.acumulado)).map((it, k) => fila(it, k, true))}
+            </View>
+          ))}
+          {filaTotal(`Subtotal ${g.titulo.toLowerCase()}`, g, e.tt)}
         </View>
       ))}
+      {filaTotal('TOTAL LIQUIDADO (contrato + adicionales)', tot, e.ttGeneral)}
     </View>
   );
 }
@@ -132,7 +156,8 @@ export default function PlantillaCorteClientePDF({ calc }) {
   const titulo = tituloCorte(corte);
   const estado = corte.estado === 'CERRADO' ? 'Cerrado' : 'BORRADOR (sin cerrar)';
   const info = grupos.find((g) => !g.suma);
-  const capsCant = calc.capitulos.filter((c) => c.modo === 'CANTIDAD' && c.items.some((it) => Number(it.contratado) || Number(it.acumulado)));
+  // El detalle por cantidades va en página aparte, sin los adicionales (ya van detallados en el resumen).
+  const capsCant = calc.capitulos.filter((c) => c.grupo === 'CONTRATO' && c.modo === 'CANTIDAD' && c.items.some((it) => Number(it.contratado) || Number(it.acumulado)));
   const aFavor = tot.saldo < 0;
 
   return (
@@ -167,16 +192,7 @@ export default function PlantillaCorteClientePDF({ calc }) {
         </View>
 
         <Text style={e.seccion}>Resumen por capítulo</Text>
-        <TablaCapitulos grupos={grupos} final={corte.es_final} />
-        <View style={e.ttGeneral} wrap={false}>
-          <Text style={{ width: corte.es_final ? '38%' : '44%' }}>TOTAL LIQUIDADO (contrato + adicionales)</Text>
-          <Text style={{ width: corte.es_final ? '11%' : '12%', textAlign: 'right' }}>{pesos(tot.contratado)}</Text>
-          <Text style={{ width: corte.es_final ? '11%' : '12%', textAlign: 'right' }}>{pesos(tot.anterior)}</Text>
-          <Text style={{ width: corte.es_final ? '11%' : '12%', textAlign: 'right' }}>{pesos(tot.este)}</Text>
-          <Text style={{ width: corte.es_final ? '11%' : '12%', textAlign: 'right' }}>{pesos(tot.acumulado)}</Text>
-          <Text style={{ width: corte.es_final ? '7%' : '8%' }} />
-          {corte.es_final && <Text style={{ width: '11%', textAlign: 'right' }}>{pesos(tot.acumulado - tot.contratado)}</Text>}
-        </View>
+        <TablaCapitulos calc={calc} final={corte.es_final} />
         {info && (
           <Text style={[e.nota, { marginTop: 3 }]}>
             Los capítulos de pago directo del cliente ({pesos(info.acumulado)}) se muestran solo como información: los pagó el cliente directamente y no suman al total liquidado.
@@ -215,7 +231,7 @@ export default function PlantillaCorteClientePDF({ calc }) {
 
         {capsCant.length > 0 && (
           <View break>
-            <Text style={e.seccion}>Detalle de cantidades</Text>
+            <Text style={e.seccion}>Detalle por cantidades (soporte del corte)</Text>
             {capsCant.map((c) => <TablaItems key={c.id} cap={c} />)}
           </View>
         )}

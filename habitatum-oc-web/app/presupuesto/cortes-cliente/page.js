@@ -313,11 +313,15 @@ export default function CortesCliente() {
                                 </div>
                                 {c.modo === 'GLOBAL' && (
                                   <div className="mt-1 flex items-center gap-1 text-xs not-italic">
+                                    {/* 073: se escribe el % de ESTE corte; por dentro se guarda el acumulado (anterior + este). */}
+                                    <span>+</span>
                                     <input type="number" inputMode="decimal" min="0" max="100" step="any" disabled={!abierto}
-                                      value={c.porcentaje} onChange={(e) => setCap(c.id, { porcentaje: e.target.value })}
+                                      value={edic.caps[c.id]?.pctEste ?? String(Math.round((Number(c.porcentaje) - c.pctAnterior) * 10000) / 10000)}
+                                      onChange={(e) => setCap(c.id, { pctEste: e.target.value, porcentaje: c.pctAnterior + (Number(e.target.value) || 0) })}
                                       className="w-20 border rounded px-2 py-1 text-right disabled:bg-neutral-50" />
-                                    <span>% acumulado</span>
-                                    {Number(c.porcentaje_anterior) > 0 && <span className="text-neutral-400">(antes {pct1(c.porcentaje_anterior)})</span>}
+                                    <span>% este corte</span>
+                                    <span className="text-neutral-400">(antes {pct1(c.pctAnterior)} → {pct1(c.porcentaje)})</span>
+                                    {Number(c.porcentaje) > 100.0001 && <span className="text-red-700 font-semibold">pasa del 100 %</span>}
                                   </div>
                                 )}
                               </td>
@@ -400,8 +404,59 @@ export default function CortesCliente() {
             </div>
             <p className="text-xs text-neutral-500">
               <strong>Cantidades:</strong> escribe lo ejecutado en este corte por ítem (▸ para abrir el capítulo; &quot;Todo&quot; completa lo que falta).
-              {' '}<strong>Global:</strong> escribe el % de avance acumulado del capítulo. Los pagos directos del cliente se muestran pero no suman.
+              {' '}<strong>Global:</strong> escribe el % de avance de ESTE corte (se suma al anterior). Los pagos directos del cliente se muestran pero no suman.
             </p>
+
+            {/* 073: historia por corte, como el control presupuestal de administración delegada. */}
+            {calc.numerosCortes?.length > 0 && (
+              <div className="bg-white rounded-lg border overflow-x-auto">
+                <h3 className="font-semibold text-sm px-4 pt-3">Historia por corte</h3>
+                <p className="text-[11px] text-neutral-500 px-4">Valor (y % del capítulo) que se liquidó en cada corte. La columna del corte actual se actualiza mientras escribes.</p>
+                <table className="w-full text-xs mt-2">
+                  <thead className="bg-gris-calido/30 text-left">
+                    <tr>
+                      <th className="p-2">Capítulo</th><th className="p-2 text-right">Contratado</th>
+                      {calc.numerosCortes.map((n) => <th key={n} className={`p-2 text-right ${n === calc.corte.numero ? COL_CORTE : ''}`}>Corte {n}</th>)}
+                      <th className="p-2 text-right">Acumulado</th><th className="p-2 text-right">Avance</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {calc.grupos.map((g) => (
+                      <Fragment key={g.clave}>
+                        <tr className="bg-hueso"><td className="p-2 font-semibold text-[#6b4a22]" colSpan={calc.numerosCortes.length + 4}>{g.titulo.toUpperCase()}</td></tr>
+                        {g.capitulos.map((c) => (
+                          <tr key={c.id} className={`border-t ${g.suma ? '' : 'text-neutral-500 italic'}`}>
+                            <td className="p-2">{c.codigo} · {c.nombre}</td>
+                            <td className="p-2 text-right tabular-nums">{pesos(c.contratado)}</td>
+                            {c.porCorte.map((h) => (
+                              <td key={h.numero} className={`p-2 text-right tabular-nums ${h.numero === calc.corte.numero ? COL_CORTE : ''}`}>
+                                {h.valor ? <>{pesos(h.valor)}<span className="block text-[10px] text-neutral-400">{pct1(h.pct)}</span></> : '—'}
+                              </td>
+                            ))}
+                            <td className="p-2 text-right tabular-nums font-semibold">{pesos(c.acumulado)}</td>
+                            <td className="p-2 text-right tabular-nums">{pct1(c.avance)}</td>
+                          </tr>
+                        ))}
+                        <tr className="bg-hueso font-semibold border-t">
+                          <td className="p-2">Subtotal {g.titulo.toLowerCase()}</td>
+                          <td className="p-2 text-right tabular-nums">{pesos(g.contratado)}</td>
+                          {g.porCorte.map((h) => <td key={h.numero} className="p-2 text-right tabular-nums">{pesos(h.valor)}</td>)}
+                          <td className="p-2 text-right tabular-nums">{pesos(g.acumulado)}</td>
+                          <td className="p-2 text-right tabular-nums">{pct1(g.contratado ? (g.acumulado / g.contratado) * 100 : 0)}</td>
+                        </tr>
+                      </Fragment>
+                    ))}
+                    <tr className="bg-carbon text-hueso font-bold">
+                      <td className="p-2">TOTAL LIQUIDADO</td>
+                      <td className="p-2 text-right tabular-nums">{pesos(calc.tot.contratado)}</td>
+                      {calc.tot.porCorte.map((h) => <td key={h.numero} className="p-2 text-right tabular-nums">{pesos(h.valor)}</td>)}
+                      <td className="p-2 text-right tabular-nums">{pesos(calc.tot.acumulado)}</td>
+                      <td className="p-2 text-right tabular-nums">{pct1(calc.tot.contratado ? (calc.tot.acumulado / calc.tot.contratado) * 100 : 0)}</td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+            )}
 
             <div className="grid md:grid-cols-2 gap-4">
               <div className="bg-white rounded-lg border p-4">
