@@ -3,7 +3,6 @@
 // La verdad de los valores vive en SQL (corte_cliente_detalle). Aquí solo se replica el
 // mismo cálculo para mostrar en vivo lo que el admin va escribiendo antes de guardar.
 // ============================================================
-import { formatoPesos } from './calculosOC';
 
 export const GRUPOS_CC = [
   { clave: 'CONTRATO', titulo: 'Contrato', suma: true },
@@ -127,8 +126,7 @@ export const tituloCorte = (corte) => (corte?.es_final ? 'Liquidación final de 
 // ---------- Excel (formato HABITATUM, fórmulas con resultado precalculado para que se vean en iPhone) ----------
 // 074: hoja principal CONTROL DE CORTES con la misma estructura del control presupuestal de administración delegada
 // (lib/exportarControlPresupuestal.js): todos los ítems, un bloque Cantidad · Vr unitario · Vr parcial por cada corte,
-// el acumulado y el avance; al final contrato, adicionales, total, pagos del cliente y saldo.
-// Hoja 2 RESUMEN por capítulo con una columna por corte.
+// el acumulado y el avance; al final contrato, adicionales, total, pagos del cliente y saldo. (Una sola hoja.)
 const colL = (n) => { let x = ''; let k = n; while (k > 0) { const m = (k - 1) % 26; x = String.fromCharCode(65 + m) + x; k = Math.floor((k - 1) / 26); } return x; };
 
 export async function exportarCorteClienteExcel(calc, proyecto) {
@@ -136,33 +134,10 @@ export async function exportarCorteClienteExcel(calc, proyecto) {
   const wb = new ExcelJS.Workbook();
   const corte = calc.corte;
   const C = 'FF2E2E2E', D = 'FFB88A52', G = 'FFCEC5BA', H = 'FFEFECE6', CAFE = 'FFF3E9DC';
-  const moneda = '_-"$"* #,##0_-;-"$"* #,##0_-;_-"$"* "-"??_-;_-@_-';
   const cortes = calc.numerosCortes?.length ? calc.numerosCortes : [corte.numero];
   const nC = cortes.length;
   const kAct = cortes.indexOf(corte.numero);
   const relleno = (c, argb) => { c.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb } }; };
-  let logo = null;
-  try {
-    const bytes = new Uint8Array(await (await fetch('/logo-habitatum.png')).arrayBuffer());
-    let bin = ''; for (let i = 0; i < bytes.length; i += 0x8000) bin += String.fromCharCode.apply(null, bytes.subarray(i, i + 0x8000));
-    logo = wb.addImage({ base64: btoa(bin), extension: 'png' });
-  } catch { /* sin logo */ }
-  const cabecera = (ws, nCols, subtitulo) => {
-    for (let r = 1; r <= 3; r++) for (let c = 1; c <= nCols; c++) relleno(ws.getCell(r, c), C);
-    if (logo !== null) ws.addImage(logo, { tl: { col: 0.2, row: 0.2 }, ext: { width: 38, height: 48 } });
-    ws.getCell('B1').value = 'HABITATUM'; ws.getCell('B1').font = { size: 18, color: { argb: 'FFFFFFFF' } };
-    ws.getCell('B2').value = `${tituloCorte(corte)} · ${proyecto?.nombre || ''}${subtitulo ? ` · ${subtitulo}` : ''}`; ws.getCell('B2').font = { size: 12, color: { argb: D } };
-    ws.getCell('B3').value = `Cliente: ${calc.proyecto?.cliente || '—'} · Fecha del corte: ${fechaCC(corte.fecha)}${corte.estado === 'CERRADO' ? '' : ' · BORRADOR'}`;
-    ws.getCell('B3').font = { size: 10, color: { argb: 'FFCEC5BA' } };
-  };
-  const encabezado = (ws, titulos) => {
-    const r = ws.addRow(titulos);
-    r.eachCell((c) => { relleno(c, C); c.font = { bold: true, color: { argb: 'FFFFFFFF' }, size: 9 }; c.alignment = { vertical: 'middle', horizontal: 'center', wrapText: true }; });
-    r.height = 30;
-    return r;
-  };
-  const seccion = (ws, t) => { ws.addRow([]); const r = ws.addRow([t]); r.getCell(1).font = { bold: true, size: 12 }; r.getCell(1).border = { bottom: { style: 'thin', color: { argb: D } } }; };
-
   // ===== Hoja 1: CONTROL DE CORTES (réplica de la estructura del control presupuestal de administración delegada) =====
   {
     const BF = { style: 'thin', color: { argb: 'FFB9AFA0' } };
@@ -336,103 +311,6 @@ export async function exportarCorteClienteExcel(calc, proyecto) {
     wc.getCell(f, 2).font = { size: 8, italic: true, color: { argb: 'FF6B655D' } };
     wc.pageSetup = { orientation: 'landscape', fitToPage: true, fitToWidth: 1, fitToHeight: 0, paperSize: 9 };
   }
-
-  // ===== Hoja 2: RESUMEN por capítulo =====
-  const ws = wb.addWorksheet('RESUMEN', { views: [{ showGridLines: false, state: 'frozen', ySplit: 0 }] });
-  // A cód · B nombre · C contratado · D.. cortes · acumulado · avance · por ejecutar
-  const cCont = 3, cCorte = (k) => 4 + k, cAcum = 4 + nC, cAv = cAcum + 1, cSal = cAcum + 2, nCols = cSal;
-  [9, 48, 16].forEach((w, i) => { ws.getColumn(i + 1).width = w; });
-  for (let k = 0; k < nC; k++) ws.getColumn(cCorte(k)).width = 15;
-  ws.getColumn(cAcum).width = 16; ws.getColumn(cAv).width = 9; ws.getColumn(cSal).width = 16;
-  cabecera(ws, nCols, 'Resumen');
-  seccion(ws, 'RESUMEN POR CAPÍTULO');
-  encabezado(ws, ['Cap.', 'Capítulo', 'Contratado', ...cortes.map((n) => `Corte ${n}${n === corte.numero ? ' (este)' : ''}`), 'Acumulado', '% avance', 'Por ejecutar']);
-  const filaValores = (r, contratado, porCorte, acumulado, { item = false } = {}) => {
-    const n = r.number;
-    r.getCell(cCont).value = contratado;
-    porCorte.forEach((v, k) => { r.getCell(cCorte(k)).value = v || 0; });
-    r.getCell(cAcum).value = { formula: `SUM(${colL(cCorte(0))}${n}:${colL(cCorte(nC - 1))}${n})`, result: acumulado };
-    r.getCell(cAv).value = { formula: `IF(${colL(cCont)}${n}=0,0,${colL(cAcum)}${n}/${colL(cCont)}${n})`, result: contratado ? acumulado / contratado : 0 };
-    r.getCell(cSal).value = { formula: `${colL(cCont)}${n}-${colL(cAcum)}${n}`, result: contratado - acumulado };
-    for (let j = cCont; j <= cSal; j++) r.getCell(j).numFmt = moneda;
-    r.getCell(cAv).numFmt = '0.0%';
-    if (kAct >= 0) relleno(r.getCell(cCorte(kAct)), CAFE);
-    if (item) r.eachCell((cell) => { cell.font = { size: 9, color: { argb: 'FF6B655D' } }; });
-    r.eachCell((cell) => { cell.border = { bottom: { style: 'hair', color: { argb: 'FFD9D4CC' } } }; });
-  };
-  const filasSubtotal = [];
-  calc.grupos.forEach((g) => {
-    const t = ws.addRow([g.titulo.toUpperCase()]);
-    t.getCell(1).font = { bold: true, color: { argb: 'FF6B4A22' } };
-    for (let i = 1; i <= nCols; i++) relleno(t.getCell(i), H);
-    const filasCap = [];
-    g.capitulos.forEach((c) => {
-      const r = ws.addRow([c.codigo, `${c.nombre}${c.modo === 'GLOBAL' ? ' (global por %)' : ''}`]);
-      filaValores(r, c.contratado, c.porCorte.map((h) => h.valor), c.acumulado);
-      r.getCell(2).font = { bold: true };
-      filasCap.push(r.number);
-      // Opción A: los ADICIONALES conservan su detalle ítem por ítem en la hoja principal.
-      if ((g.clave === 'ADICIONAL_COSTO' || g.clave === 'PAGO_DIRECTO_CLIENTE') && c.modo === 'CANTIDAD') {
-        c.items.forEach((it) => {
-          const ri = ws.addRow([it.codigo, `   ${it.descripcion}${it.unidad ? ` (${cantCC(it.acumulado)} de ${cantCC(it.contratado)} ${it.unidad})` : ''}`]);
-          filaValores(ri, Number(it.valor_contratado), it.porCorte.map((h) => h.valor), it.valor_acumulado, { item: true });
-          ri.getCell(2).alignment = { wrapText: true, vertical: 'top' };
-        });
-      }
-    });
-    const s = ws.addRow(['', `Subtotal ${g.titulo.toLowerCase()}`]);
-    const suma = (col) => filasCap.map((n) => `${colL(col)}${n}`).join('+') || '0';
-    s.getCell(cCont).value = { formula: suma(cCont), result: g.contratado };
-    g.porCorte.forEach((h, k) => { s.getCell(cCorte(k)).value = { formula: suma(cCorte(k)), result: h.valor }; });
-    s.getCell(cAcum).value = { formula: suma(cAcum), result: g.acumulado };
-    s.getCell(cAv).value = { formula: `IF(${colL(cCont)}${s.number}=0,0,${colL(cAcum)}${s.number}/${colL(cCont)}${s.number})`, result: g.contratado ? g.acumulado / g.contratado : 0 };
-    s.getCell(cSal).value = { formula: `${colL(cCont)}${s.number}-${colL(cAcum)}${s.number}`, result: g.contratado - g.acumulado };
-    for (let j = cCont; j <= cSal; j++) s.getCell(j).numFmt = moneda;
-    s.getCell(cAv).numFmt = '0.0%';
-    s.eachCell((cell) => { cell.font = { bold: true }; relleno(cell, G); });
-    if (g.suma) filasSubtotal.push(s.number);
-  });
-  const tot = ws.addRow(['', 'TOTAL LIQUIDADO (contrato + adicionales)']);
-  const sumaT = (col) => filasSubtotal.map((n) => `${colL(col)}${n}`).join('+') || '0';
-  tot.getCell(cCont).value = { formula: sumaT(cCont), result: calc.tot.contratado };
-  calc.tot.porCorte.forEach((h, k) => { tot.getCell(cCorte(k)).value = { formula: sumaT(cCorte(k)), result: h.valor }; });
-  tot.getCell(cAcum).value = { formula: sumaT(cAcum), result: calc.tot.acumulado };
-  tot.getCell(cAv).value = { formula: `IF(${colL(cCont)}${tot.number}=0,0,${colL(cAcum)}${tot.number}/${colL(cCont)}${tot.number})`, result: calc.tot.contratado ? calc.tot.acumulado / calc.tot.contratado : 0 };
-  tot.getCell(cSal).value = { formula: `${colL(cCont)}${tot.number}-${colL(cAcum)}${tot.number}`, result: calc.tot.contratado - calc.tot.acumulado };
-  for (let j = cCont; j <= cSal; j++) tot.getCell(j).numFmt = moneda;
-  tot.getCell(cAv).numFmt = '0.0%';
-  tot.eachCell((cell) => { cell.font = { bold: true, color: { argb: 'FFFFFFFF' } }; relleno(cell, C); });
-  const filaTotal = tot.number;
-
-  // Pagos del cliente y saldo
-  seccion(ws, 'PAGOS DEL CLIENTE (registrados en Caja hasta la fecha del corte)');
-  const encP = ws.addRow(['Fecha', 'Concepto', 'Valor']);
-  encP.eachCell((c) => { relleno(c, C); c.font = { bold: true, color: { argb: 'FFFFFFFF' }, size: 9 }; });
-  const iniP = ws.rowCount + 1;
-  (calc.pagos || []).forEach((p) => {
-    const r = ws.addRow([fechaCC(p.fecha), p.concepto, Number(p.valor)]);
-    r.getCell(3).numFmt = moneda;
-    r.eachCell((cell) => { cell.border = { bottom: { style: 'hair', color: { argb: 'FFD9D4CC' } } }; });
-  });
-  const finP = Math.max(iniP, ws.rowCount);
-  ws.addRow([]);
-  const filaPag = ws.rowCount + 2;
-  [
-    ['TOTAL LIQUIDADO ACUMULADO', { formula: `${colL(cAcum)}${filaTotal}`, result: calc.tot.acumulado }, H, C],
-    ['(−) PAGOS RECIBIDOS DEL CLIENTE', { formula: (calc.pagos || []).length ? `SUM(C${iniP}:C${finP})` : '0', result: calc.tot.pagos }, 'FFE6F2E6', 'FF1E6B2E'],
-    [calc.tot.saldo >= 0 ? 'SALDO A PAGAR POR EL CLIENTE' : 'SALDO A FAVOR DEL CLIENTE', { formula: `C${filaPag - 1}-C${filaPag}`, result: calc.tot.saldo }, C, 'FFFFFFFF'],
-  ].forEach(([etq, val, fondo, color]) => {
-    const r = ws.addRow(['', etq, val]);
-    r.getCell(3).numFmt = moneda;
-    [2, 3].forEach((j) => { const c = r.getCell(j); relleno(c, fondo); c.font = { bold: true, color: { argb: color } }; });
-  });
-  const info = calc.grupos.find((g) => !g.suma);
-  if (info) {
-    ws.addRow([]);
-    const r = ws.addRow(['', `Pagos directos del cliente (informativo, no suma al total): ${formatoPesos(Math.round(info.acumulado))}`]);
-    r.getCell(2).font = { italic: true, color: { argb: 'FF6B655D' } };
-  }
-  if (corte.notas) { ws.addRow([]); ws.addRow(['', `Observaciones: ${corte.notas}`]).getCell(2).alignment = { wrapText: true }; }
 
   const buf = await wb.xlsx.writeBuffer();
   const url = URL.createObjectURL(new Blob([buf], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }));
