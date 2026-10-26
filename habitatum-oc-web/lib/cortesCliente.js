@@ -69,24 +69,27 @@ export function recalcular(detalle, edic = { caps: {}, items: {} }) {
       });
       return { ...it, porCorte: porCorteIt };
     });
-    // Capítulos globales (por %): para el detalle, cada ítem avanza en la misma proporción del capítulo en cada
-    // corte (cantidad = contratada × %; valor repartido según el valor del ítem, el redondeo va al ítem mayor).
-    if (modo === 'GLOBAL' && itemsH.length && num(c.contratado) > 0) {
+    // Cortes liquidados por % global (073/074): para el detalle, en esos cortes cada ítem avanza en la misma
+    // proporción del capítulo (cantidad = contratada × % del corte; el valor del corte se reparte según el valor de
+    // cada ítem y el redondeo va al ítem mayor). Los cortes por cantidades conservan sus cantidades medidas.
+    const modoDe = (n) => (n === numActual ? modo : ((c.historia || []).find((h) => h.numero === n)?.modo || c.modo));
+    if (itemsH.length && num(c.contratado) > 0 && porCorte.some((h) => modoDe(h.numero) === 'GLOBAL')) {
       const mayor = itemsH.reduce((m, it, j) => (num(it.valor_contratado) > num(itemsH[m].valor_contratado) ? j : m), 0);
-      const cortesIt = porCorte.map((h) => {
+      porCorte.forEach((h, k) => {
+        if (modoDe(h.numero) !== 'GLOBAL') return;
         const f = h.valor / num(c.contratado);
         const vals = itemsH.map((it) => Math.round(num(it.valor_contratado) * f));
         vals[mayor] += h.valor - vals.reduce((a, v) => a + v, 0);
-        return { numero: h.numero, f, vals };
+        itemsH.forEach((it, j) => {
+          it.porCorte = it.porCorte.map((x, kk) => (kk === k ? { numero: h.numero, cantidad: num(it.contratado) * f, valor: vals[j], proporcional: true } : x));
+        });
       });
-      itemsH.forEach((it, j) => {
-        it.porCorte = cortesIt.map((x) => ({ numero: x.numero, cantidad: num(it.contratado) * x.f, valor: x.vals[j] }));
-        it.acumulado = it.porCorte.reduce((a, h) => a + h.cantidad, 0);
-        it.valor_acumulado = it.porCorte.reduce((a, h) => a + h.valor, 0);
+      itemsH.forEach((it) => {
         const act = it.porCorte.find((h) => h.numero === numActual) || { cantidad: 0, valor: 0 };
-        it.este = act.cantidad; it.valor_este = act.valor;
-        it.anterior = it.acumulado - act.cantidad; it.valor_anterior = it.valor_acumulado - act.valor;
-        it.excede = false; it.proporcional = true;
+        it.acumulado = it.porCorte.reduce((a, h) => a + num(h.cantidad), 0);
+        it.valor_acumulado = it.porCorte.reduce((a, h) => a + num(h.valor), 0);
+        it.anterior = it.acumulado - num(act.cantidad); it.valor_anterior = it.valor_acumulado - num(act.valor);
+        if (modo === 'GLOBAL') { it.este = act.cantidad; it.valor_este = act.valor; it.excede = false; it.proporcional = true; }
       });
     }
     // % del capítulo antes de este corte (para escribir el % de ESTE corte en los capítulos globales).
@@ -122,8 +125,10 @@ export const cantCC = (n) => (n === null || n === undefined || n === '' ? '—' 
 export const tituloCorte = (corte) => (corte?.es_final ? 'Liquidación final de obra' : `Corte de obra No. ${corte?.numero}`);
 
 // ---------- Excel (formato HABITATUM, fórmulas con resultado precalculado para que se vean en iPhone) ----------
-// 073: hoja RESUMEN con una columna por corte (como el control presupuestal de administración delegada), los
-// adicionales con su detalle ítem por ítem, pagos y saldo; hoja aparte DETALLE POR CANTIDADES (sin adicionales).
+// 074: hoja principal CONTROL DE CORTES con la misma estructura del control presupuestal de administración delegada
+// (lib/exportarControlPresupuestal.js): todos los ítems, un bloque Cantidad · Vr unitario · Vr parcial por cada corte,
+// el acumulado y el avance; al final contrato, adicionales, total, pagos del cliente y saldo.
+// Hoja 2 RESUMEN por capítulo con una columna por corte.
 const colL = (n) => { let x = ''; let k = n; while (k > 0) { const m = (k - 1) % 26; x = String.fromCharCode(65 + m) + x; k = Math.floor((k - 1) / 26); } return x; };
 
 export async function exportarCorteClienteExcel(calc, proyecto) {
@@ -158,8 +163,182 @@ export async function exportarCorteClienteExcel(calc, proyecto) {
   };
   const seccion = (ws, t) => { ws.addRow([]); const r = ws.addRow([t]); r.getCell(1).font = { bold: true, size: 12 }; r.getCell(1).border = { bottom: { style: 'thin', color: { argb: D } } }; };
 
-  // ===== Hoja 1: RESUMEN =====
-  const ws = wb.addWorksheet(corte.es_final ? 'LIQUIDACION' : 'RESUMEN', { views: [{ showGridLines: false, state: 'frozen', ySplit: 0 }] });
+  // ===== Hoja 1: CONTROL DE CORTES (réplica de la estructura del control presupuestal de administración delegada) =====
+  {
+    const BF = { style: 'thin', color: { argb: 'FFB9AFA0' } };
+    const DC = 'FFF0E2D0';
+    const QF = '#,##0.00;-#,##0.00;"-"';
+    const VF = '#,##0;-#,##0;"-"';
+    const est = (cell, { b = false, f, col, al = 'right', fmt } = {}) => {
+      cell.font = { bold: b, size: 10, color: col ? { argb: col } : undefined };
+      cell.alignment = { horizontal: al, vertical: 'middle', wrapText: al === 'left' };
+      cell.border = { top: BF, bottom: BF, left: BF, right: BF };
+      if (f) relleno(cell, f);
+      if (fmt) cell.numFmt = fmt;
+    };
+    const wc = wb.addWorksheet(corte.es_final ? 'LIQUIDACION' : `CORTE ${corte.numero}`, { views: [{ showGridLines: false, state: 'frozen', xSplit: 2, ySplit: 5 }] });
+    const bQ = (k) => 8 + 4 * k; // cantidad del corte k (columna 7 + 4k es el separador)
+    const aQ = 8 + 4 * nC; const aV = aQ + 2; const pE = aV + 2; const pX = pE + 1; const nT = pX;
+    [10, 44, 8, 11, 14, 15].forEach((w, i) => { wc.getColumn(i + 1).width = w; });
+    for (let k = 0; k <= nC; k++) { wc.getColumn(7 + 4 * k).width = 2; wc.getColumn(8 + 4 * k).width = 11; wc.getColumn(9 + 4 * k).width = 14; wc.getColumn(10 + 4 * k).width = 15; }
+    wc.getColumn(pE - 1).width = 2; wc.getColumn(pE).width = 10; wc.getColumn(pX).width = 15;
+    wc.mergeCells(1, 1, 1, nT);
+    const t1 = wc.getCell(1, 1);
+    t1.value = `HABITATUM · ${corte.es_final ? 'LIQUIDACIÓN FINAL DE OBRA' : 'CORTE DE OBRA AL CLIENTE'} — ${proyecto?.nombre || calc.proyecto?.nombre || ''}`;
+    t1.font = { bold: true, size: 14, color: { argb: H } }; t1.alignment = { horizontal: 'center', vertical: 'middle' }; relleno(t1, C);
+    wc.getRow(1).height = 26;
+    wc.mergeCells(2, 1, 2, nT);
+    const t2 = wc.getCell(2, 1);
+    t2.value = `${tituloCorte(corte)} — al ${fechaCC(corte.fecha)} · Cliente: ${calc.proyecto?.cliente || '—'}${corte.estado === 'CERRADO' ? '' : ' · BORRADOR'}`;
+    t2.font = { italic: true, size: 10, color: { argb: C } }; t2.alignment = { horizontal: 'center' };
+    // Encabezados (filas 4 y 5)
+    ['ÍTEM', 'DESCRIPCIÓN', 'UNIDAD', 'CANTIDAD', 'VR UNITARIO', 'VR PARCIAL'].forEach((t, i) => {
+      wc.mergeCells(4, i + 1, 5, i + 1);
+      const cell = wc.getCell(4, i + 1); cell.value = t;
+      est(cell, { b: true, f: D, col: H, al: i <= 1 ? 'left' : 'center' });
+    });
+    const bloque = (c0, titulo, fGrupo, fSub, colSub) => {
+      wc.mergeCells(4, c0, 4, c0 + 2);
+      const g = wc.getCell(4, c0); g.value = titulo; est(g, { b: true, f: fGrupo, col: H, al: 'center' });
+      ['CANTIDAD', 'VR UNITARIO', 'VR PARCIAL'].forEach((t, i) => { const cell = wc.getCell(5, c0 + i); cell.value = t; est(cell, { b: true, f: fSub, col: colSub, al: 'center' }); });
+    };
+    const fechaDe = (n) => (calc.cortes || []).find((x) => x.numero === n)?.fecha;
+    cortes.forEach((n, k) => bloque(bQ(k), `CORTE ${n}${fechaDe(n) ? ` · ${fechaCC(fechaDe(n))}` : ''}${n === corte.numero && corte.estado !== 'CERRADO' ? ' (BORRADOR)' : ''}`, C, G, C));
+    bloque(aQ, 'TOTAL EJECUTADO (acumulado)', D, D, H);
+    wc.mergeCells(4, pE, 4, pX);
+    const av = wc.getCell(4, pE); av.value = 'AVANCE'; est(av, { b: true, f: C, col: H, al: 'center' });
+    ['% EJEC.', 'POR EJECUTAR'].forEach((t, i) => { const cell = wc.getCell(5, pE + i); cell.value = t; est(cell, { b: true, f: G, col: C, al: 'center' }); });
+    wc.getRow(4).height = 28;
+
+    let f = 6;
+    const filasPorGrupo = {}; // clave de grupo → lista de rangos de ítems [ini, fin]
+    const sumaRangos = (rangos, col) => (rangos.length ? rangos.map(([a, b]) => `SUM(${colL(col)}${a}:${colL(col)}${b})`).join('+') : '0');
+    const pctFila = (fila) => ({ formula: `IFERROR(IF(F${fila}>0,${colL(aV)}${fila}/F${fila},""),"")` });
+    calc.grupos.forEach((g) => {
+      filasPorGrupo[g.clave] = [];
+      g.capitulos.forEach((c) => {
+        const fc = f;
+        wc.mergeCells(fc, 1, fc, 2);
+        const cc = wc.getCell(fc, 1);
+        cc.value = `${c.codigo} ${c.nombre}${c.modo === 'GLOBAL' ? ' · global por %' : ''}${g.suma ? '' : ' (informativo, no suma)'}`;
+        est(cc, { b: true, f: G, col: C, al: 'left' });
+        [3, 4, 5].forEach((j) => est(wc.getCell(fc, j), { b: true, f: G }));
+        est(wc.getCell(fc, 6), { b: true, f: G, fmt: VF }); wc.getCell(fc, 6).value = Number(c.contratado) || 0;
+        f++;
+        const ini = f;
+        c.items.forEach((it) => {
+          const vals = [it.codigo, it.descripcion, it.unidad || '', Number(it.contratado) || 0, Number(it.valor_unitario) || 0, Number(it.valor_contratado) || 0];
+          vals.forEach((v, i) => { const cell = wc.getCell(f, i + 1); cell.value = v; est(cell, { al: i <= 1 ? 'left' : (i === 2 ? 'center' : 'right'), fmt: i === 3 ? QF : (i >= 4 ? VF : undefined) }); });
+          cortes.forEach((n, k) => {
+            const h = it.porCorte[k] || { cantidad: 0, valor: 0 };
+            const q = Number(h.cantidad) || 0; const v = Number(h.valor) || 0;
+            const cq = wc.getCell(f, bQ(k)); cq.value = q;
+            const cu = wc.getCell(f, bQ(k) + 1); cu.value = { formula: `IFERROR(${colL(bQ(k) + 2)}${f}/${colL(bQ(k))}${f},"")`, result: q ? v / q : '' };
+            const cv = wc.getCell(f, bQ(k) + 2); cv.value = v;
+            const fondo = k === kAct ? CAFE : undefined;
+            est(cq, { f: fondo, fmt: QF }); est(cu, { f: fondo, fmt: VF }); est(cv, { f: fondo, fmt: VF });
+          });
+          const sumQ = cortes.map((n, k) => `${colL(bQ(k))}${f}`).join('+');
+          const sumV = cortes.map((n, k) => `${colL(bQ(k) + 2)}${f}`).join('+');
+          const accQ = Number(it.acumulado) || 0; const accV = Number(it.valor_acumulado) || 0;
+          wc.getCell(f, aQ).value = { formula: sumQ, result: accQ };
+          wc.getCell(f, aQ + 1).value = { formula: `IFERROR(${colL(aV)}${f}/${colL(aQ)}${f},"")`, result: accQ ? accV / accQ : '' };
+          wc.getCell(f, aV).value = { formula: sumV, result: accV };
+          est(wc.getCell(f, aQ), { f: DC, fmt: QF }); est(wc.getCell(f, aQ + 1), { f: DC, fmt: VF }); est(wc.getCell(f, aV), { f: DC, fmt: VF });
+          if (it.excede) wc.getCell(f, aQ).font = { bold: true, size: 10, color: { argb: 'FF9B2C2C' } };
+          wc.getCell(f, pE).value = { ...pctFila(f), result: Number(it.valor_contratado) > 0 ? accV / Number(it.valor_contratado) : '' };
+          wc.getCell(f, pX).value = { formula: `F${f}-${colL(aV)}${f}`, result: (Number(it.valor_contratado) || 0) - accV };
+          est(wc.getCell(f, pE), { fmt: '0.0%' }); est(wc.getCell(f, pX), { fmt: VF });
+          f++;
+        });
+        const fin = f - 1;
+        if (fin >= ini) filasPorGrupo[g.clave].push([ini, fin]);
+        // Fila del capítulo: valor de cada corte = suma de SUS ítems; en capítulos globales, el % del corte va en Cantidad.
+        cortes.forEach((n, k) => {
+          const h = c.porCorte[k] || { valor: 0, pct: 0 };
+          const cq = wc.getCell(fc, bQ(k));
+          if (c.modo === 'GLOBAL' || (c.historia || []).find((x) => x.numero === n)?.modo === 'GLOBAL') { cq.value = (Number(h.pct) || 0) / 100; est(cq, { b: true, f: G, fmt: '0.0%;-0.0%;"-"' }); } else est(cq, { f: G });
+          est(wc.getCell(fc, bQ(k) + 1), { f: G });
+          const cv = wc.getCell(fc, bQ(k) + 2);
+          cv.value = fin >= ini ? { formula: `SUM(${colL(bQ(k) + 2)}${ini}:${colL(bQ(k) + 2)}${fin})`, result: h.valor } : h.valor;
+          est(cv, { b: true, f: G, fmt: VF });
+        });
+        est(wc.getCell(fc, aQ), { f: DC }); est(wc.getCell(fc, aQ + 1), { f: DC });
+        wc.getCell(fc, aV).value = { formula: cortes.map((n, k) => `${colL(bQ(k) + 2)}${fc}`).join('+'), result: c.acumulado };
+        est(wc.getCell(fc, aV), { b: true, f: DC, fmt: VF });
+        wc.getCell(fc, pE).value = { ...pctFila(fc), result: Number(c.contratado) > 0 ? c.acumulado / Number(c.contratado) : '' };
+        wc.getCell(fc, pX).value = { formula: `F${fc}-${colL(aV)}${fc}`, result: (Number(c.contratado) || 0) - c.acumulado };
+        est(wc.getCell(fc, pE), { b: true, f: G, fmt: '0.0%' }); est(wc.getCell(fc, pX), { b: true, f: G, fmt: VF });
+      });
+    });
+
+    // ---------- Totales (contrato, adicionales, total del corte, pagos del cliente y saldo) ----------
+    f++;
+    const filaTot = (etq, { base, porCorte, acum, formula, fondo = D, color = H }) => {
+      wc.mergeCells(f, 1, f, 5);
+      const e = wc.getCell(f, 1); e.value = etq; est(e, { b: true, f: fondo, col: color, al: 'left' });
+      const cb = wc.getCell(f, 6);
+      if (base !== undefined) cb.value = formula ? { formula: formula(6), result: base } : base;
+      est(cb, { b: true, f: fondo, col: color, fmt: VF });
+      if (porCorte) cortes.forEach((n, k) => {
+        const cv = wc.getCell(f, bQ(k) + 2);
+        cv.value = formula ? { formula: formula(bQ(k) + 2), result: porCorte[k] } : porCorte[k];
+        est(cv, { b: true, f: fondo, col: color, fmt: VF });
+      });
+      const ca = wc.getCell(f, aV);
+      ca.value = porCorte ? { formula: cortes.map((n, k) => `${colL(bQ(k) + 2)}${f}`).join('+'), result: acum } : (formula ? { formula: formula(aV), result: acum } : acum);
+      est(ca, { b: true, f: fondo, col: color, fmt: VF });
+      if (base !== undefined && base) {
+        wc.getCell(f, pE).value = { ...pctFila(f), result: acum / base };
+        wc.getCell(f, pX).value = { formula: `F${f}-${colL(aV)}${f}`, result: base - acum };
+        est(wc.getCell(f, pE), { b: true, f: fondo, col: color, fmt: '0.0%' }); est(wc.getCell(f, pX), { b: true, f: fondo, col: color, fmt: VF });
+      }
+      return f++;
+    };
+    const filasSuma = [];
+    calc.grupos.forEach((g) => {
+      const rangos = filasPorGrupo[g.clave] || [];
+      const fila = filaTot(`TOTAL ${g.titulo.toUpperCase()}${g.suma ? '' : ' (informativo, no suma)'}`, {
+        base: g.contratado, porCorte: g.porCorte.map((h) => h.valor), acum: g.acumulado,
+        formula: (col) => sumaRangos(rangos, col), fondo: g.suma ? G : H, color: C,
+      });
+      if (g.suma) filasSuma.push(fila);
+    });
+    const filaTotal = filaTot(`VALOR TOTAL ${corte.es_final ? 'LIQUIDADO' : 'DEL CORTE'} (contrato + adicionales)`, {
+      base: calc.tot.contratado, porCorte: calc.tot.porCorte.map((h) => h.valor), acum: calc.tot.acumulado,
+      formula: (col) => filasSuma.map((x) => `${colL(col)}${x}`).join('+') || '0', fondo: D, color: H,
+    });
+    // Pagos del cliente y saldo: van en la columna del acumulado (los pagos no se reparten por corte).
+    const iniPag = f + 4;
+    const nPag = (calc.pagos || []).length;
+    const filaPagos = filaTot('(−) PAGOS RECIBIDOS DEL CLIENTE (ver detalle abajo)', { porCorte: null, acum: calc.tot.pagos, formula: () => (nPag ? `SUM(F${iniPag}:F${iniPag + nPag - 1})` : '0'), fondo: 'FFE6F2E6', color: 'FF1E6B2E' });
+    const fs = f;
+    wc.mergeCells(fs, 1, fs, 5);
+    const es = wc.getCell(fs, 1); es.value = calc.tot.saldo >= 0 ? 'SALDO A PAGAR POR EL CLIENTE' : 'SALDO A FAVOR DEL CLIENTE';
+    est(es, { b: true, f: C, col: H, al: 'left' });
+    const sa = wc.getCell(fs, aV);
+    sa.value = { formula: `${colL(aV)}${filaTotal}-${colL(aV)}${filaPagos}`, result: calc.tot.saldo };
+    est(sa, { b: true, f: C, col: H, fmt: VF });
+    f += 2;
+    // Detalle de pagos
+    wc.mergeCells(f, 1, f, 6);
+    const tp = wc.getCell(f, 1); tp.value = 'PAGOS RECIBIDOS DEL CLIENTE (registrados en Caja hasta la fecha del corte)'; est(tp, { b: true, f: G, col: C, al: 'left' });
+    f++;
+    (calc.pagos || []).forEach((p) => {
+      wc.getCell(f, 1).value = fechaCC(p.fecha); est(wc.getCell(f, 1), { al: 'left' });
+      wc.mergeCells(f, 2, f, 5); wc.getCell(f, 2).value = p.concepto || ''; est(wc.getCell(f, 2), { al: 'left' });
+      wc.getCell(f, 6).value = Number(p.valor) || 0; est(wc.getCell(f, 6), { fmt: VF });
+      f++;
+    });
+    if (corte.notas) { f++; wc.mergeCells(f, 1, f, 6); wc.getCell(f, 1).value = `Observaciones: ${corte.notas}`; wc.getCell(f, 1).alignment = { wrapText: true }; }
+    f += 2;
+    wc.getCell(f, 2).value = `HABITATUM · Documento generado desde la plataforma el ${new Date().toLocaleString('es-CO')}. En los capítulos globales por %, las cantidades de cada ítem son proporcionales al avance del capítulo en ese corte.`;
+    wc.getCell(f, 2).font = { size: 8, italic: true, color: { argb: 'FF6B655D' } };
+    wc.pageSetup = { orientation: 'landscape', fitToPage: true, fitToWidth: 1, fitToHeight: 0, paperSize: 9 };
+  }
+
+  // ===== Hoja 2: RESUMEN por capítulo =====
+  const ws = wb.addWorksheet('RESUMEN', { views: [{ showGridLines: false, state: 'frozen', ySplit: 0 }] });
   // A cód · B nombre · C contratado · D.. cortes · acumulado · avance · por ejecutar
   const cCont = 3, cCorte = (k) => 4 + k, cAcum = 4 + nC, cAv = cAcum + 1, cSal = cAcum + 2, nCols = cSal;
   [9, 48, 16].forEach((w, i) => { ws.getColumn(i + 1).width = w; });
@@ -254,40 +433,6 @@ export async function exportarCorteClienteExcel(calc, proyecto) {
     r.getCell(2).font = { italic: true, color: { argb: 'FF6B655D' } };
   }
   if (corte.notas) { ws.addRow([]); ws.addRow(['', `Observaciones: ${corte.notas}`]).getCell(2).alignment = { wrapText: true }; }
-
-  // ===== Hoja 2: DETALLE POR CANTIDADES (solo el contrato; los adicionales y pagos directos van detallados en el resumen) =====
-  const capsCant = calc.capitulos.filter((c) => c.grupo === 'CONTRATO' && c.items.length);
-  if (capsCant.length) {
-    const wd = wb.addWorksheet('DETALLE POR CANTIDADES', { views: [{ showGridLines: false }] });
-    // A ítem · B descripción · C und · D cant. contratada · E vr unit · F valor contratado · por corte (cant, valor) · acum cant · acum valor · avance
-    const dQ = (k) => 7 + 2 * k, dV = (k) => 8 + 2 * k, dAQ = 7 + 2 * nC, dAV = dAQ + 1, dAv = dAQ + 2, nD = dAv;
-    [9, 46, 6, 11, 14, 16].forEach((w, i) => { wd.getColumn(i + 1).width = w; });
-    for (let k = 0; k < nC; k++) { wd.getColumn(dQ(k)).width = 10; wd.getColumn(dV(k)).width = 15; }
-    wd.getColumn(dAQ).width = 11; wd.getColumn(dAV).width = 16; wd.getColumn(dAv).width = 9;
-    cabecera(wd, nD, 'Detalle por cantidades');
-    wd.addRow([]);
-    encabezado(wd, ['Ítem', 'Descripción', 'Und', 'Cant. contratada', 'Vr. unitario', 'Valor contratado',
-      ...cortes.flatMap((n) => [`Corte ${n} cant.`, `Corte ${n} valor`]), 'Cant. acumulada', 'Valor acumulado', '% avance']);
-    capsCant.forEach((c) => {
-      const t = wd.addRow([c.codigo, c.nombre + (c.modo === 'GLOBAL' ? ' (global por %: cantidades en proporción al avance del capítulo)' : '')]);
-      for (let i = 1; i <= nD; i++) { relleno(t.getCell(i), H); t.getCell(i).font = { bold: true }; }
-      c.items.forEach((it) => {
-        const r = wd.addRow([it.codigo, it.descripcion, it.unidad || '', Number(it.contratado), Number(it.valor_unitario), Number(it.valor_contratado)]);
-        const n = r.number;
-        it.porCorte.forEach((h, k) => { r.getCell(dQ(k)).value = h.cantidad || 0; r.getCell(dV(k)).value = h.valor || 0; });
-        r.getCell(dAQ).value = { formula: Array.from({ length: nC }, (_, k) => `${colL(dQ(k))}${n}`).join('+'), result: it.acumulado };
-        r.getCell(dAV).value = { formula: Array.from({ length: nC }, (_, k) => `${colL(dV(k))}${n}`).join('+'), result: it.valor_acumulado };
-        r.getCell(dAv).value = { formula: `IF(D${n}=0,0,${colL(dAQ)}${n}/D${n})`, result: Number(it.contratado) ? it.acumulado / Number(it.contratado) : 0 };
-        [4, dAQ, ...Array.from({ length: nC }, (_, k) => dQ(k))].forEach((j) => { r.getCell(j).numFmt = '#,##0.00'; });
-        [5, 6, dAV, ...Array.from({ length: nC }, (_, k) => dV(k))].forEach((j) => { r.getCell(j).numFmt = moneda; });
-        r.getCell(dAv).numFmt = '0.0%';
-        r.getCell(2).alignment = { wrapText: true, vertical: 'top' };
-        if (kAct >= 0) { relleno(r.getCell(dQ(kAct)), CAFE); relleno(r.getCell(dV(kAct)), CAFE); }
-        if (it.excede) r.getCell(dAQ).font = { bold: true, color: { argb: 'FF9B2C2C' } };
-        r.eachCell((cell) => { cell.border = { bottom: { style: 'hair', color: { argb: 'FFD9D4CC' } } }; });
-      });
-    });
-  }
 
   const buf = await wb.xlsx.writeBuffer();
   const url = URL.createObjectURL(new Blob([buf], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }));
