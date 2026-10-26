@@ -107,9 +107,21 @@ export default function SeccionCortes({ contrato, usuario }) {
           <label className="space-y-1"><span className="text-xs text-neutral-600">Nota (opcional)</span>
             <input value={formAnt.notas} onChange={(e) => setFormAnt({ ...formAnt, notas: e.target.value })} className="border rounded px-2 py-1 w-full" /></label>
           <button disabled={guardandoAnt} onClick={registrarAnticipo} className="bg-carbon text-hueso px-3 py-1.5 rounded">{guardandoAnt ? 'Registrando…' : 'Registrar anticipo'}</button>
-          {Number(contrato.valor_inicial) > 0 && Number(formAnt.valor) > 0 && (
-            <p className="sm:col-span-4 text-xs text-neutral-500">Equivale al {Math.round(Number(formAnt.valor) / Number(contrato.valor_inicial) * 1000) / 10}% del valor del contrato.</p>
-          )}
+          {/* 072: el anticipo es un % del valor ANTES de impuestos y no lleva IVA (un anticipo no se factura). */}
+          {(() => {
+            const base = Number(contrato.valor_antes_impuestos ?? contrato.valor_inicial) || 0;
+            const sugerido = Math.round(base * (Number(contrato.pct_anticipo) || 0) / 100);
+            return (
+              <p className="sm:col-span-4 text-xs text-neutral-500">
+                {base > 0 && Number(formAnt.valor) > 0 && <>Equivale al {Math.round(Number(formAnt.valor) / base * 1000) / 10}% del valor antes de impuestos ({formatoPesos(base)}). </>}
+                {sugerido > 0 && Number(formAnt.valor) !== sugerido && (
+                  <button type="button" onClick={() => setFormAnt({ ...formAnt, valor: String(sugerido) })} className="underline text-dorado">
+                    Usar {contrato.pct_anticipo}% = {formatoPesos(sugerido)}
+                  </button>
+                )}
+              </p>
+            );
+          })()}
         </div>
       )}
       {anticipos.length > 0 && (

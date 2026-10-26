@@ -39,7 +39,7 @@ export default function SabanaDeCortes() {
   }, [usuario, proyecto, id, version]);
 
   if (cargando || cargandoProyecto || !usuario || !proyecto) return null;
-  const m = d ? construirSabana({ items: d.items, cortes: d.cortes, anticipos: d.anticipos, valorContrato: d.contrato?.valor_inicial, contrato: d.contrato }) : null;
+  const m = d ? construirSabana({ items: d.items, cortes: d.cortes, anticipos: d.anticipos, valorContrato: d.contrato?.valor_antes_impuestos ?? d.contrato?.valor_inicial, contrato: d.contrato }) : null;
   const puedeCrear = usuario.rol === 'admin' || usuario.rol === 'operativo';
 
   async function descargar() {

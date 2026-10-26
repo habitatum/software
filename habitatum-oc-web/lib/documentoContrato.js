@@ -287,9 +287,9 @@ export function validar(datos, f, smmlv) {
   // El documento no puede quedar por un valor distinto al del contrato en la app (tolerancia $2 por redondeos), en las
   // dos modalidades. Con régimen en el contrato (071) se compara el subtotal antes de impuestos; sin régimen, el total.
   {
-    const vi = num(datos?.contrato?.valor_inicial);
-    const t0 = calcular(datos?.items, f);
     const conReg = regimenDiscrimina(datos?.contrato?.regimen_impuesto);
+    const vi = num(conReg ? (datos?.contrato?.valor_antes_impuestos ?? datos?.contrato?.valor_inicial) : datos?.contrato?.valor_inicial);
+    const t0 = calcular(datos?.items, f);
     const v = conReg ? t0.subtotal : t0.total;
     if (vi > 0 && Math.abs(v - vi) > 2) {
       errores.push(conReg

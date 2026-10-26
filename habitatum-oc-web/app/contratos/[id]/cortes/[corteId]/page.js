@@ -70,7 +70,7 @@ export default function CorteDeObra() {
         const ultimo = (cortes || []).slice(-1)[0];
         // Saldos residuales de redondeo (menos de $100) no se proponen para amortizar.
         const saldoAnt = num(ant?.saldo) >= 100 ? num(ant?.saldo) : 0;
-        const pctProp = saldoAnt > 0 && num(contrato?.valor_inicial) > 0 ? r2((num(ant.valor) / num(contrato.valor_inicial)) * 100) : 0;
+        const pctProp = saldoAnt > 0 && num(contrato?.valor_antes_impuestos ?? contrato?.valor_inicial) > 0 ? r2((num(ant.valor) / num(contrato.valor_antes_impuestos ?? contrato.valor_inicial)) * 100) : 0;
         setForm((f) => ({
           ...f,
           numero: (todos?.[0]?.numero || 0) + 1,
@@ -140,7 +140,7 @@ export default function CorteDeObra() {
       numero: form.numero, fecha: form.fecha, cantidades, vus, nuevos, pctRetencion: form.pctRetencion, amortizacion: 0,
       descuento: aprobado ? Number(corte.descuento || 0) : 0, titulo: aprobado ? 'EDITANDO' : 'NUEVO',
     };
-    const m0 = construirSabana({ items: d.items, cortes: cortesPrevios, anticipos: d.anticipos, edicion: edicionBase, valorContrato: d.contrato.valor_inicial, contrato: d.contrato });
+    const m0 = construirSabana({ items: d.items, cortes: cortesPrevios, anticipos: d.anticipos, edicion: edicionBase, valorContrato: d.contrato.valor_antes_impuestos ?? d.contrato.valor_inicial, contrato: d.contrato });
     const total = m0.columnas.find((c) => c.editable).total;
     // Al editar un corte aprobado, su propia amortización vuelve a estar disponible.
     const saldo = Math.max(num(d.anticipo.saldo), 0) + (aprobado ? num(corte.valor_amortizacion) : 0);
@@ -148,11 +148,11 @@ export default function CorteDeObra() {
       : form.tipo_amortizacion === 'SALDO' ? saldo
       : form.tipo_amortizacion === 'VALOR_FIJO' ? num(form.valor_amortizacion_fijo) : 0;
     amort = Math.min(Math.max(amort, 0), saldo, total);
-    m = construirSabana({ items: d.items, cortes: cortesPrevios, anticipos: d.anticipos, edicion: { ...edicionBase, amortizacion: amort }, valorContrato: d.contrato.valor_inicial, contrato: d.contrato });
+    m = construirSabana({ items: d.items, cortes: cortesPrevios, anticipos: d.anticipos, edicion: { ...edicionBase, amortizacion: amort }, valorContrato: d.contrato.valor_antes_impuestos ?? d.contrato.valor_inicial, contrato: d.contrato });
     const colEd = m.columnas.find((c) => c.editable);
     excedidos = m.todos.filter((i) => m.excede(i) && colEd.cantidad(i.id) > 0);
   } else if (d) {
-    m = construirSabana({ items: d.items, cortes: d.cortes, anticipos: d.anticipos, valorContrato: d.contrato.valor_inicial, contrato: d.contrato });
+    m = construirSabana({ items: d.items, cortes: d.cortes, anticipos: d.anticipos, valorContrato: d.contrato.valor_antes_impuestos ?? d.contrato.valor_inicial, contrato: d.contrato });
   }
   const colEdicion = m && modoEdicion ? m.columnas.find((c) => c.editable) : null;
 

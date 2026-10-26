@@ -1,6 +1,7 @@
 'use client';
 // Régimen de impuestos del contrato (071): se define una vez en el contrato y lo heredan los cortes, sus OC y el
-// Documento del contrato. Con un régimen que discrimina, el valor y los ítems van ANTES de impuestos.
+// Documento del contrato. Con un régimen que discrimina se escribe el valor ANTES de impuestos (form.valor_base) y el
+// valor del contrato es ese valor más los impuestos (072: lo calcula la base de datos).
 import { REGIMENES_CONTRATO, impuestosRegimen, regimenDiscrimina, formatoPesos } from '@/lib/calculosOC';
 
 const CAMPO = 'border rounded px-3 py-2 text-sm w-full disabled:bg-neutral-50';
@@ -8,8 +9,8 @@ const CAMPO = 'border rounded px-3 py-2 text-sm w-full disabled:bg-neutral-50';
 export default function RegimenContrato({ form, setForm, disabled = false, bloqueado = false, exigir = false }) {
   const r = form.regimen_impuesto || '';
   const set = (k, v) => setForm({ ...form, [k]: v });
-  const imp = impuestosRegimen(form, form.valor_inicial);
-  const total = (Number(form.valor_inicial) || 0) + imp.aiu + imp.iva;
+  const imp = impuestosRegimen(form, form.valor_base);
+  const total = Math.round((Number(form.valor_base) || 0) + imp.aiu + imp.iva);
   const lista = REGIMENES_CONTRATO.filter((x) => x.valor !== 'SIN_DISCRIMINAR' || r === 'SIN_DISCRIMINAR');
   return (
     <div className="space-y-2">
@@ -36,9 +37,9 @@ export default function RegimenContrato({ form, setForm, disabled = false, bloqu
       </div>
       {regimenDiscrimina(r) && r !== 'SIN_IVA' && (
         <p className="text-xs text-neutral-600 bg-hueso border rounded p-2">
-          Antes de impuestos {formatoPesos(form.valor_inicial || 0)}
+          Antes de impuestos {formatoPesos(form.valor_base || 0)}
           {imp.aiu > 0 && <> · A+I+U {formatoPesos(imp.aiu)}</>}
-          {' '}· IVA {formatoPesos(imp.iva)} · <b>Total con impuestos {formatoPesos(total)}</b>.
+          {' '}· IVA {formatoPesos(imp.iva)} · <b>Valor del contrato (con impuestos) {formatoPesos(total)}</b>.
           {' '}Cada corte genera su OC con este impuesto; el anticipo, la amortización y la retención van sobre el valor antes de impuestos.
         </p>
       )}
@@ -54,3 +55,6 @@ function Pct({ etiqueta, valor, onChange, disabled }) {
     </label>
   );
 }
+
+/** Etiqueta del campo de valor según el régimen. */
+export const etiquetaValor = (r) => (['IVA', 'AIU', 'IVA_UTILIDAD'].includes(r) ? 'Valor antes de impuestos (subtotal de la cotización)' : 'Valor del contrato');

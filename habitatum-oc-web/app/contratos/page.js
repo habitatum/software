@@ -8,7 +8,7 @@ import { formatoPesos } from '@/lib/calculosOC';
 import NavBar from '@/components/NavBar';
 import DevolverRetenido from '@/lib/DevolverRetenido';
 import { compartirOAbrirArchivo } from '@/lib/compartirArchivo';
-import RegimenContrato from '@/lib/RegimenContrato';
+import RegimenContrato, { etiquetaValor } from '@/lib/RegimenContrato';
 
 const ANIO_ACTUAL = new Date().getFullYear();
 // 059: el texto del contrato, las garantías y el PDF ahora viven en "Documento del contrato".
@@ -19,7 +19,7 @@ const VACIO_LEGAL = {
   incluye_anticipo: false,
   pct_anticipo: 0,
 };
-const VACIO = { anio: ANIO_ACTUAL, consecutivo: 1, contratista_id: '', concepto: '', valor_inicial: 0, regimen_impuesto: '', pct_a: 0, pct_i: 0, pct_u: 0, pct_iva: 19, ...VACIO_LEGAL };
+const VACIO = { anio: ANIO_ACTUAL, consecutivo: 1, contratista_id: '', concepto: '', valor_base: 0, regimen_impuesto: '', pct_a: 0, pct_i: 0, pct_u: 0, pct_iva: 19, ...VACIO_LEGAL };
 
 export default function Contratos() {
   const { usuario, cargando } = useUsuarioActual();
@@ -104,7 +104,7 @@ export default function Contratos() {
         consecutivo: form.consecutivo,
         contratista_id: form.contratista_id,
         concepto: form.concepto,
-        valor_inicial: form.valor_inicial,
+        valor_inicial: Number(form.valor_base) || 0, valor_antes_impuestos: Number(form.valor_base) || 0, // 072: la BD calcula el valor con impuestos
         proyecto_id: proyecto.id,
         codigo_proyecto: proyecto.codigo,
         alcance_detallado: form.alcance_detallado || null,
@@ -190,8 +190,8 @@ export default function Contratos() {
                 </select>
               </div>
               <div>
-                <label className="block text-xs text-neutral-500 mb-1">{form.regimen_impuesto === 'SIN_DISCRIMINAR' ? 'Valor del contrato (precio final)' : 'Valor antes de impuestos (subtotal de la cotización)'}</label>
-                <input type="number" placeholder="Valor inicial" value={form.valor_inicial} onChange={(e) => setForm({ ...form, valor_inicial: e.target.value })} className="border rounded px-3 py-2 text-sm w-full" />
+                <label className="block text-xs text-neutral-500 mb-1">{etiquetaValor(form.regimen_impuesto)}</label>
+                <input type="number" placeholder="Valor inicial" value={form.valor_base} onChange={(e) => setForm({ ...form, valor_base: e.target.value })} className="border rounded px-3 py-2 text-sm w-full" />
               </div>
               <p className="col-span-3 text-xs text-neutral-400 -mt-1">
                 N° de contrato: {proyecto.codigo}-{form.anio}-{String(form.consecutivo).padStart(2, '0')}

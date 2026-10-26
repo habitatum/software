@@ -217,9 +217,9 @@ export default function DocumentoContrato() {
   const c = f.campos;
   const opciones = Object.fromEntries(P.garantias_exigidas.opciones.map((o) => [o.clave, o]));
   const [estTxt, estCls] = ESTADOS[estado] || ['Sin generar', 'bg-neutral-100 text-neutral-700'];
-  const valorNucleo = Number(datos.contrato?.valor_inicial ?? NaN);
-  // 071: con régimen en el contrato, el documento usa ese régimen (no se elige aquí) y el valor va antes de impuestos.
+  // 071: con régimen en el contrato, el documento usa ese régimen (no se elige aquí) y compara el valor antes de impuestos.
   const regimenFijo = regimenDiscrimina(datos.contrato?.regimen_impuesto);
+  const valorNucleo = Number((regimenFijo ? (datos.contrato?.valor_antes_impuestos ?? datos.contrato?.valor_inicial) : datos.contrato?.valor_inicial) ?? NaN);
   const valorComparado = regimenFijo ? t.subtotal : t.total;
   const tc = esTodoCosto(datos);
   const fijo = P.contratante_fijo || {};

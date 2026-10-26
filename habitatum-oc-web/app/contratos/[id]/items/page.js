@@ -135,7 +135,7 @@ export default function ItemsContrato() {
           <>
             <div>
               <h1 className="text-2xl font-semibold">Ítems del contrato {contrato.numero_contrato}</h1>
-              <p className="text-sm text-neutral-500">{contrato.proveedores?.nombre} · {contrato.concepto} · {regimenDiscrimina(contrato.regimen_impuesto) ? 'Valor antes de impuestos' : 'Valor del contrato'} {formatoPesos(contrato.valor_inicial)}</p>
+              <p className="text-sm text-neutral-500">{contrato.proveedores?.nombre} · {contrato.concepto} · Valor del contrato {formatoPesos(contrato.valor_inicial)}{regimenDiscrimina(contrato.regimen_impuesto) && contrato.regimen_impuesto !== 'SIN_IVA' ? ` · antes de impuestos ${formatoPesos(contrato.valor_antes_impuestos)}` : ''}</p>
             </div>
             {/* 071: cómo cargar los valores de los ítems según el régimen del contrato. */}
             {regimenDiscrimina(contrato.regimen_impuesto) ? (
@@ -181,7 +181,7 @@ export default function ItemsContrato() {
                   <tr className="border-t-2 border-dorado bg-hueso font-semibold">
                     <td className="p-2" colSpan={5}>Total ítems del contrato</td>
                     <td className="p-2 text-right">{formatoPesos(total)}</td>
-                    <td colSpan={2} className="p-2 text-xs font-normal text-neutral-500">{Math.abs(total - Number(contrato.valor_inicial)) > 1 ? `Difiere del valor del contrato en ${formatoPesos(total - Number(contrato.valor_inicial))}` : 'Cuadra con el contrato'}</td>
+                    <td colSpan={2} className="p-2 text-xs font-normal text-neutral-500">{Math.abs(total - Number(contrato.valor_antes_impuestos ?? contrato.valor_inicial)) > 1 ? `Difiere del valor ${regimenDiscrimina(contrato.regimen_impuesto) && contrato.regimen_impuesto !== 'SIN_IVA' ? 'antes de impuestos ' : ''}del contrato en ${formatoPesos(total - Number(contrato.valor_antes_impuestos ?? contrato.valor_inicial))}` : 'Cuadra con el contrato'}</td>
                   </tr>
                 </tbody>
               </table>

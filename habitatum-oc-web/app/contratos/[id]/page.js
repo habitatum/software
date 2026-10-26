@@ -8,8 +8,8 @@ import { crearClienteSupabase } from '@/lib/supabaseClient';
 import { formatoPesos } from '@/lib/calculosOC';
 import NavBar from '@/components/NavBar';
 import SeccionCortes from '@/lib/SeccionCortes';
-import RegimenContrato from '@/lib/RegimenContrato';
-import { textoRegimen, regimenDiscrimina, impuestosRegimen } from '@/lib/calculosOC';
+import RegimenContrato, { etiquetaValor } from '@/lib/RegimenContrato';
+import { textoRegimen } from '@/lib/calculosOC';
 
 // 059: la capa DOCUMENTO del contrato (tipo, cláusulas, pólizas, cuadro Excel, plazo, garantía y su PDF)
 // se reemplazó por el Documento del contrato estándar v1.0 (/contratos/[id]/documento). Aquí solo
@@ -17,7 +17,7 @@ import { textoRegimen, regimenDiscrimina, impuestosRegimen } from '@/lib/calculo
 function campoFormEdicion(contrato) {
   return {
     concepto: contrato.concepto || '',
-    valor_inicial: contrato.valor_inicial || 0,
+    valor_base: contrato.valor_antes_impuestos ?? contrato.valor_inicial ?? 0,
     alcance_detallado: contrato.alcance_detallado || '',
     fecha_contrato: contrato.fecha_contrato || '',
     fecha_inicio: contrato.fecha_inicio || '',
@@ -74,7 +74,7 @@ export default function DetalleContrato() {
     const supabase = crearClienteSupabase();
     const { error: err } = await supabase.from('contratos').update({
       concepto: form.concepto,
-      valor_inicial: form.valor_inicial,
+      valor_inicial: Number(form.valor_base) || 0, valor_antes_impuestos: Number(form.valor_base) || 0, // 072: la BD calcula el valor con impuestos
       alcance_detallado: form.alcance_detallado || null,
       fecha_contrato: form.fecha_contrato || null,
       fecha_inicio: form.fecha_inicio || null,
@@ -193,13 +193,10 @@ export default function DetalleContrato() {
               <div><span className="text-neutral-500">Contratista: </span>{contrato.proveedores?.nombre}</div>
               <div><span className="text-neutral-500">NIT: </span>{contrato.proveedores?.nit}</div>
               <div><span className="text-neutral-500">Concepto: </span>{contrato.concepto}</div>
-              <div><span className="text-neutral-500">{regimenDiscrimina(contrato.regimen_impuesto) ? 'Valor antes de impuestos: ' : 'Valor inicial: '}</span>{formatoPesos(contrato.valor_inicial)}</div>
-              <div className="col-span-2"><span className="text-neutral-500">Régimen de impuestos: </span>{textoRegimen(contrato)}
-                {regimenDiscrimina(contrato.regimen_impuesto) && contrato.regimen_impuesto !== 'SIN_IVA' && (() => {
-                  const imp = impuestosRegimen(contrato, contrato.valor_inicial);
-                  return <span className="text-neutral-500"> · total con impuestos {formatoPesos(Number(contrato.valor_inicial) + imp.aiu + imp.iva)}</span>;
-                })()}
+              <div><span className="text-neutral-500">Valor del contrato: </span>{formatoPesos(contrato.valor_inicial)}
+                {Number(contrato.valor_antes_impuestos ?? contrato.valor_inicial) !== Number(contrato.valor_inicial) && <span className="text-neutral-500"> (antes de impuestos {formatoPesos(contrato.valor_antes_impuestos)})</span>}
               </div>
+              <div className="col-span-2"><span className="text-neutral-500">Régimen de impuestos: </span>{textoRegimen(contrato)}</div>
               <div><span className="text-neutral-500">Fecha inicio: </span>{contrato.fecha_inicio || '-'}</div>
               <div><span className="text-neutral-500">Anticipo: </span>{contrato.incluye_anticipo ? `${contrato.pct_anticipo || 0}%` : 'No'}</div>
             </div>
@@ -239,8 +236,8 @@ export default function DetalleContrato() {
             <div className="grid grid-cols-2 gap-3">
               <input placeholder="Concepto" value={form.concepto} onChange={(e) => setForm({ ...form, concepto: e.target.value })} className="border rounded px-3 py-2 text-sm" />
               <label className="block">
-                <span className="block text-xs text-neutral-500 mb-1">{form.regimen_impuesto === 'SIN_DISCRIMINAR' ? 'Valor del contrato (precio final)' : 'Valor antes de impuestos (subtotal de la cotización)'}</span>
-                <input type="number" placeholder="Valor inicial" value={form.valor_inicial} onChange={(e) => setForm({ ...form, valor_inicial: e.target.value })} className="border rounded px-3 py-2 text-sm w-full" />
+                <span className="block text-xs text-neutral-500 mb-1">{etiquetaValor(form.regimen_impuesto)}</span>
+                <input type="number" placeholder="Valor inicial" value={form.valor_base} onChange={(e) => setForm({ ...form, valor_base: e.target.value })} className="border rounded px-3 py-2 text-sm w-full" />
               </label>
             </div>
 
