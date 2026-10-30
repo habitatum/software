@@ -1,0 +1,8 @@
+# Archivos de la compilación local: nunca se suben al repositorio.
+# Vercel instala y compila por su cuenta en cada despliegue.
+node_modules/
+.next/
+package-lock.json
+
+# Llaves locales de prueba (nunca se commitean).
+.env*.local
