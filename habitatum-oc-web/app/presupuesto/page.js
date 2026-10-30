@@ -5,7 +5,7 @@ import { useProyectoActual } from '@/lib/useProyectoActual';
 import { crearClienteSupabase } from '@/lib/supabaseClient';
 import { formatoPesos } from '@/lib/calculosOC';
 import { parsearPresupuesto } from '@/lib/parsePresupuesto';
-import { calcularPendientePorCortar, cerrarCorte, mapaItemsPresupuesto, construirCorteVirtual, obtenerOCsEnRango, obtenerAnticiposDelProyecto } from '@/lib/calcularCorte';
+import { calcularPendientePorCortar, cerrarCorte, mapaItemsPresupuesto, construirCorteVirtual, obtenerOCsEnRango, mapaCorteDeOCs, obtenerAnticiposDelProyecto } from '@/lib/calcularCorte';
 import { exportarControlPresupuestal, prepararCortesParaExportar } from '@/lib/exportarControlPresupuestal';
 import CantidadesCorte from '@/lib/CantidadesCorte';
 import NavBar from '@/components/NavBar';
@@ -125,7 +125,12 @@ export default function Presupuesto() {
       const supabase = crearClienteSupabase();
       const corteObjetivo = cortes.find((c) => c.numero === hastaNumero);
       const ordenesResumen = corteObjetivo
-        ? await obtenerOCsEnRango(supabase, proyecto.id, corteObjetivo.fecha_desde, corteObjetivo.fecha_hasta)
+        ? await obtenerOCsEnRango(supabase, proyecto.id, corteObjetivo.fecha_desde, corteObjetivo.fecha_hasta, {
+          // Las OC del corte son las que entraron en él, no las de su rango de fechas.
+          numeroCorte: corteObjetivo.numero,
+          corteDeOC: mapaCorteDeOCs(cortes.flatMap((c) => (c.ocs || []).map((o) => ({ ...o, numero: c.numero })))),
+          idsEnCurso: new Set((pendiente?.lineas || []).filter((l) => l.tipo !== 'AJUSTE' && l.orden_compra_id).map((l) => l.orden_compra_id)),
+        })
         : [];
       const cortesConResumen = cortes.map((c) => (c.numero === hastaNumero ? { ...c, ordenesResumen } : c));
       const cortesPreparados = prepararCortesParaExportar(cortesConResumen, capitulos);

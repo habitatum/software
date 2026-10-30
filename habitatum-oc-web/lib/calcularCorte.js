@@ -29,14 +29,23 @@ export function mapaItemsPresupuesto(capitulos) {
   return mapa;
 }
 
-// Trae las Órdenes de Compra vigentes del proyecto cuya fecha cae en el rango
-// (fechaDesde, fechaHasta] (fechaDesde null = sin límite inferior). Se lee de
-// la vista calculada (no de la tabla base) para tener también subtotal_items,
-// valor_iva, valor_aiu, descuento, valor_retenido y devolucion_retenido: los
-// necesitamos para prorratear el IVA/AIU/Descuento/Retención neta de cada
-// orden entre sus ítems (ver valorEjecutadoItem más abajo), exactamente igual
-// que lo hace v_presupuesto_ejecutado en la base de datos.
-export async function obtenerOCsEnRango(supabase, proyectoId, fechaDesde, fechaHasta) {
+// Trae las Órdenes de Compra vigentes del proyecto para la pestaña "Órdenes
+// de Compra" de un corte. Se lee de la vista calculada (total, neto a pagar,
+// estado, contrato) y se marca la imputación completa (✓).
+//
+// Desde el 29/10/2026 la pestaña lista las OC según el corte en que
+// REALMENTE entraron sus líneas, no según su fecha (caso OC-02-0071: fecha
+// 05/10, registrada el 09/10 después de cerrar el Corte 2 el 06/10; entró al
+// Corte 3 pero la pestaña la buscaba por fecha en el Corte 2):
+//   · OC con líneas en un corte cerrado (tipo NORMAL) → solo en ese corte.
+//   · OC con líneas NUEVO en el corte en curso → solo en el corte en curso.
+//   · OC sin líneas en ningún corte (anticipos, sin imputar) → por su fecha,
+//     en el rango (fechaDesde, fechaHasta], como antes.
+// Las líneas AJUSTE no mueven la OC: sigue en el corte donde entró.
+// opciones: { numeroCorte (null = corte en curso), corteDeOC (Map oc → número
+// de corte cerrado), idsEnCurso (Set de OC con líneas NUEVO en curso) }.
+// Sin opciones, se comporta como antes (solo por fecha).
+export async function obtenerOCsEnRango(supabase, proyectoId, fechaDesde, fechaHasta, opciones = null) {
   let consulta = supabase
     .from('v_ordenes_compra_calculadas')
     .select('id, folio, fecha, subtotal, subtotal_items, valor_iva, valor_aiu, descuento, valor_retenido, devolucion_retenido, total, neto_a_pagar, estado, tipo_pago, proveedores(nombre), contratos(numero_contrato)')
@@ -44,10 +53,21 @@ export async function obtenerOCsEnRango(supabase, proyectoId, fechaDesde, fechaH
     .neq('estado', 'ANULADA')
     .lte('fecha', fechaHasta)
     .order('fecha', { ascending: false });
-  if (fechaDesde) consulta = consulta.gt('fecha', fechaDesde);
+  // Con opciones se trae todo hasta fechaHasta: una OC del corte puede tener
+  // fecha anterior al inicio del periodo (registrada tarde).
+  if (fechaDesde && !opciones) consulta = consulta.gt('fecha', fechaDesde);
   const { data, error } = await consulta;
   if (error) throw error;
-  const ocs = data || [];
+  let ocs = data || [];
+  if (opciones) {
+    const { numeroCorte = null, corteDeOC = new Map(), idsEnCurso = new Set() } = opciones;
+    const desde = fechaDesde ? String(fechaDesde).slice(0, 10) : null;
+    ocs = ocs.filter((o) => {
+      if (corteDeOC.has(o.id)) return corteDeOC.get(o.id) === numeroCorte;
+      if (idsEnCurso.has(o.id)) return numeroCorte == null;
+      return !desde || String(o.fecha).slice(0, 10) > desde;
+    });
+  }
 
   // Igual que en la pantalla de Órdenes de Compra: una OC queda "totalmente
   // imputada" cuando CADA uno de sus ítems tiene asignaciones al presupuesto
@@ -169,6 +189,27 @@ export async function calcularAnticiposPendientes(supabase, proyectoId, fechaHas
   }, 0);
 }
 
+// Mapa OC → número del corte cerrado en que entraron sus líneas (tipo NORMAL;
+// los ajustes no cuentan). Base de la pestaña "Órdenes de Compra" del Excel.
+export async function corteDeOCsCerradas(supabase, presupuestoId) {
+  const { data, error } = await supabase
+    .from('presupuesto_corte_ocs')
+    .select('orden_compra_id, tipo, presupuesto_cortes!inner(numero, presupuesto_id)')
+    .eq('presupuesto_cortes.presupuesto_id', presupuestoId);
+  if (error) throw error;
+  return mapaCorteDeOCs((data || []).map((x) => ({ ...x, numero: x.presupuesto_cortes?.numero })));
+}
+
+// Igual, a partir de los cortes ya cargados en la página (presupuesto_corte_ocs).
+export function mapaCorteDeOCs(filas) {
+  const mapa = new Map();
+  (filas || []).forEach((x) => {
+    if (!x.orden_compra_id || x.tipo === 'AJUSTE' || x.numero == null) return;
+    if (!mapa.has(x.orden_compra_id) || x.numero < mapa.get(x.orden_compra_id)) mapa.set(x.orden_compra_id, x.numero);
+  });
+  return mapa;
+}
+
 // Corte en curso (vista previa): líneas NUEVO + AJUSTE calculadas en la base de
 // datos (corte_control_en_curso, migración 046) a la fecha de hoy.
 // anticiposPendientes es siempre "a hoy" (saldo acumulado, no flujo del periodo).
@@ -190,7 +231,9 @@ export async function calcularPendientePorCortar(supabase, proyectoId, ultimoCor
   const totalNuevo = filas.filter((l) => l.tipo === 'NUEVO').reduce((a, l) => a + Number(l.valor || 0), 0);
   const totalAjustes = ajustes.reduce((a, l) => a + Number(l.valor || 0), 0);
   // Resumen de Órdenes de Compra del periodo (pestaña "Órdenes de Compra" del Excel).
-  const ocs = await obtenerOCsEnRango(supabase, proyectoId, fechaDesde, fechaHasta);
+  const idsEnCurso = new Set(filas.filter((l) => l.tipo !== 'AJUSTE' && l.orden_compra_id).map((l) => l.orden_compra_id));
+  const corteDeOC = await corteDeOCsCerradas(supabase, presupuestoId);
+  const ocs = await obtenerOCsEnRango(supabase, proyectoId, fechaDesde, fechaHasta, { numeroCorte: null, corteDeOC, idsEnCurso });
   const anticiposPendientes = await calcularAnticiposPendientes(supabase, proyectoId, fechaHasta);
   // Cantidades medidas escritas para el corte en curso (052).
   const { data: cant } = await supabase.from('presupuesto_cantidades_en_curso')
