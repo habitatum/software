@@ -30,6 +30,57 @@ export default function SabanaCortes({ m, contrato, edicion, onPdf, hrefCorte, p
   const [nuevo, setNuevo] = useState({ descripcion: '', unidad: '', valor_unitario: '', capitulo_id: '', cantidad: '' });
   // Fila seleccionada (clic) para seguirla de lado a lado; otro clic la desmarca.
   const [seleccion, setSeleccion] = useState(null);
+  // 074: edición de un adicional ya creado (descripción, unidad, capítulo y valor unitario).
+  const [edAd, setEdAd] = useState(null);
+  const [guardandoAd, setGuardandoAd] = useState(false);
+  const nCols = 6 + cols.length * 4 + 4;
+  function abrirEdicionAdicional(item) {
+    setEdAd({ id: item.id, es_nuevo: !!item.es_nuevo, tmpId: item.tmpId, descripcion: item.descripcion || '', unidad: item.unidad || '',
+      capitulo_id: item.capitulo_id || '', valor_unitario: String(Number(item.valor_unitario) || '') });
+  }
+  async function guardarEdicionAdicional() {
+    const x = edAd;
+    if (!x.descripcion.trim() || !(Number(x.valor_unitario) > 0) || !x.capitulo_id) {
+      window.alert('El adicional necesita descripción, valor unitario y capítulo del presupuesto.');
+      return;
+    }
+    const cambios = { descripcion: x.descripcion.trim(), unidad: x.unidad.trim(), capitulo_id: x.capitulo_id, valor_unitario: x.valor_unitario };
+    if (x.es_nuevo) { edicion.onEditarNuevo(x.tmpId, cambios); setEdAd(null); return; }
+    setGuardandoAd(true);
+    const err = await edicion.onEditarAdicional(x.id, cambios);
+    setGuardandoAd(false);
+    if (err) window.alert(err); else setEdAd(null);
+  }
+  function filaEdicionAdicional() {
+    return (
+      <tr key="ed-adicional" className="bg-[#b88a52]/[0.10] border-b-2 border-dorado">
+        <td colSpan={nCols} className="p-0">
+          <div className="sticky left-0 w-[min(100vw-2rem,900px)] p-3 space-y-2">
+            <p className="text-xs font-semibold text-[#6b4a22]">Editar adicional{edAd.es_nuevo ? ' (nuevo, se guarda con el corte)' : ''}</p>
+            <div className="grid grid-cols-1 sm:grid-cols-[1fr_90px_1fr_130px] gap-2">
+              <input value={edAd.descripcion} onChange={(e) => setEdAd({ ...edAd, descripcion: e.target.value })} placeholder="Descripción" className="border rounded px-2 py-1 text-xs bg-white" />
+              <input value={edAd.unidad} onChange={(e) => setEdAd({ ...edAd, unidad: e.target.value })} placeholder="Und" className="border rounded px-2 py-1 text-xs bg-white" />
+              <select value={edAd.capitulo_id} onChange={(e) => setEdAd({ ...edAd, capitulo_id: e.target.value })} className="border rounded px-2 py-1 text-xs bg-white">
+                <option value="">Capítulo del presupuesto…</option>
+                {(edicion.capitulos || []).map((c) => <option key={c.id} value={c.id}>{c.codigo} · {c.nombre}</option>)}
+              </select>
+              <input type="number" step="any" value={edAd.valor_unitario} onChange={(e) => setEdAd({ ...edAd, valor_unitario: e.target.value })} placeholder="Valor unit." className="border rounded px-2 py-1 text-xs text-right bg-white" />
+            </div>
+            {!edAd.es_nuevo && (
+              <p className="text-[11px] text-neutral-600">
+                Descripción, unidad y capítulo se corrigen también en los cortes donde aparece y en sus Órdenes de Compra.
+                El valor unitario aplica a este corte (si está en borrador) y a los siguientes; los cortes aprobados conservan su valor (para cambiarlo use Editar corte).
+              </p>
+            )}
+            <div className="flex gap-2">
+              <button type="button" disabled={guardandoAd} onClick={guardarEdicionAdicional} className="bg-carbon text-hueso rounded px-3 py-1 text-xs disabled:opacity-50">{guardandoAd ? 'Guardando…' : 'Guardar cambios'}</button>
+              <button type="button" onClick={() => setEdAd(null)} className="border rounded px-3 py-1 text-xs bg-white">Cancelar</button>
+            </div>
+          </div>
+        </td>
+      </tr>
+    );
+  }
   function alternarSeleccion(e, id) {
     if (e.target.closest('input, button, select, a, textarea')) return;
     setSeleccion((s) => (s === id ? null : id));
@@ -92,6 +143,9 @@ export default function SabanaCortes({ m, contrato, edicion, onPdf, hrefCorte, p
         <td className={`${TD} font-semibold ${FIJA1} ${fondoFijo} ${sel ? 'border-l-4 border-l-[#b88a52]' : ''}`}>{item.codigo || (contractual ? '' : 'AD')}</td>
         <td className={`px-2 py-1.5 text-xs min-w-[280px] max-w-[380px] border-b border-neutral-200 ${FIJA2} ${fondoFijo}`}>
           {item.descripcion}
+          {!contractual && edicion?.puedeEditar && (edicion.onEditarAdicional || item.es_nuevo) && (
+            <button type="button" onClick={() => abrirEdicionAdicional(item)} title="Editar adicional" className="ml-2 text-[10px] text-[#6b4a22] underline">✎ editar</button>
+          )}
           {item.es_nuevo && edicion?.puedeEditar && (
             <button onClick={() => edicion.onQuitarNuevo(item.tmpId)} className="ml-2 text-[10px] text-red-600 underline">quitar</button>
           )}
@@ -208,7 +262,12 @@ export default function SabanaCortes({ m, contrato, edicion, onPdf, hrefCorte, p
           })}
           {filaVacia}
           {encabezadoSeccion('ADICIONALES')}
-          {m.adicionales.map((i) => filaItem(i, false))}
+          {m.adicionales.map((i) => (
+            <Fragment key={i.id}>
+              {filaItem(i, false)}
+              {edAd && edAd.id === i.id && edicion?.puedeEditar && filaEdicionAdicional()}
+            </Fragment>
+          ))}
           {edicion?.puedeEditar && (
             <tr className="border-b border-dorado/50 bg-[#b88a52]/[0.06]">
               <td className={`${TD} font-semibold text-dorado`}>AD</td>

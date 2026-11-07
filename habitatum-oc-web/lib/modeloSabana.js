@@ -22,7 +22,7 @@ export function construirSabana({ items = [], cortes = [], anticipos = [], edici
     ...items.filter((i) => i.es_adicional),
     ...((edicion?.nuevos || []).map((x) => ({
       id: `nuevo:${x.tmpId}`, tmpId: x.tmpId, es_nuevo: true, es_adicional: true, codigo: null,
-      descripcion: x.descripcion, unidad: x.unidad, cantidad: null, valor_unitario: n(x.valor_unitario),
+      descripcion: x.descripcion, unidad: x.unidad, cantidad: null, valor_unitario: n(x.valor_unitario), capitulo_id: x.capitulo_id || '',
     }))),
   ];
   const todos = [...contractuales, ...adicionales];

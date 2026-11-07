@@ -229,6 +229,24 @@ export default function CorteDeObra() {
     onCantidadNuevo: (tmpId, v) => setNuevos(nuevos.map((x) => (x.tmpId === tmpId ? { ...x, cantidad: v } : x))),
     onAgregarNuevo: (x) => setNuevos([...nuevos, x]),
     onQuitarNuevo: (tmpId) => setNuevos(nuevos.filter((x) => x.tmpId !== tmpId)),
+    // 074: editar un adicional después de creado.
+    onEditarNuevo: (tmpId, c) => setNuevos(nuevos.map((x) => (x.tmpId === tmpId ? { ...x, ...c } : x))),
+    onEditarAdicional: async (itemId, c) => {
+      const { error: e } = await crearClienteSupabase().rpc('editar_adicional_contrato', {
+        p_item: itemId, p_descripcion: c.descripcion, p_unidad: c.unidad, p_capitulo: c.capitulo_id, p_valor_unitario: num(c.valor_unitario),
+      });
+      if (e) return e.message;
+      setD((prev) => ({
+        ...prev,
+        items: prev.items.map((i) => (i.id === itemId ? {
+          ...i, descripcion: c.descripcion, unidad: c.unidad || null, valor_unitario: num(c.valor_unitario),
+          presupuesto_item_id: i.capitulo_id !== c.capitulo_id ? null : i.presupuesto_item_id, capitulo_id: c.capitulo_id,
+        } : i)),
+      }));
+      // En un corte en borrador el precio nuevo aplica también a este corte; los aprobados conservan el suyo.
+      if (!aprobado && cantidades[itemId] !== undefined) setVus((v) => ({ ...v, [itemId]: String(num(c.valor_unitario)) }));
+      return null;
+    },
   } : null;
 
   return (
