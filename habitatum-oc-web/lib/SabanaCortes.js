@@ -34,14 +34,16 @@ export default function SabanaCortes({ m, contrato, edicion, onPdf, hrefCorte, p
   const [edAd, setEdAd] = useState(null);
   const [guardandoAd, setGuardandoAd] = useState(false);
   const nCols = 6 + cols.length * 4 + 4;
+  // 075: si la obra no tiene presupuesto cargado no hay capítulos: el adicional se crea/edita sin capítulo.
+  const hayCapitulos = (edicion?.capitulos || []).length > 0;
   function abrirEdicionAdicional(item) {
     setEdAd({ id: item.id, es_nuevo: !!item.es_nuevo, tmpId: item.tmpId, descripcion: item.descripcion || '', unidad: item.unidad || '',
       capitulo_id: item.capitulo_id || '', valor_unitario: String(Number(item.valor_unitario) || '') });
   }
   async function guardarEdicionAdicional() {
     const x = edAd;
-    if (!x.descripcion.trim() || !(Number(x.valor_unitario) > 0) || !x.capitulo_id) {
-      window.alert('El adicional necesita descripción, valor unitario y capítulo del presupuesto.');
+    if (!x.descripcion.trim() || !(Number(x.valor_unitario) > 0) || (hayCapitulos && !x.capitulo_id)) {
+      window.alert(hayCapitulos ? 'El adicional necesita descripción, valor unitario y capítulo del presupuesto.' : 'El adicional necesita descripción y valor unitario.');
       return;
     }
     const cambios = { descripcion: x.descripcion.trim(), unidad: x.unidad.trim(), capitulo_id: x.capitulo_id, valor_unitario: x.valor_unitario };
@@ -61,7 +63,7 @@ export default function SabanaCortes({ m, contrato, edicion, onPdf, hrefCorte, p
               <input value={edAd.descripcion} onChange={(e) => setEdAd({ ...edAd, descripcion: e.target.value })} placeholder="Descripción" className="border rounded px-2 py-1 text-xs bg-white" />
               <input value={edAd.unidad} onChange={(e) => setEdAd({ ...edAd, unidad: e.target.value })} placeholder="Und" className="border rounded px-2 py-1 text-xs bg-white" />
               <select value={edAd.capitulo_id} onChange={(e) => setEdAd({ ...edAd, capitulo_id: e.target.value })} className="border rounded px-2 py-1 text-xs bg-white">
-                <option value="">Capítulo del presupuesto…</option>
+                <option value="">{hayCapitulos ? 'Capítulo del presupuesto…' : 'Obra sin presupuesto cargado (sin capítulo)'}</option>
                 {(edicion.capitulos || []).map((c) => <option key={c.id} value={c.id}>{c.codigo} · {c.nombre}</option>)}
               </select>
               <input type="number" step="any" value={edAd.valor_unitario} onChange={(e) => setEdAd({ ...edAd, valor_unitario: e.target.value })} placeholder="Valor unit." className="border rounded px-2 py-1 text-xs text-right bg-white" />
@@ -87,8 +89,8 @@ export default function SabanaCortes({ m, contrato, edicion, onPdf, hrefCorte, p
   }
 
   function agregar() {
-    if (!nuevo.descripcion.trim() || !(Number(nuevo.valor_unitario) > 0) || !nuevo.capitulo_id) {
-      window.alert('El adicional necesita descripción, valor unitario y capítulo del presupuesto.');
+    if (!nuevo.descripcion.trim() || !(Number(nuevo.valor_unitario) > 0) || (hayCapitulos && !nuevo.capitulo_id)) {
+      window.alert(hayCapitulos ? 'El adicional necesita descripción, valor unitario y capítulo del presupuesto.' : 'El adicional necesita descripción y valor unitario.');
       return;
     }
     edicion.onAgregarNuevo({ ...nuevo, tmpId: Date.now() });
@@ -274,7 +276,7 @@ export default function SabanaCortes({ m, contrato, edicion, onPdf, hrefCorte, p
               <td className="p-1">
                 <input value={nuevo.descripcion} onChange={(e) => setNuevo({ ...nuevo, descripcion: e.target.value })} placeholder="Nuevo adicional: descripción" className="border rounded px-1.5 py-0.5 text-xs w-full" />
                 <select value={nuevo.capitulo_id} onChange={(e) => setNuevo({ ...nuevo, capitulo_id: e.target.value })} className="border rounded px-1 py-0.5 text-[11px] w-full mt-1">
-                  <option value="">Capítulo del presupuesto…</option>
+                  <option value="">{hayCapitulos ? 'Capítulo del presupuesto…' : 'Obra sin presupuesto cargado (sin capítulo)'}</option>
                   {(edicion.capitulos || []).map((c) => <option key={c.id} value={c.id}>{c.codigo} · {c.nombre}</option>)}
                 </select>
               </td>
