@@ -184,7 +184,7 @@ export default function CorteDeObra() {
       })),
       ...nuevos.filter((x) => num(x.cantidad) !== 0).map((x, k) => ({
         corte_id: idCorte, contrato_item_id: null, descripcion: x.descripcion.trim(), unidad: x.unidad || null,
-        cantidad: num(x.cantidad), valor_unitario: num(x.valor_unitario), capitulo_id: x.capitulo_id, orden: 5000 + k,
+        cantidad: num(x.cantidad), valor_unitario: num(x.valor_unitario), capitulo_id: x.capitulo_id || null, orden: 5000 + k,
       })),
     ];
     if (filas.length) { const { error: e } = await s.from('corte_items').insert(filas); if (e) throw e; }
@@ -233,14 +233,14 @@ export default function CorteDeObra() {
     onEditarNuevo: (tmpId, c) => setNuevos(nuevos.map((x) => (x.tmpId === tmpId ? { ...x, ...c } : x))),
     onEditarAdicional: async (itemId, c) => {
       const { error: e } = await crearClienteSupabase().rpc('editar_adicional_contrato', {
-        p_item: itemId, p_descripcion: c.descripcion, p_unidad: c.unidad, p_capitulo: c.capitulo_id, p_valor_unitario: num(c.valor_unitario),
+        p_item: itemId, p_descripcion: c.descripcion, p_unidad: c.unidad, p_capitulo: c.capitulo_id || null, p_valor_unitario: num(c.valor_unitario),
       });
       if (e) return e.message;
       setD((prev) => ({
         ...prev,
         items: prev.items.map((i) => (i.id === itemId ? {
           ...i, descripcion: c.descripcion, unidad: c.unidad || null, valor_unitario: num(c.valor_unitario),
-          presupuesto_item_id: i.capitulo_id !== c.capitulo_id ? null : i.presupuesto_item_id, capitulo_id: c.capitulo_id,
+          presupuesto_item_id: (i.capitulo_id || null) !== (c.capitulo_id || null) ? null : i.presupuesto_item_id, capitulo_id: c.capitulo_id || null,
         } : i)),
       }));
       // En un corte en borrador el precio nuevo aplica también a este corte; los aprobados conservan el suyo.
