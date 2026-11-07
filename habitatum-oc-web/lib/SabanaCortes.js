@@ -53,6 +53,13 @@ export default function SabanaCortes({ m, contrato, edicion, onPdf, hrefCorte, p
     setGuardandoAd(false);
     if (err) window.alert(err); else setEdAd(null);
   }
+  // 076: eliminar un adicional ya creado (solo si no está en ningún corte aprobado; lo valida la base de datos).
+  async function eliminarAdicional(item) {
+    if (!window.confirm(`¿Eliminar el adicional "${item.descripcion}"?\n\nSe borra del contrato (y de este corte si es un borrador). No se puede deshacer.`)) return;
+    const err = await edicion.onEliminarAdicional(item.id);
+    if (err) window.alert(err);
+    else if (edAd && edAd.id === item.id) setEdAd(null);
+  }
   function filaEdicionAdicional() {
     return (
       <tr key="ed-adicional" className="bg-[#b88a52]/[0.10] border-b-2 border-dorado">
@@ -147,6 +154,9 @@ export default function SabanaCortes({ m, contrato, edicion, onPdf, hrefCorte, p
           {item.descripcion}
           {!contractual && edicion?.puedeEditar && (edicion.onEditarAdicional || item.es_nuevo) && (
             <button type="button" onClick={() => abrirEdicionAdicional(item)} title="Editar adicional" className="ml-2 text-[10px] text-[#6b4a22] underline">✎ editar</button>
+          )}
+          {!contractual && !item.es_nuevo && edicion?.puedeEditar && edicion.onEliminarAdicional && (
+            <button type="button" onClick={() => eliminarAdicional(item)} title="Eliminar adicional" className="ml-2 text-[10px] text-red-600 underline">eliminar</button>
           )}
           {item.es_nuevo && edicion?.puedeEditar && (
             <button onClick={() => edicion.onQuitarNuevo(item.tmpId)} className="ml-2 text-[10px] text-red-600 underline">quitar</button>

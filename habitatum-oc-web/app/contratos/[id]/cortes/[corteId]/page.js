@@ -247,6 +247,15 @@ export default function CorteDeObra() {
       if (!aprobado && cantidades[itemId] !== undefined) setVus((v) => ({ ...v, [itemId]: String(num(c.valor_unitario)) }));
       return null;
     },
+    // 076: eliminar un adicional (la base de datos lo impide si está en un corte aprobado).
+    onEliminarAdicional: async (itemId) => {
+      const { error: e } = await crearClienteSupabase().rpc('eliminar_adicional_contrato', { p_item: itemId });
+      if (e) return e.message;
+      setD((prev) => ({ ...prev, items: prev.items.filter((i) => i.id !== itemId) }));
+      setCantidades((q) => { const n = { ...q }; delete n[itemId]; return n; });
+      setVus((v) => { const n = { ...v }; delete n[itemId]; return n; });
+      return null;
+    },
   } : null;
 
   return (
