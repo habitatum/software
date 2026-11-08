@@ -37,7 +37,7 @@ export default function SabanaCortes({ m, contrato, edicion, onPdf, hrefCorte, p
   // 075: si la obra no tiene presupuesto cargado no hay capítulos: el adicional se crea/edita sin capítulo.
   const hayCapitulos = (edicion?.capitulos || []).length > 0;
   function abrirEdicionAdicional(item) {
-    setEdAd({ id: item.id, es_nuevo: !!item.es_nuevo, tmpId: item.tmpId, descripcion: item.descripcion || '', unidad: item.unidad || '',
+    setEdAd({ id: item.id, es_nuevo: !!item.es_nuevo, tmpId: item.tmpId, codigo: item.codigo || '', descripcion: item.descripcion || '', unidad: item.unidad || '',
       capitulo_id: item.capitulo_id || '', valor_unitario: String(Number(item.valor_unitario) || '') });
   }
   async function guardarEdicionAdicional() {
@@ -48,6 +48,7 @@ export default function SabanaCortes({ m, contrato, edicion, onPdf, hrefCorte, p
     }
     const cambios = { descripcion: x.descripcion.trim(), unidad: x.unidad.trim(), capitulo_id: x.capitulo_id, valor_unitario: x.valor_unitario };
     if (x.es_nuevo) { edicion.onEditarNuevo(x.tmpId, cambios); setEdAd(null); return; }
+    cambios.codigo = (x.codigo || '').trim();
     setGuardandoAd(true);
     const err = await edicion.onEditarAdicional(x.id, cambios);
     setGuardandoAd(false);
@@ -66,7 +67,10 @@ export default function SabanaCortes({ m, contrato, edicion, onPdf, hrefCorte, p
         <td colSpan={nCols} className="p-0">
           <div className="sticky left-0 w-[min(100vw-2rem,900px)] p-3 space-y-2">
             <p className="text-xs font-semibold text-[#6b4a22]">Editar adicional{edAd.es_nuevo ? ' (nuevo, se guarda con el corte)' : ''}</p>
-            <div className="grid grid-cols-1 sm:grid-cols-[1fr_90px_1fr_130px] gap-2">
+            <div className={`grid grid-cols-1 gap-2 ${edAd.es_nuevo ? 'sm:grid-cols-[1fr_90px_1fr_130px]' : 'sm:grid-cols-[90px_1fr_90px_1fr_130px]'}`}>
+              {!edAd.es_nuevo && (
+                <input value={edAd.codigo} onChange={(e) => setEdAd({ ...edAd, codigo: e.target.value })} placeholder="Código" title="Código o numeración del ítem (p. ej. A.01)" className="border rounded px-2 py-1 text-xs bg-white" />
+              )}
               <input value={edAd.descripcion} onChange={(e) => setEdAd({ ...edAd, descripcion: e.target.value })} placeholder="Descripción" className="border rounded px-2 py-1 text-xs bg-white" />
               <input value={edAd.unidad} onChange={(e) => setEdAd({ ...edAd, unidad: e.target.value })} placeholder="Und" className="border rounded px-2 py-1 text-xs bg-white" />
               <select value={edAd.capitulo_id} onChange={(e) => setEdAd({ ...edAd, capitulo_id: e.target.value })} className="border rounded px-2 py-1 text-xs bg-white">
@@ -75,6 +79,7 @@ export default function SabanaCortes({ m, contrato, edicion, onPdf, hrefCorte, p
               </select>
               <input type="number" step="any" value={edAd.valor_unitario} onChange={(e) => setEdAd({ ...edAd, valor_unitario: e.target.value })} placeholder="Valor unit." className="border rounded px-2 py-1 text-xs text-right bg-white" />
             </div>
+            {edAd.es_nuevo && <p className="text-[11px] text-neutral-600">El código (numeración) se le puede poner cuando el corte se apruebe y el adicional quede guardado en el contrato.</p>}
             {!edAd.es_nuevo && (
               <p className="text-[11px] text-neutral-600">
                 Descripción, unidad y capítulo se corrigen también en los cortes donde aparece y en sus Órdenes de Compra.
@@ -115,9 +120,16 @@ export default function SabanaCortes({ m, contrato, edicion, onPdf, hrefCorte, p
         <Fragment key={col.id}>
           {SEP}
           <td className={`p-1 ${EDIT}`}>
-            <input type="number" step="any" disabled={!edicion.puedeEditar} value={valorInput} placeholder="0"
-              onChange={(e) => (String(item.id).startsWith('nuevo:') ? edicion.onCantidadNuevo(item.tmpId, e.target.value) : edicion.onCantidad(item.id, e.target.value))}
-              className="border rounded px-1.5 py-0.5 text-xs w-20 text-right bg-white" />
+            {edicion.bloqueados?.[item.id] !== undefined ? (
+              // 077: cantidad que viene del soporte de personal por administración (no se escribe a mano).
+              <span title="Total de horas del soporte de personal" className="block text-right text-xs font-semibold text-[#6b4a22] px-1.5 py-0.5">
+                {cant(edicion.bloqueados[item.id]) || '0'} <span className="font-normal">👷</span>
+              </span>
+            ) : (
+              <input type="number" step="any" disabled={!edicion.puedeEditar} value={valorInput} placeholder="0"
+                onChange={(e) => (String(item.id).startsWith('nuevo:') ? edicion.onCantidadNuevo(item.tmpId, e.target.value) : edicion.onCantidad(item.id, e.target.value))}
+                className="border rounded px-1.5 py-0.5 text-xs w-20 text-right bg-white" />
+            )}
           </td>
           <td className={`p-1 ${EDIT}`}>
             {String(item.id).startsWith('nuevo:') ? <span className="text-xs block text-right px-1">{$(vu)}</span> : (

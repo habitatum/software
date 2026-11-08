@@ -9,6 +9,8 @@ import { formatoPesos } from '@/lib/calculosOC';
 import { compartirOAbrirArchivo } from '@/lib/compartirArchivo';
 import { construirSabana } from '@/lib/modeloSabana';
 import SabanaCortes from '@/lib/SabanaCortes';
+import SoportePersonal from '@/lib/SoportePersonal';
+import { CARGOS_PERSONAL, sugerirItemCargo, totalesPersonal } from '@/lib/personalCortes';
 import NavBar from '@/components/NavBar';
 
 // ============================================================
@@ -40,6 +42,10 @@ export default function CorteDeObra() {
   const [editando, setEditando] = useState(false);
   const [actualizarOC, setActualizarOC] = useState(true);
   const [itemsCorte, setItemsCorte] = useState([]);
+  // 077: soporte de personal por administración (registro del corte y cargo → ítem del contrato).
+  const [personal, setPersonal] = useState([]);
+  const [personalCorte, setPersonalCorte] = useState([]);
+  const [mapeo, setMapeo] = useState({});
 
   const esAdmin = usuario?.rol === 'admin';
   const aprobado = corte?.estado === 'APROBADO';
@@ -64,6 +70,10 @@ export default function CorteDeObra() {
         capitulos = caps || [];
       }
       const base = { contrato, items: items || [], cortes: cortes || [], anticipos: anticipos || [], anticipo: ant || {}, capitulos };
+      const { data: cargos } = await s.from('contrato_personal_cargos').select('cargo, contrato_item_id').eq('contrato_id', contratoId);
+      const mp = Object.fromEntries((cargos || []).map((x) => [x.cargo, x.contrato_item_id]));
+      CARGOS_PERSONAL.forEach((c) => { if (!mp[c.id]) { const sug = sugerirItemCargo(c.id, items || []); if (sug) mp[c.id] = sug; } });
+      setMapeo(mp);
 
       if (esNuevo) {
         const { data: todos } = await s.from('cortes').select('numero').eq('contrato_id', contratoId).order('numero', { ascending: false }).limit(1);
@@ -79,12 +89,16 @@ export default function CorteDeObra() {
           porcentaje_amortizacion: saldoAnt > 0 ? String(pctProp) : '',
         }));
       } else {
-        const [{ data: c }, { data: ci }] = await Promise.all([
+        const [{ data: c }, { data: ci }, { data: pe }] = await Promise.all([
           s.from('cortes').select('*, ordenes_compra(folio)').eq('id', corteId).single(),
           s.from('corte_items').select('*').eq('corte_id', corteId).order('orden'),
+          s.from('corte_personal').select('*').eq('corte_id', corteId).order('orden'),
         ]);
         setCorte(c);
         setItemsCorte(ci || []);
+        const filasP = (pe || []).map((x) => ({ nombre: x.nombre || '', cargo: x.cargo, fecha: x.fecha, horas: String(x.horas) }));
+        setPersonalCorte(filasP);
+        setPersonal(filasP);
         setForm({
           numero: c.numero, fecha: c.fecha, pctRetencion: String(num(c.porcentaje_retencion)),
           tipo_amortizacion: c.tipo_amortizacion, porcentaje_amortizacion: String(c.porcentaje_amortizacion || ''),
@@ -116,7 +130,7 @@ export default function CorteDeObra() {
       if (x.contrato_item_id) { cant[x.contrato_item_id] = String(x.cantidad); vv[x.contrato_item_id] = String(x.valor_unitario); }
       else nv.push({ tmpId: k + 1, descripcion: x.descripcion, unidad: x.unidad || '', valor_unitario: String(x.valor_unitario), capitulo_id: x.capitulo_id || '', cantidad: String(x.cantidad) });
     });
-    setCantidades(cant); setNuevos(nv); setVus(vv); setActualizarOC(!!corte.oc_id); setError(''); setEditando(true);
+    setCantidades(cant); setNuevos(nv); setVus(vv); setPersonal(personalCorte); setActualizarOC(!!corte.oc_id); setError(''); setEditando(true);
   }
 
   async function guardarEdicion() {
@@ -132,12 +146,18 @@ export default function CorteDeObra() {
     setGuardando(false);
   }
 
+  // 077: con registros de personal, la cantidad de los ítems asignados a cada cargo = total de horas del soporte.
+  const totPersonal = totalesPersonal(personal, mapeo);
+  const bloqueadosPersonal = modoEdicion && personal.length ? totPersonal.porItem : {};
+  const cantidadesEf = { ...cantidades };
+  Object.entries(bloqueadosPersonal).forEach(([itemId, h]) => { cantidadesEf[itemId] = h ? String(h) : ''; });
+
   // ---------- Cálculos (mismo modelo de la sábana) ----------
   let m = null; let amort = 0; let excedidos = [];
   if (d && modoEdicion) {
     const cortesPrevios = aprobado ? d.cortes.filter((k) => k.id !== corte.id) : d.cortes.filter((k) => k.numero < Number(form.numero));
     const edicionBase = {
-      numero: form.numero, fecha: form.fecha, cantidades, vus, nuevos, pctRetencion: form.pctRetencion, amortizacion: 0,
+      numero: form.numero, fecha: form.fecha, cantidades: cantidadesEf, vus, nuevos, pctRetencion: form.pctRetencion, amortizacion: 0,
       descuento: aprobado ? Number(corte.descuento || 0) : 0, titulo: aprobado ? 'EDITANDO' : 'NUEVO',
     };
     const m0 = construirSabana({ items: d.items, cortes: cortesPrevios, anticipos: d.anticipos, edicion: edicionBase, valorContrato: d.contrato.valor_antes_impuestos ?? d.contrato.valor_inicial, contrato: d.contrato });
@@ -159,6 +179,11 @@ export default function CorteDeObra() {
   async function guardar() {
     setError('');
     if (!colEdicion || colEdicion.total <= 0) throw new Error('El corte no tiene cantidades.');
+    const filasPersonal = personal.filter((f) => num(f.horas) > 0);
+    if (filasPersonal.some((f) => !f.fecha)) throw new Error('Soporte de personal: hay registros sin día laborado.');
+    if (filasPersonal.some((f) => num(f.horas) > 24)) throw new Error('Soporte de personal: un registro no puede tener más de 24 horas.');
+    const sinItem = CARGOS_PERSONAL.filter((c) => totPersonal.porCargo[c.id] > 0 && !mapeo[c.id]);
+    if (sinItem.length) throw new Error(`Soporte de personal: elija el ítem del contrato para ${sinItem.map((c) => c.nombre).join(', ')}.`);
     const s = crearClienteSupabase();
     const cabecera = {
       contrato_id: contratoId, numero: Number(form.numero), fecha: form.fecha,
@@ -177,9 +202,9 @@ export default function CorteDeObra() {
     }
     await s.from('corte_items').delete().eq('corte_id', idCorte);
     const filas = [
-      ...d.items.filter((i) => num(cantidades[i.id]) !== 0).map((i) => ({
+      ...d.items.filter((i) => num(cantidadesEf[i.id]) !== 0).map((i) => ({
         corte_id: idCorte, contrato_item_id: i.id, descripcion: (i.codigo ? `${i.codigo} · ` : '') + i.descripcion, unidad: i.unidad,
-        cantidad: num(cantidades[i.id]), valor_unitario: colEdicion.vu(i.id), presupuesto_item_id: i.presupuesto_item_id, capitulo_id: i.capitulo_id,
+        cantidad: num(cantidadesEf[i.id]), valor_unitario: colEdicion.vu(i.id), presupuesto_item_id: i.presupuesto_item_id, capitulo_id: i.capitulo_id,
         orden: i.orden + (i.es_adicional ? 1000 : 0),
       })),
       ...nuevos.filter((x) => num(x.cantidad) !== 0).map((x, k) => ({
@@ -188,6 +213,17 @@ export default function CorteDeObra() {
       })),
     ];
     if (filas.length) { const { error: e } = await s.from('corte_items').insert(filas); if (e) throw e; }
+    // 077: soporte de personal del corte y la asignación cargo → ítem del contrato.
+    { const { error: e } = await s.from('corte_personal').delete().eq('corte_id', idCorte); if (e) throw e; }
+    if (filasPersonal.length) {
+      const { error: e } = await s.from('corte_personal').insert(filasPersonal.map((f, k) => ({
+        corte_id: idCorte, nombre: (f.nombre || '').trim() || null, cargo: f.cargo, fecha: f.fecha, horas: num(f.horas), orden: k,
+      })));
+      if (e) throw e;
+      const usados = CARGOS_PERSONAL.filter((c) => mapeo[c.id] && totPersonal.porCargo[c.id] > 0)
+        .map((c) => ({ contrato_id: contratoId, cargo: c.id, contrato_item_id: mapeo[c.id] }));
+      if (usados.length) { const { error: e2 } = await s.from('contrato_personal_cargos').upsert(usados); if (e2) throw e2; }
+    }
     return idCorte;
   }
 
@@ -221,7 +257,8 @@ export default function CorteDeObra() {
   }
 
   const edicion = modoEdicion && d ? {
-    puedeEditar, cantidades, nuevos, capitulos: d.capitulos,
+    puedeEditar, cantidades: cantidadesEf, nuevos, capitulos: d.capitulos,
+    bloqueados: bloqueadosPersonal,
     pctRetencionTexto: form.pctRetencion,
     onPctRetencion: (v) => setForm({ ...form, pctRetencion: v }),
     onCantidad: (itemId, v) => setCantidades({ ...cantidades, [itemId]: v }),
@@ -233,13 +270,13 @@ export default function CorteDeObra() {
     onEditarNuevo: (tmpId, c) => setNuevos(nuevos.map((x) => (x.tmpId === tmpId ? { ...x, ...c } : x))),
     onEditarAdicional: async (itemId, c) => {
       const { error: e } = await crearClienteSupabase().rpc('editar_adicional_contrato', {
-        p_item: itemId, p_descripcion: c.descripcion, p_unidad: c.unidad, p_capitulo: c.capitulo_id || null, p_valor_unitario: num(c.valor_unitario),
+        p_item: itemId, p_descripcion: c.descripcion, p_unidad: c.unidad, p_capitulo: c.capitulo_id || null, p_valor_unitario: num(c.valor_unitario), p_codigo: c.codigo ?? null,
       });
       if (e) return e.message;
       setD((prev) => ({
         ...prev,
         items: prev.items.map((i) => (i.id === itemId ? {
-          ...i, descripcion: c.descripcion, unidad: c.unidad || null, valor_unitario: num(c.valor_unitario),
+          ...i, codigo: c.codigo !== undefined ? (c.codigo || null) : i.codigo, descripcion: c.descripcion, unidad: c.unidad || null, valor_unitario: num(c.valor_unitario),
           presupuesto_item_id: (i.capitulo_id || null) !== (c.capitulo_id || null) ? null : i.presupuesto_item_id, capitulo_id: c.capitulo_id || null,
         } : i)),
       }));
@@ -292,6 +329,10 @@ export default function CorteDeObra() {
 
             <SabanaCortes m={m} contrato={d.contrato} edicion={edicion}
               onPdf={(c) => compartirOAbrirArchivo(`/api/cortes/${c.id}/pdf`, `Corte ${c.numero} ${d.contrato.numero_contrato}.pdf`)} />
+
+            <SoportePersonal filas={modoEdicion ? personal : personalCorte} setFilas={setPersonal} mapeo={mapeo} setMapeo={setMapeo}
+              items={d.items} editable={puedeEditar} fechaCorte={form.fecha}
+              vu={(itemId) => (colEdicion ? colEdicion.vu(itemId) : num(itemsCorte.find((x) => x.contrato_item_id === itemId)?.valor_unitario ?? d.items.find((i) => i.id === itemId)?.valor_unitario))} />
 
             {modoEdicion && (
               <div className="grid md:grid-cols-3 gap-4">

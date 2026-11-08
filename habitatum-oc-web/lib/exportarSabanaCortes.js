@@ -10,10 +10,12 @@ const HUESO = 'FFEFECE6';
 const MONEDA = '_-"$"* #,##0_-;-"$"* #,##0_-;_-"$"* "-"??_-;_-@_-';
 const CANT = '#,##0.###';
 
+import { CARGOS_PERSONAL, nombreCargo } from './personalCortes';
+
 const relleno = (argb) => ({ type: 'pattern', pattern: 'solid', fgColor: { argb } });
 const borde = { bottom: { style: 'thin', color: { argb: 'FFD9D4CC' } } };
 
-export async function construirLibroSabana({ m, contrato, proyecto, logoBase64, ExcelJS }) {
+export async function construirLibroSabana({ m, contrato, proyecto, logoBase64, ExcelJS, personal }) {
   const wb = new ExcelJS.Workbook();
   wb.creator = 'HABITATUM';
   const ws = wb.addWorksheet('Cortes de obra', { views: [{ state: 'frozen', xSplit: 2, ySplit: 9, showGridLines: false }] });
@@ -161,11 +163,65 @@ export async function construirLibroSabana({ m, contrato, proyecto, logoBase64, 
   ws.getCell(r, 2).font = { size: 8, italic: true, color: { argb: 'FF6B655D' } };
   ws.pageSetup = { orientation: 'landscape', fitToPage: true, fitToWidth: 1, fitToHeight: 0, paperSize: 9 };
 
+  // 077 · Anexo: soporte de personal por administración de los cortes (registro y totales por cargo).
+  if ((personal?.filas || []).length) hojaPersonal(wb, personal, contrato);
+
   return wb;
 }
 
+function hojaPersonal(wb, personal, contrato) {
+  const wp = wb.addWorksheet('SOPORTE PERSONAL', { views: [{ state: 'frozen', ySplit: 4, showGridLines: false }] });
+  [9, 34, 18, 14, 10].forEach((w, i) => { wp.getColumn(i + 1).width = w; });
+  wp.mergeCells(1, 1, 1, 5);
+  const t = wp.getCell(1, 1);
+  t.value = `HABITATUM · SOPORTE DE PERSONAL POR ADMINISTRACIÓN — Contrato ${contrato.numero_contrato}`;
+  t.font = { bold: true, size: 13, color: { argb: 'FFEFECE6' } }; t.fill = relleno(CARBON); t.alignment = { horizontal: 'center', vertical: 'middle' };
+  wp.getRow(1).height = 24;
+  wp.getCell(2, 1).value = `${contrato.proveedores?.nombre || ''} · ${contrato.concepto || ''}`;
+  wp.getCell(2, 1).font = { italic: true, size: 9, color: { argb: 'FF6B655D' } };
+  const enc = (fila, textos, fondo = DORADO) => textos.forEach((x, i) => {
+    const c = wp.getCell(fila, i + 1); c.value = x; c.font = { bold: true, color: { argb: 'FFFFFFFF' } }; c.fill = relleno(fondo);
+    c.alignment = { horizontal: i === 4 || (fondo === CARBON && i >= 1) ? 'right' : 'left' };
+  });
+  enc(4, ['CORTE', 'NOMBRE', 'CARGO', 'DÍA LABORADO', 'HORAS']);
+  let r = 5;
+  const fechaTxt = (f) => { const p = String(f).slice(0, 10).split('-'); return `${p[2]}/${p[1]}/${p[0]}`; };
+  const filas = [...personal.filas].sort((a, b) => (a.corte - b.corte) || String(a.fecha).localeCompare(String(b.fecha)) || (a.orden - b.orden));
+  const ini = r;
+  filas.forEach((f) => {
+    wp.getRow(r).values = [`Corte ${f.corte}`, f.nombre || '—', nombreCargo(f.cargo), fechaTxt(f.fecha), Number(f.horas)];
+    wp.getCell(r, 5).numFmt = '#,##0.##';
+    for (let c = 1; c <= 5; c++) wp.getCell(r, c).border = borde;
+    r++;
+  });
+  const fin = r - 1;
+  wp.getCell(r, 4).value = 'TOTAL HORAS'; wp.getCell(r, 4).font = { bold: true };
+  wp.getCell(r, 5).value = { formula: `SUM(E${ini}:E${fin})`, result: filas.reduce((a, f) => a + Number(f.horas), 0) };
+  wp.getCell(r, 5).font = { bold: true }; wp.getCell(r, 5).numFmt = '#,##0.##';
+  r += 2;
+  // Totales por corte y cargo (fórmulas SUMIFS sobre el registro, con resultado precalculado).
+  const cortesN = [...new Set(filas.map((f) => f.corte))];
+  wp.mergeCells(r, 1, r, 2); wp.getCell(r, 1).value = 'TOTAL HORAS POR CARGO';
+  wp.getCell(r, 1).font = { bold: true, color: { argb: 'FFFFFFFF' } }; wp.getCell(r, 1).fill = relleno(CARBON);
+  const colsCorte = cortesN.map((n, k) => 3 + k);
+  cortesN.forEach((n, k) => { const c = wp.getCell(r, 3 + k); c.value = `Corte ${n}`; c.font = { bold: true, color: { argb: 'FFFFFFFF' } }; c.fill = relleno(CARBON); c.alignment = { horizontal: 'right' }; wp.getColumn(3 + k).width = Math.max(wp.getColumn(3 + k).width || 0, 14); });
+  r++;
+  CARGOS_PERSONAL.forEach((cg) => {
+    if (!filas.some((f) => f.cargo === cg.id)) return;
+    wp.mergeCells(r, 1, r, 2); wp.getCell(r, 1).value = cg.largo; wp.getCell(r, 1).font = { bold: true };
+    cortesN.forEach((n, k) => {
+      const res = filas.filter((f) => f.cargo === cg.id && f.corte === n).reduce((a, f) => a + Number(f.horas), 0);
+      const c = wp.getCell(r, colsCorte[k]);
+      c.value = { formula: `SUMIFS($E$${ini}:$E$${fin},$A$${ini}:$A$${fin},"Corte ${n}",$C$${ini}:$C$${fin},"${cg.nombre}")`, result: res };
+      c.numFmt = '#,##0.##;-#,##0.##;"-"';
+    });
+    r++;
+  });
+  wp.pageSetup = { orientation: 'portrait', fitToPage: true, fitToWidth: 1, fitToHeight: 0, paperSize: 9 };
+}
+
 // Descarga desde el navegador.
-export async function exportarSabanaCortes({ m, contrato, proyecto }) {
+export async function exportarSabanaCortes({ m, contrato, proyecto, personal }) {
   const ExcelJS = (await import('exceljs')).default;
   let logoBase64 = null;
   try {
@@ -174,7 +230,7 @@ export async function exportarSabanaCortes({ m, contrato, proyecto }) {
     for (let i = 0; i < bytes.length; i += 0x8000) bin += String.fromCharCode.apply(null, bytes.subarray(i, i + 0x8000));
     logoBase64 = btoa(bin);
   } catch { /* sin logo */ }
-  const wb = await construirLibroSabana({ m, contrato, proyecto, logoBase64, ExcelJS });
+  const wb = await construirLibroSabana({ m, contrato, proyecto, logoBase64, ExcelJS, personal });
   const buf = await wb.xlsx.writeBuffer();
   const url = URL.createObjectURL(new Blob([buf], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }));
   const a = document.createElement('a');

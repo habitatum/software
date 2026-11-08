@@ -44,7 +44,14 @@ export default function SabanaDeCortes() {
 
   async function descargar() {
     setDescargando(true);
-    try { await exportarSabanaCortes({ m, contrato: d.contrato, proyecto }); } finally { setDescargando(false); }
+    try {
+      // 077: soporte de personal por administración de los cortes aprobados (hoja aparte del Excel).
+      const ids = d.cortes.map((c) => c.id);
+      const numDe = Object.fromEntries(d.cortes.map((c) => [c.id, c.numero]));
+      const { data: pe } = ids.length ? await crearClienteSupabase().from('corte_personal').select('*').in('corte_id', ids) : { data: [] };
+      const personal = { filas: (pe || []).map((f) => ({ ...f, corte: numDe[f.corte_id] })) };
+      await exportarSabanaCortes({ m, contrato: d.contrato, proyecto, personal });
+    } finally { setDescargando(false); }
   }
 
   return (

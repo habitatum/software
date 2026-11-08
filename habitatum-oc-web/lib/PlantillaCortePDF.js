@@ -1,6 +1,7 @@
 import { Document, Page, Text, View, StyleSheet } from '@react-pdf/renderer';
 import { formatoPesos } from './calculosOC';
 import { EncabezadoPDF, COLOR_DORADO, COLOR_FONDO } from './EncabezadoPDF';
+import { CARGOS_PERSONAL, nombreCargo } from './personalCortes';
 
 // Formato de CORTE DE OBRA para firma (misma línea gráfica del estado de cuenta).
 const HUESO = '#efece6';
@@ -75,6 +76,63 @@ function Tabla({ filas, titulo }) {
         <Text style={{ width: '20%', textAlign: 'right' }}>{pesos(total)}</Text>
       </View>
     </View>
+  );
+}
+
+// 077 · Anexo: soporte de personal por administración (registro día a día y totales por cargo).
+function AnexoPersonal({ d, marca, contratante }) {
+  const { corte, contrato, proyecto, contratista, personal, personalItems } = d;
+  const h = (v) => Number(v || 0).toLocaleString('es-CO', { maximumFractionDigits: 2 });
+  const porCargo = CARGOS_PERSONAL.map((c) => ({ ...c, horas: personal.filter((f) => f.cargo === c.id).reduce((a, f) => a + Number(f.horas), 0), item: personalItems?.[c.id] }))
+    .filter((c) => c.horas > 0);
+  const total = porCargo.reduce((a, c) => a + c.horas, 0);
+  const valorTotal = porCargo.reduce((a, c) => a + (c.item ? c.horas * c.item.vu : 0), 0);
+  const c1 = { width: '6%' }; const c2 = { width: '38%' }; const c3 = { width: '22%' }; const c4 = { width: '18%' }; const c5 = { width: '16%', textAlign: 'right' };
+  return (
+    <Page size="A4" orientation="landscape" style={e.pagina}>
+      <EncabezadoPDF tituloDocumento={`Corte de obra No. ${corte.numero} · Contrato ${contrato.numero_contrato}`} nombreObra={proyecto?.nombre} mostrarMarcaHabitatum={marca} nombreEmisor={proyecto?.nombre_emisor} />
+      <Text style={e.titulo}>Anexo · Soporte de personal por administración</Text>
+      <Text style={[e.sub, { marginBottom: 8 }]}>Corte No. {corte.numero} del {fecha(corte.fecha)} · {contratista?.nombre || ''} · {personal.length} registro(s)</Text>
+
+      <Text style={e.seccion}>Registro de personal</Text>
+      <View style={e.th} fixed>
+        <Text style={c1}>#</Text><Text style={c2}>Nombre</Text><Text style={c3}>Cargo</Text><Text style={c4}>Día laborado</Text><Text style={c5}>Horas</Text>
+      </View>
+      {personal.map((f, i) => (
+        <View key={i} style={i % 2 ? e.trAlt : e.tr} wrap={false}>
+          <Text style={c1}>{i + 1}</Text><Text style={c2}>{f.nombre || '—'}</Text><Text style={c3}>{nombreCargo(f.cargo)}</Text>
+          <Text style={c4}>{fecha(f.fecha)}</Text><Text style={c5}>{h(f.horas)}</Text>
+        </View>
+      ))}
+      <View style={e.tt} wrap={false}><Text style={{ width: '84%' }}>TOTAL HORAS</Text><Text style={c5}>{h(total)}</Text></View>
+
+      <View wrap={false}>
+        <Text style={e.seccion}>Totales por cargo</Text>
+        <View style={e.th}>
+          <Text style={{ width: '18%' }}>Cargo</Text><Text style={{ width: '12%', textAlign: 'right' }}>Horas</Text>
+          <Text style={{ width: '44%', paddingLeft: 6 }}>Ítem del corte</Text><Text style={{ width: '12%', textAlign: 'right' }}>Vr. unit.</Text><Text style={{ width: '14%', textAlign: 'right' }}>Valor</Text>
+        </View>
+        {porCargo.map((c, i) => (
+          <View key={c.id} style={i % 2 ? e.trAlt : e.tr}>
+            <Text style={{ width: '18%', fontFamily: 'Helvetica-Bold' }}>{c.nombre}</Text><Text style={{ width: '12%', textAlign: 'right' }}>{h(c.horas)}</Text>
+            <Text style={{ width: '44%', paddingLeft: 6 }}>{c.item ? `${c.item.descripcion} (${c.item.unidad || '—'})` : '—'}</Text>
+            <Text style={{ width: '12%', textAlign: 'right' }}>{c.item ? pesos(c.item.vu) : '—'}</Text>
+            <Text style={{ width: '14%', textAlign: 'right' }}>{c.item ? pesos(c.horas * c.item.vu) : '—'}</Text>
+          </View>
+        ))}
+        <View style={e.tt}><Text style={{ width: '18%' }}>TOTAL</Text><Text style={{ width: '12%', textAlign: 'right' }}>{h(total)}</Text><Text style={{ width: '56%' }} /><Text style={{ width: '14%', textAlign: 'right' }}>{pesos(valorTotal)}</Text></View>
+      </View>
+
+      <View style={e.firmas} wrap={false}>
+        <View style={e.firma}><Text style={e.raya}>{contratista?.nombre || 'Contratista'}</Text><Text style={e.nota}>Contratista</Text></View>
+        <View style={e.firma}><Text style={e.raya}>Residente de obra</Text><Text style={e.nota}>Verificó el tiempo laborado</Text></View>
+        <View style={e.firma}><Text style={e.raya}>{contratante}</Text><Text style={e.nota}>Contratante</Text></View>
+      </View>
+      <View style={e.pie} fixed>
+        <Text>{marca ? 'HABITATUM' : (proyecto?.nombre_emisor || '')} · Corte No. {corte.numero} · Contrato {contrato.numero_contrato} · Anexo de personal</Text>
+        <Text render={({ pageNumber, totalPages }) => `Página ${pageNumber} de ${totalPages}`} />
+      </View>
+    </Page>
   );
 }
 
@@ -157,6 +215,7 @@ export default function PlantillaCortePDF({ d }) {
           <Text render={({ pageNumber, totalPages }) => `Página ${pageNumber} de ${totalPages}`} />
         </View>
       </Page>
+      {(d.personal || []).length > 0 && <AnexoPersonal d={d} marca={marca} contratante={contratante} />}
     </Document>
   );
 }

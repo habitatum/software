@@ -12,11 +12,14 @@ export async function GET(request, { params }) {
   const { data: corte } = await supabase.from('cortes').select('*, ordenes_compra(folio)').eq('id', id).maybeSingle();
   if (!corte) return new Response('Corte no encontrado', { status: 404 });
 
-  const [{ data: contrato }, { data: items }, { data: filasCorte }, { data: anticipo }] = await Promise.all([
+  const [{ data: contrato }, { data: items }, { data: filasCorte }, { data: anticipo }, { data: personal }, { data: cargosP }] = await Promise.all([
     supabase.from('contratos').select('*').eq('id', corte.contrato_id).single(),
     supabase.from('contrato_items').select('*').eq('contrato_id', corte.contrato_id),
     supabase.from('corte_items').select('*').eq('corte_id', id).order('orden'),
     supabase.rpc('anticipo_contrato', { p_contrato: corte.contrato_id }),
+    // 077: soporte de personal por administración (anexo del PDF).
+    supabase.from('corte_personal').select('*').eq('corte_id', id).order('fecha').order('orden'),
+    supabase.from('contrato_personal_cargos').select('cargo, contrato_item_id').eq('contrato_id', corte.contrato_id),
   ]);
   const [{ data: proyecto }, { data: contratista }] = await Promise.all([
     supabase.from('proyectos').select('*').eq('id', contrato.proyecto_id).single(),
@@ -64,6 +67,12 @@ export async function GET(request, { params }) {
   const d = {
     corte: { ...corte, folio: corte.ordenes_compra?.folio, subtotal_calc: subtotal, amort_calc: amort, ret_calc: ret, neto_calc: neto },
     contrato, proyecto, contratista, filas, anticipo,
+    personal: personal || [],
+    personalItems: Object.fromEntries((cargosP || []).map((x) => {
+      const ci = porId[x.contrato_item_id];
+      const fc = (filasCorte || []).find((f) => f.contrato_item_id === x.contrato_item_id);
+      return [x.cargo, ci ? { descripcion: `${ci.codigo ? `${ci.codigo} · ` : ''}${ci.descripcion}`, unidad: ci.unidad, vu: Number(fc ? fc.valor_unitario : ci.valor_unitario) } : null];
+    })),
   };
   const buffer = await renderToBuffer(PlantillaCortePDF({ d }));
   return new Response(buffer, {
