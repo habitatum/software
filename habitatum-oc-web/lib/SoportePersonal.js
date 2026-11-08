@@ -60,7 +60,7 @@ export default function SoportePersonal({ filas, setFilas, mapeo, setMapeo, item
                       </select>) : nombreCargo(f.cargo)}</td>
                     <td className="p-1.5">{editable ? <input type="date" value={f.fecha || ''} onChange={(e) => setFila(k, 'fecha', e.target.value)} className={CAMPO} /> : fecha(f.fecha)}</td>
                     <td className="p-1.5">{editable ? <input value={f.actividad || ''} onChange={(e) => setFila(k, 'actividad', e.target.value)} placeholder="Actividad desarrollada" className={`${CAMPO} w-full min-w-[180px]`} /> : (f.actividad || '—')}</td>
-                    <td className="p-1.5 text-right">{editable ? <input type="number" inputMode="decimal" step="any" min="0" max="24" value={f.horas} onChange={(e) => setFila(k, 'horas', e.target.value)} className={`${CAMPO} w-20 text-right`} /> : horas(f.horas)}</td>
+                    <td className="p-1.5 text-right">{editable ? <input type="number" inputMode="decimal" step="any" min="0" value={f.horas} onChange={(e) => setFila(k, 'horas', e.target.value)} className={`${CAMPO} w-20 text-right`} /> : horas(f.horas)}</td>
                     {editable && <td className="p-1.5 text-right"><button type="button" onClick={() => setFilas(filas.filter((_, j) => j !== k))} className="text-red-600 underline text-[11px]">quitar</button></td>}
                   </tr>
                 ))}

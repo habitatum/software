@@ -181,7 +181,6 @@ export default function CorteDeObra() {
     if (!colEdicion || colEdicion.total <= 0) throw new Error('El corte no tiene cantidades.');
     const filasPersonal = personal.filter((f) => num(f.horas) > 0);
     if (filasPersonal.some((f) => !f.fecha)) throw new Error('Soporte de personal: hay registros sin día laborado.');
-    if (filasPersonal.some((f) => num(f.horas) > 24)) throw new Error('Soporte de personal: un registro no puede tener más de 24 horas.');
     const sinItem = CARGOS_PERSONAL.filter((c) => totPersonal.porCargo[c.id] > 0 && !mapeo[c.id]);
     if (sinItem.length) throw new Error(`Soporte de personal: elija el ítem del contrato para ${sinItem.map((c) => c.nombre).join(', ')}.`);
     const s = crearClienteSupabase();
