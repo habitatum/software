@@ -87,7 +87,7 @@ function AnexoPersonal({ d, marca, contratante }) {
     .filter((c) => c.horas > 0);
   const total = porCargo.reduce((a, c) => a + c.horas, 0);
   const valorTotal = porCargo.reduce((a, c) => a + (c.item ? c.horas * c.item.vu : 0), 0);
-  const c1 = { width: '6%' }; const c2 = { width: '38%' }; const c3 = { width: '22%' }; const c4 = { width: '18%' }; const c5 = { width: '16%', textAlign: 'right' };
+  const c1 = { width: '4%' }; const c2 = { width: '22%' }; const c3 = { width: '13%' }; const c4 = { width: '11%' }; const c6 = { width: '42%', paddingRight: 4 }; const c5 = { width: '8%', textAlign: 'right' };
   return (
     <Page size="A4" orientation="landscape" style={e.pagina}>
       <EncabezadoPDF tituloDocumento={`Corte de obra No. ${corte.numero} · Contrato ${contrato.numero_contrato}`} nombreObra={proyecto?.nombre} mostrarMarcaHabitatum={marca} nombreEmisor={proyecto?.nombre_emisor} />
@@ -96,15 +96,15 @@ function AnexoPersonal({ d, marca, contratante }) {
 
       <Text style={e.seccion}>Registro de personal</Text>
       <View style={e.th} fixed>
-        <Text style={c1}>#</Text><Text style={c2}>Nombre</Text><Text style={c3}>Cargo</Text><Text style={c4}>Día laborado</Text><Text style={c5}>Horas</Text>
+        <Text style={c1}>#</Text><Text style={c2}>Nombre</Text><Text style={c3}>Cargo</Text><Text style={c4}>Día laborado</Text><Text style={c6}>Actividad</Text><Text style={c5}>Horas</Text>
       </View>
       {personal.map((f, i) => (
         <View key={i} style={i % 2 ? e.trAlt : e.tr} wrap={false}>
           <Text style={c1}>{i + 1}</Text><Text style={c2}>{f.nombre || '—'}</Text><Text style={c3}>{nombreCargo(f.cargo)}</Text>
-          <Text style={c4}>{fecha(f.fecha)}</Text><Text style={c5}>{h(f.horas)}</Text>
+          <Text style={c4}>{fecha(f.fecha)}</Text><Text style={c6}>{f.actividad || '—'}</Text><Text style={c5}>{h(f.horas)}</Text>
         </View>
       ))}
-      <View style={e.tt} wrap={false}><Text style={{ width: '84%' }}>TOTAL HORAS</Text><Text style={c5}>{h(total)}</Text></View>
+      <View style={e.tt} wrap={false}><Text style={{ width: '92%' }}>TOTAL HORAS</Text><Text style={c5}>{h(total)}</Text></View>
 
       <View wrap={false}>
         <Text style={e.seccion}>Totales por cargo</Text>

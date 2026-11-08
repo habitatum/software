@@ -96,7 +96,7 @@ export default function CorteDeObra() {
         ]);
         setCorte(c);
         setItemsCorte(ci || []);
-        const filasP = (pe || []).map((x) => ({ nombre: x.nombre || '', cargo: x.cargo, fecha: x.fecha, horas: String(x.horas) }));
+        const filasP = (pe || []).map((x) => ({ nombre: x.nombre || '', cargo: x.cargo, fecha: x.fecha, horas: String(x.horas), actividad: x.actividad || '' }));
         setPersonalCorte(filasP);
         setPersonal(filasP);
         setForm({
@@ -217,7 +217,7 @@ export default function CorteDeObra() {
     { const { error: e } = await s.from('corte_personal').delete().eq('corte_id', idCorte); if (e) throw e; }
     if (filasPersonal.length) {
       const { error: e } = await s.from('corte_personal').insert(filasPersonal.map((f, k) => ({
-        corte_id: idCorte, nombre: (f.nombre || '').trim() || null, cargo: f.cargo, fecha: f.fecha, horas: num(f.horas), orden: k,
+        corte_id: idCorte, nombre: (f.nombre || '').trim() || null, cargo: f.cargo, fecha: f.fecha, horas: num(f.horas), actividad: (f.actividad || '').trim() || null, orden: k,
       })));
       if (e) throw e;
       const usados = CARGOS_PERSONAL.filter((c) => mapeo[c.id] && totPersonal.porCargo[c.id] > 0)

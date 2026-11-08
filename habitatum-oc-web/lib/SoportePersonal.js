@@ -19,7 +19,7 @@ export default function SoportePersonal({ filas, setFilas, mapeo, setMapeo, item
   const setFila = (k, campo, v) => setFilas(filas.map((f, j) => (j === k ? { ...f, [campo]: v } : f)));
   function agregar() {
     const ult = filas[filas.length - 1];
-    setFilas([...filas, { nombre: '', cargo: ult?.cargo || 'OFICIAL_HO', fecha: ult?.fecha || fechaCorte || new Date().toISOString().slice(0, 10), horas: ult?.horas || '8' }]);
+    setFilas([...filas, { nombre: '', cargo: ult?.cargo || 'OFICIAL_HO', fecha: ult?.fecha || fechaCorte || new Date().toISOString().slice(0, 10), horas: ult?.horas || '8', actividad: ult?.actividad || '' }]);
     setAbierto(true);
   }
   if (!editable && !(filas || []).length) return null;
@@ -37,13 +37,14 @@ export default function SoportePersonal({ filas, setFilas, mapeo, setMapeo, item
             <p className="text-xs text-neutral-500">Registre cada día trabajado (el nombre es opcional). El total de horas de cada cargo pasa solo a la cantidad del ítem del contrato que se le asigne abajo.</p>
           )}
           <div className="overflow-x-auto">
-            <table className="text-xs min-w-[560px] w-full">
+            <table className="text-xs min-w-[760px] w-full">
               <thead>
                 <tr className="bg-gris-calido text-carbon">
                   <th className="p-2 text-left w-8">#</th>
                   <th className="p-2 text-left">Nombre (opcional)</th>
                   <th className="p-2 text-left">Cargo</th>
                   <th className="p-2 text-left">Día laborado</th>
+                  <th className="p-2 text-left">Actividad</th>
                   <th className="p-2 text-right">Horas</th>
                   {editable && <th className="p-2" />}
                 </tr>
@@ -58,11 +59,12 @@ export default function SoportePersonal({ filas, setFilas, mapeo, setMapeo, item
                         {CARGOS_PERSONAL.map((c) => <option key={c.id} value={c.id}>{c.nombre}</option>)}
                       </select>) : nombreCargo(f.cargo)}</td>
                     <td className="p-1.5">{editable ? <input type="date" value={f.fecha || ''} onChange={(e) => setFila(k, 'fecha', e.target.value)} className={CAMPO} /> : fecha(f.fecha)}</td>
+                    <td className="p-1.5">{editable ? <input value={f.actividad || ''} onChange={(e) => setFila(k, 'actividad', e.target.value)} placeholder="Actividad desarrollada" className={`${CAMPO} w-full min-w-[180px]`} /> : (f.actividad || '—')}</td>
                     <td className="p-1.5 text-right">{editable ? <input type="number" inputMode="decimal" step="any" min="0" max="24" value={f.horas} onChange={(e) => setFila(k, 'horas', e.target.value)} className={`${CAMPO} w-20 text-right`} /> : horas(f.horas)}</td>
                     {editable && <td className="p-1.5 text-right"><button type="button" onClick={() => setFilas(filas.filter((_, j) => j !== k))} className="text-red-600 underline text-[11px]">quitar</button></td>}
                   </tr>
                 ))}
-                {!filas.length && <tr><td colSpan={6} className="p-3 text-neutral-400">Sin registros de personal en este corte.</td></tr>}
+                {!filas.length && <tr><td colSpan={7} className="p-3 text-neutral-400">Sin registros de personal en este corte.</td></tr>}
               </tbody>
             </table>
           </div>

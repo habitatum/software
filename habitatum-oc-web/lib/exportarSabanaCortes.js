@@ -171,8 +171,8 @@ export async function construirLibroSabana({ m, contrato, proyecto, logoBase64, 
 
 function hojaPersonal(wb, personal, contrato) {
   const wp = wb.addWorksheet('SOPORTE PERSONAL', { views: [{ state: 'frozen', ySplit: 4, showGridLines: false }] });
-  [9, 34, 18, 14, 10].forEach((w, i) => { wp.getColumn(i + 1).width = w; });
-  wp.mergeCells(1, 1, 1, 5);
+  [9, 30, 16, 13, 10, 48].forEach((w, i) => { wp.getColumn(i + 1).width = w; });
+  wp.mergeCells(1, 1, 1, 6);
   const t = wp.getCell(1, 1);
   t.value = `HABITATUM · SOPORTE DE PERSONAL POR ADMINISTRACIÓN — Contrato ${contrato.numero_contrato}`;
   t.font = { bold: true, size: 13, color: { argb: 'FFEFECE6' } }; t.fill = relleno(CARBON); t.alignment = { horizontal: 'center', vertical: 'middle' };
@@ -183,15 +183,16 @@ function hojaPersonal(wb, personal, contrato) {
     const c = wp.getCell(fila, i + 1); c.value = x; c.font = { bold: true, color: { argb: 'FFFFFFFF' } }; c.fill = relleno(fondo);
     c.alignment = { horizontal: i === 4 || (fondo === CARBON && i >= 1) ? 'right' : 'left' };
   });
-  enc(4, ['CORTE', 'NOMBRE', 'CARGO', 'DÍA LABORADO', 'HORAS']);
+  enc(4, ['CORTE', 'NOMBRE', 'CARGO', 'DÍA LABORADO', 'HORAS', 'ACTIVIDAD']);
   let r = 5;
   const fechaTxt = (f) => { const p = String(f).slice(0, 10).split('-'); return `${p[2]}/${p[1]}/${p[0]}`; };
   const filas = [...personal.filas].sort((a, b) => (a.corte - b.corte) || String(a.fecha).localeCompare(String(b.fecha)) || (a.orden - b.orden));
   const ini = r;
   filas.forEach((f) => {
-    wp.getRow(r).values = [`Corte ${f.corte}`, f.nombre || '—', nombreCargo(f.cargo), fechaTxt(f.fecha), Number(f.horas)];
+    wp.getRow(r).values = [`Corte ${f.corte}`, f.nombre || '—', nombreCargo(f.cargo), fechaTxt(f.fecha), Number(f.horas), f.actividad || ''];
     wp.getCell(r, 5).numFmt = '#,##0.##';
-    for (let c = 1; c <= 5; c++) wp.getCell(r, c).border = borde;
+    wp.getCell(r, 6).alignment = { wrapText: true, vertical: 'top' };
+    for (let c = 1; c <= 6; c++) wp.getCell(r, c).border = borde;
     r++;
   });
   const fin = r - 1;
