@@ -495,7 +495,27 @@ export async function procesarCallbackFinanzas(supabase, cb) {
 
   const { data: b } = await supabase.from('telegram_borradores').select('*').eq('id', id).maybeSingle();
   if (!b || b.chat_id !== chatId) return contestar('Este registro ya no existe.');
-  if (b.estado !== 'PENDIENTE') return contestar(b.estado === 'CONFIRMADO' ? 'Ya fue registrado.' : 'Ya fue descartado.');
+  if (b.estado !== 'PENDIENTE') {
+    // Si el mensaje quedó sin actualizar (p. ej. Telegram no respondió al confirmar), se deja con el resultado.
+    if (b.estado === 'CONFIRMADO' && accion === 'c') {
+      const base = resumenBorrador(b).replace(/\n\n¿(Creo la OC|Lo registro)\?$/, '');
+      if (b.tipo === 'CAJA_MENOR') {
+        const { data: g } = await supabase.from('caja_menor_gastos').select('proyecto_id, recibo_folio').eq('borrador_id', id).maybeSingle();
+        if (g) {
+          const [{ data: pend }, { data: pr }] = await Promise.all([
+            supabase.from('caja_menor_gastos').select('valor').eq('proyecto_id', g.proyecto_id).is('oc_id', null),
+            supabase.from('proyectos').select('tope_caja_menor').eq('id', g.proyecto_id).single(),
+          ]);
+          const acum = (pend || []).reduce((a, x) => a + Number(x.valor), 0);
+          await editar(base + `\n\n✅ Registrado en caja menor${g.recibo_folio ? ` (recibo <b>${g.recibo_folio}</b>)` : ''}. Caja menor por legalizar: <b>${pesos(acum)}</b> de ${pesos(pr?.tope_caja_menor)}.`);
+        }
+      } else {
+        const { data: oc } = await supabase.from('ordenes_compra').select('folio').eq('id', b.datos?.oc_id || '00000000-0000-0000-0000-000000000000').maybeSingle();
+        await editar(base + `\n\n✅ Ya registrado${oc?.folio ? ` en la <b>${oc.folio}</b>` : ''}.`);
+      }
+    }
+    return contestar(b.estado === 'CONFIRMADO' ? 'Ya fue registrado.' : 'Ya fue descartado.');
+  }
 
   const quien = cb.from?.first_name || cb.from?.username || 'alguien';
 

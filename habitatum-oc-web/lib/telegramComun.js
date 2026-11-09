@@ -13,20 +13,29 @@ export let ultimoErrorGemini = null;
 
 export const hayGemini = () => !!GEMINI_API_KEY;
 
-export async function telegramFetch(metodo, params) {
-  const res = await fetch(`https://api.telegram.org/bot${TELEGRAM_TOKEN}/${metodo}`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(params),
-  });
-  return res.json();
+// Con tiempo límite: si Telegram no responde, no se cuelga la función (Telegram reintentaría el mensaje).
+export async function telegramFetch(metodo, params, ms = 12000) {
+  try {
+    const res = await fetch(`https://api.telegram.org/bot${TELEGRAM_TOKEN}/${metodo}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(params),
+      signal: AbortSignal.timeout(ms),
+    });
+    const j = await res.json();
+    if (!j?.ok && metodo !== 'answerCallbackQuery') console.error(`Telegram ${metodo}:`, j?.description);
+    return j;
+  } catch (e) {
+    console.error(`Telegram ${metodo} sin respuesta:`, e.message);
+    return { ok: false, description: e.message };
+  }
 }
 
 export async function descargarArchivoTelegram(fileId) {
   const info = await telegramFetch('getFile', { file_id: fileId });
   const ruta = info?.result?.file_path;
   if (!ruta) return null;
-  const res = await fetch(`https://api.telegram.org/file/bot${TELEGRAM_TOKEN}/${ruta}`);
+  const res = await fetch(`https://api.telegram.org/file/bot${TELEGRAM_TOKEN}/${ruta}`, { signal: AbortSignal.timeout(20000) });
   return { buffer: Buffer.from(await res.arrayBuffer()), ruta };
 }
 
@@ -47,7 +56,9 @@ export async function llamarGemini(parts, { json = false, presupuestoMs = 40000 
         if (json) body.generationConfig = { responseMimeType: 'application/json', temperature: 0.1 };
         const res = await fetch(
           `https://generativelanguage.googleapis.com/v1beta/models/${modelo}:generateContent?key=${GEMINI_API_KEY}`,
-          { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }
+          // Cada llamada con el tiempo que queda del presupuesto: así la función responde antes del límite de Vercel.
+          { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
+            signal: AbortSignal.timeout(Math.max(5000, presupuestoMs - (Date.now() - inicio))) }
         );
         if (res.ok) {
           const data = await res.json();
