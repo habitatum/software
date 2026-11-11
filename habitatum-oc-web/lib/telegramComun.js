@@ -41,7 +41,7 @@ export async function descargarArchivoTelegram(fileId) {
 
 // Prueba cada modelo; dentro de cada uno reintenta una vez ante 429/503.
 // Cualquier falla (404, 400, 403, 429 persistente…) pasa al siguiente modelo.
-export async function llamarGemini(parts, { json = false, presupuestoMs = 40000 } = {}) {
+export async function llamarGemini(parts, { json = false, presupuestoMs = 48000 } = {}) {
   if (!GEMINI_API_KEY) { ultimoErrorGemini = 'Falta GEMINI_API_KEY'; return null; }
   const inicio = Date.now();
   const errores = [];
@@ -56,9 +56,10 @@ export async function llamarGemini(parts, { json = false, presupuestoMs = 40000 
         if (json) body.generationConfig = { responseMimeType: 'application/json', temperature: 0.1 };
         const res = await fetch(
           `https://generativelanguage.googleapis.com/v1beta/models/${modelo}:generateContent?key=${GEMINI_API_KEY}`,
-          // Cada llamada con el tiempo que queda del presupuesto: así la función responde antes del límite de Vercel.
+          // Tope por modelo (24 s): si uno está lento, queda tiempo para probar el siguiente (los "lite" son más rápidos)
+          // y la función responde antes del límite de Vercel (60 s).
           { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
-            signal: AbortSignal.timeout(Math.max(5000, presupuestoMs - (Date.now() - inicio))) }
+            signal: AbortSignal.timeout(Math.min(24000, Math.max(6000, presupuestoMs - (Date.now() - inicio)))) }
         );
         if (res.ok) {
           const data = await res.json();
@@ -85,7 +86,8 @@ export async function llamarGemini(parts, { json = false, presupuestoMs = 40000 
   return null;
 }
 
-export const geminiSaturado = () => /503|high demand|429|overloaded|UNAVAILABLE/i.test(ultimoErrorGemini || '');
+// Lentitud (tiempo agotado) también se trata como saturación: el bot ofrece "Reintentar" en vez de fallar.
+export const geminiSaturado = () => /503|high demand|429|overloaded|UNAVAILABLE|timeout|aborted/i.test(ultimoErrorGemini || '');
 
 // Prueba rápida de la llave con cada modelo (para el diagnóstico en /proyectos).
 export async function probarModelosGemini() {
