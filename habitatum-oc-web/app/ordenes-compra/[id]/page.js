@@ -8,7 +8,7 @@ import { crearClienteSupabase } from '@/lib/supabaseClient';
 import { formatoPesos, nombreCapitulo } from '@/lib/calculosOC';
 import NavBar from '@/components/NavBar';
 import BotonVolver from '@/components/BotonVolver';
-import { BotonComprobante, GastosCajaMenor } from '@/lib/Comprobantes';
+import { BotonComprobante, BotonSubirSoporte, GastosCajaMenor } from '@/lib/Comprobantes';
 import { compartirOAbrirArchivo } from '@/lib/compartirArchivo';
 import { adjuntarComprobantesOC, fechaCorta, pesos } from '@/lib/adjuntarComprobantesOC';
 
@@ -157,7 +157,13 @@ export default function DetalleOrdenCompra() {
                 🔒 Corte de cobro {corteCerrado.corte_numero} (cerrado)
               </span>
             )}
-            {soportePath && <BotonComprobante ruta={soportePath} texto="Ver factura / comprobante" className="block mt-1" />}
+            <div className="flex flex-wrap items-center gap-3 mt-1">
+              {soportePath && <BotonComprobante ruta={soportePath} texto="Ver factura / comprobante" />}
+              {usuario.rol === 'admin' && (
+                <BotonSubirSoporte tipo="OC" id={id} proyectoId={oc.proyecto_id || proyecto?.id} tieneSoporte={!!soportePath} onListo={setSoportePath}
+                  texto={soportePath ? '📎 Reemplazar soporte' : '📎 Subir soporte (factura / comprobante)'} />
+              )}
+            </div>
           </div>
           <div className="flex items-center gap-2">
             {usuario.rol === 'admin' && oc.estado === 'VIGENTE' && (

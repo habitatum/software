@@ -147,6 +147,13 @@ export default function Contratos() {
           <div>
             <h1 className="text-2xl font-semibold">Contratos</h1>
             <p className="text-sm text-neutral-500">{proyecto.nombre}</p>
+            {/* 081: actas de la obra con el cliente (solo admin). */}
+            {usuario.rol === 'admin' && (
+              <div className="flex flex-wrap gap-2 mt-2">
+                <a href="/contratos/actas/inicio" className="text-xs border border-dorado text-[#6b4a22] rounded px-3 py-1.5 hover:bg-hueso">📄 Acta de inicio</a>
+                <a href="/contratos/actas/entrega" className="text-xs border border-dorado text-[#6b4a22] rounded px-3 py-1.5 hover:bg-hueso">📄 Acta de entrega</a>
+              </div>
+            )}
           </div>
           {usuario.rol !== 'lectura' && (
             <button

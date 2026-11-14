@@ -6,6 +6,7 @@ import { useProyectoActual } from '@/lib/useProyectoActual';
 import { crearClienteSupabase } from '@/lib/supabaseClient';
 import { formatoPesos } from '@/lib/calculosOC';
 import NavBar from '@/components/NavBar';
+import { BotonComprobante, BotonSubirSoporte } from '@/lib/Comprobantes';
 
 // ============================================================
 // Caja de proyectos TODO COSTO — solo administradores.
@@ -527,7 +528,11 @@ export default function Caja() {
                               </td>
                               <td className="px-2 py-1.5 whitespace-nowrap text-neutral-600">{f.capitulo}</td>
                               <td className={`px-2 py-1.5 text-right whitespace-nowrap font-semibold tabular-nums ${f.saldo < 0 ? 'text-red-700' : 'text-carbon'}`}>{formatoPesos(Math.round(f.saldo))}</td>
-                              <td className="px-1 py-1.5 text-right">
+                              <td className="px-1 py-1.5 text-right whitespace-nowrap">
+                                {/* 080: soporte del movimiento (ingreso del cliente, retiro, ajuste), solo admin. */}
+                                {f.mov?.soporte_path && <BotonComprobante ruta={f.mov.soporte_path} almacen="soportes-caja" texto="Ver" className="mr-2" />}
+                                {f.mov && <BotonSubirSoporte tipo="MOVIMIENTO" id={f.mov.id} proyectoId={proyecto.id} tieneSoporte={!!f.mov.soporte_path}
+                                  texto={f.mov.soporte_path ? '📎' : '📎 Soporte'} className="mr-2 no-underline" onListo={() => cargar()} />}
                                 {f.mov && <button onClick={() => eliminarMovimiento(f.mov)} title="Eliminar movimiento" className="text-neutral-300 hover:text-red-600">✕</button>}
                               </td>
                             </tr>,

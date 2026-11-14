@@ -9,10 +9,10 @@ import { formatoPesos } from '@/lib/calculosOC';
 
 // Abre el comprobante en otra pestaña. La ventana se abre en el clic para que
 // el iPhone no la bloquee y luego se le carga el enlace firmado.
-export async function abrirComprobante(ruta) {
+export async function abrirComprobante(ruta, almacen = 'soportes-oc') {
   if (!ruta) return;
   const ventana = window.open('', '_blank');
-  const { data, error } = await crearClienteSupabase().storage.from('soportes-oc').createSignedUrl(ruta, 600);
+  const { data, error } = await crearClienteSupabase().storage.from(almacen).createSignedUrl(ruta, 600);
   if (error || !data?.signedUrl) {
     if (ventana) ventana.close();
     window.alert(`No se pudo abrir el comprobante: ${error?.message || 'archivo no encontrado'}`);
@@ -21,13 +21,50 @@ export async function abrirComprobante(ruta) {
   if (ventana) ventana.location.href = data.signedUrl; else window.location.href = data.signedUrl;
 }
 
-export function BotonComprobante({ ruta, texto = 'Ver comprobante', className = '' }) {
+export function BotonComprobante({ ruta, texto = 'Ver comprobante', className = '', almacen = 'soportes-oc' }) {
   if (!ruta) return null;
   return (
-    <button type="button" onClick={() => abrirComprobante(ruta)}
+    <button type="button" onClick={() => abrirComprobante(ruta, almacen)}
       className={`text-xs underline text-neutral-600 hover:text-carbon whitespace-nowrap ${className}`}>
       {texto}
     </button>
+  );
+}
+
+// 080 · Subir / Reemplazar soporte (solo admin) de una Orden de Compra o de un movimiento de caja.
+// El archivo sube directo del navegador al almacén privado (sin el límite de 4,5 MB de Vercel) y la
+// función asignar_soporte lo enlaza. Reemplazar no borra el archivo anterior (queda para auditoría).
+const TIPOS_SOPORTE = { 'application/pdf': 'pdf', 'image/jpeg': 'jpg', 'image/png': 'png' };
+export async function subirSoporte({ tipo, id, proyectoId, archivo }) {
+  const ext = TIPOS_SOPORTE[archivo.type] || (archivo.name.match(/\.(pdf|jpe?g|png)$/i)?.[1] || '').toLowerCase().replace('jpeg', 'jpg');
+  if (!ext) throw new Error('El soporte debe ser PDF, JPG o PNG.');
+  if (archivo.size > 10 * 1024 * 1024) throw new Error('El archivo pesa más de 10 MB.');
+  const almacen = tipo === 'MOVIMIENTO' ? 'soportes-caja' : 'soportes-oc';
+  const ruta = `${proyectoId}/${new Date().toISOString().slice(0, 7)}/${tipo.toLowerCase()}-${id}-${Date.now()}.${ext}`;
+  const s = crearClienteSupabase();
+  const { error: e1 } = await s.storage.from(almacen).upload(ruta, archivo, { contentType: archivo.type || undefined, upsert: false });
+  if (e1) throw e1;
+  const { error: e2 } = await s.rpc('asignar_soporte', { p_tipo: tipo, p_id: id, p_path: ruta });
+  if (e2) throw e2;
+  return ruta;
+}
+
+export function BotonSubirSoporte({ tipo, id, proyectoId, tieneSoporte, onListo, className = '', texto }) {
+  const [subiendo, setSubiendo] = useState(false);
+  async function elegir(archivo) {
+    if (!archivo) return;
+    if (tieneSoporte && !window.confirm(`¿Reemplazar el soporte actual por ${archivo.name}? (el anterior queda guardado)`)) return;
+    setSubiendo(true);
+    try { onListo?.(await subirSoporte({ tipo, id, proyectoId, archivo })); }
+    catch (e) { window.alert(`No se pudo subir el soporte: ${e.message}`); }
+    finally { setSubiendo(false); }
+  }
+  return (
+    <label className={`text-xs underline cursor-pointer whitespace-nowrap ${subiendo ? 'text-neutral-300' : 'text-[#6b4a22] hover:text-carbon'} ${className}`}>
+      {subiendo ? 'Subiendo…' : (texto || (tieneSoporte ? '📎 Reemplazar soporte' : '📎 Subir soporte'))}
+      <input type="file" accept="application/pdf,image/jpeg,image/png" className="hidden" disabled={subiendo}
+        onChange={(e) => { const f = e.target.files?.[0]; e.target.value = ''; elegir(f); }} />
+    </label>
   );
 }
 
