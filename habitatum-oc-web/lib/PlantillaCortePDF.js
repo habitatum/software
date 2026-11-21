@@ -189,7 +189,7 @@ export default function PlantillaCortePDF({ d }) {
               </Text>
             )}
             <Text style={[e.nota, { marginTop: 4 }]}>
-              Las cantidades de este corte fueron medidas y verificadas en obra. El pago se realiza mediante la Orden de Compra
+              El pago se realiza mediante la Orden de Compra
               correspondiente, descontando la amortización del anticipo y la retención pactadas.
             </Text>
           </View>
