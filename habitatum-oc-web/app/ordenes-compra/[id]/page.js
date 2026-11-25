@@ -9,6 +9,7 @@ import { formatoPesos, nombreCapitulo } from '@/lib/calculosOC';
 import NavBar from '@/components/NavBar';
 import BotonVolver from '@/components/BotonVolver';
 import { BotonComprobante, BotonSubirSoporte, GastosCajaMenor } from '@/lib/Comprobantes';
+import GastosLegalizacion from '@/lib/GastosLegalizacion';
 import { compartirOAbrirArchivo } from '@/lib/compartirArchivo';
 import { adjuntarComprobantesOC, fechaCorta, pesos } from '@/lib/adjuntarComprobantesOC';
 
@@ -216,7 +217,9 @@ export default function DetalleOrdenCompra() {
           </p>
         )}
         {/* Si es la OC de legalización de caja menor: cada gasto con su comprobante. */}
-        <GastosCajaMenor proyecto={proyecto} ocId={id} esAdmin={usuario?.rol === 'admin'} />
+        <GastosCajaMenor key={`gcm-${oc.total}`} proyecto={proyecto} ocId={id} esAdmin={usuario?.rol === 'admin'} />
+        {/* 082: gasto adicional a una legalización ya cerrada (operativo pide, admin aprueba). */}
+        <GastosLegalizacion ocId={id} proyectoId={oc.proyecto_id || proyecto?.id} rol={usuario.rol} pagado={oc.pagado} onCambio={cargar} />
 
         {usuario.rol === 'admin' && auditoria && (
           <div className="bg-neutral-50 border border-neutral-200 rounded-lg p-3 text-xs text-neutral-500 space-y-0.5">
