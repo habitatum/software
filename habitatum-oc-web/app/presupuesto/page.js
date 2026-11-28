@@ -449,7 +449,9 @@ function abrirAgregarItem() {
             <p className="text-sm text-neutral-500">{proyecto.nombre}</p>
           </div>
           {usuario.rol === 'admin' && (
-            <div>
+            <div className="flex flex-wrap gap-2 items-center">
+              {/* 083: cobro de administración por Órdenes de Compra (obras sin presupuesto o como alternativa). */}
+              <a href="/presupuesto/cortes-oc" className="border border-dorado text-[#6b4a22] px-4 py-2 rounded text-sm hover:bg-hueso">Cortes de cobro (Órdenes de Compra)</a>
               <input ref={inputRef} type="file" accept=".xlsx,.xls" className="hidden" id="input-presupuesto" onChange={subirArchivo} />
               <label htmlFor="input-presupuesto"
                 className="bg-carbon text-hueso px-4 py-2 rounded text-sm cursor-pointer inline-block disabled:opacity-50">
@@ -464,6 +466,9 @@ function abrirAgregarItem() {
         {cargandoDatos ? null : !presupuesto ? (
           <div className="bg-white rounded-lg shadow-sm border p-8 text-center text-neutral-500">
             <p>Este proyecto todavía no tiene un presupuesto cargado.</p>
+            {usuario.rol === 'admin' && (
+              <a href="/presupuesto/cortes-oc" className="inline-block mt-4 bg-carbon text-hueso px-5 py-2.5 rounded text-sm">Cobrar administración por Órdenes de Compra →</a>
+            )}
             {usuario.rol !== 'admin' && <p className="text-sm mt-1">Pídele a un administrador que cargue el Excel del presupuesto (pestaña &quot;FORMULARIO DE PRECIOS&quot;).</p>}
           </div>
         ) : (
